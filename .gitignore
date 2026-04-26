@@ -1,0 +1,41 @@
+# Compiled binary (built by `make build`)
+/lazycvs
+
+# Cross-compile output (from `make release`)
+/dist/
+
+# Self-contained CVS demo working copy (from `make demo`).
+# The underscore prefix keeps Go tooling out, but git still sees it.
+/_lazycvs-demo/
+
+# Backup files created by the Revert action (TUI `r` key).
+*.lazycvs-backup
+
+# CVS pre-merge backup files (created locally during conflict resolution).
+.#*
+
+# macOS Finder metadata
+.DS_Store
+._*
+
+# Editor / IDE local files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Test coverage output
+*.out
+coverage.txt
+
+# Claude Code project-local config (slash commands, hooks, transcripts).
+# Remove this line if you want to share team-level Claude config.
+.claude/
+
+# Personal audit notes (not part of the shared spec)
+notes-design.md
+
+# Internal design spec — lives in the private kmax-tech/lazycvs-internal repo.
+# Keep ignored here so it can't accidentally get committed to the public repo.
+lazycvs-spec.md

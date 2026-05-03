@@ -231,8 +231,6 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return m.applyTreeMode(), true
 	case key.Matches(msg, keys.Escape):
-		// DISABLED: compare clear on Escape (bug analysis)
-		// if m.activeTab == TabHistory && m.history.HasCompare() { ... }
 		if m.activeTab == TabStaged {
 			if m.staged.mode == StagedCommit {
 				m.staged.mode = StagedActions
@@ -264,7 +262,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			// In History the "selected file" is the file whose log is loaded —
 			// regardless of which row the cursor is on, file-actions like E
 			// (external diff) and e (edit) operate on this file.
-			selectedPath = m.history.path
+			selectedPath = m.history.Path()
 		} else if m.focus == PanelRight && !(m.activeTab == TabTree && m.treeMode == TreeViewDetails) {
 			selectedFile = m.filelist.SelectedFile()
 			if selectedFile != nil {
@@ -280,7 +278,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		switch {
 		case key.Matches(msg, keys.Diff) && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			m.activeTab = TabHistory
-			return loadHistory(m.exec, selectedPath, m.fileHasLocalChanges(selectedPath))
+			return m.openHistoryFor(selectedPath)
 		case key.Matches(msg, keys.EditDiff) && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			return m.launchExternalDiffForCurrent(selectedPath)
 		case key.Matches(msg, keys.Merge) && selectedPath != "" && m.statusMap[selectedPath] == "C":
@@ -417,8 +415,6 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			prevMode := m.history.mode
 			var cmd tea.Cmd
 			m.history, cmd = m.history.Update(msg)
-			// DISABLED: auto-compare on cursor move (bug analysis)
-			// Auto-load content when cursor moves, mode changes, or Enter
 			if m.history.cursor != prevCursor || m.history.mode != prevMode || key.Matches(msg, keys.Enter) {
 				contentCmd := m.loadHistoryContent()
 				return tea.Batch(cmd, contentCmd)
@@ -451,13 +447,10 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		case TabHistory:
-			// Right panel: scroll the diff/content viewport only
-			if m.history.ready {
-				var cmd tea.Cmd
-				m.history.viewport, cmd = m.history.viewport.Update(msg)
-				return cmd
-			}
-			return nil
+			// Right panel: scroll the diff/content viewport only.
+			var cmd tea.Cmd
+			m.history.viewport, cmd = m.history.viewport.Update(msg)
+			return cmd
 		}
 	case PanelConsole:
 		// Console resize

@@ -165,6 +165,19 @@ type App struct {
 	notification     string
 	notificationOK   bool // true=success (green), false=error (red)
 	notificationExpiry time.Time
+
+	// History tab caches — per-file, never wiped on file switch. Async
+	// results carry the path they were loaded for; handlers write into
+	// the matching slot regardless of which file the user is currently
+	// viewing. So switching A → B → A reuses A's revisions and diffs
+	// without re-running cvs.
+	histRevisions map[string]*cvs.FileHistory
+	histDiffs     map[string]map[string]*cvs.DiffResult // path → "from:to" → diff
+	histContents  map[string]map[string]string          // path → rev → content
+	// histPending tracks (path, key) load requests already dispatched, so
+	// fast cursor movement doesn't queue duplicate cvs commands for the
+	// same revision pair.
+	histPending map[string]bool // "diff:path:from:to" or "content:path:rev"
 }
 
 func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.ConfigManager, initialPath string) App {
@@ -188,6 +201,10 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		statusMap:     make(map[string]string),
 		statusEpoch:   1,
 		dirEpoch:      make(map[string]uint64),
+		histRevisions: make(map[string]*cvs.FileHistory),
+		histDiffs:     make(map[string]map[string]*cvs.DiffResult),
+		histContents:  make(map[string]map[string]string),
+		histPending:   make(map[string]bool),
 	}
 }
 
@@ -288,13 +305,48 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmd, statusCmd)
 
 	case historyLoadedMsg:
-		var cmd tea.Cmd
-		m.history, cmd = m.history.Update(msg)
-		// Auto-load first revision's content
-		if len(m.history.revisions) > 0 {
-			return m, tea.Batch(cmd, m.loadHistoryContent())
+		// Cache the result by its source path, regardless of what the user
+		// is currently viewing. If they switched files mid-load, we still
+		// want the data ready for next time.
+		m.histRevisions[msg.path] = msg.history
+		delete(m.histPending, "log:"+msg.path)
+		// Only push into the model + auto-load content if the user is
+		// actually viewing this file right now.
+		if m.history.Path() == msg.path {
+			m.history.ApplyRevisions(msg.history)
+			if m.history.NumRevisions() > 0 {
+				return m, m.loadHistoryContent()
+			}
 		}
-		return m, cmd
+		return m, nil
+
+	case historyContentMsg:
+		// Cache by (path, rev). Update display only if we're still on
+		// that file and the cursor is on that revision.
+		if m.histContents[msg.path] == nil {
+			m.histContents[msg.path] = make(map[string]string)
+		}
+		m.histContents[msg.path][msg.rev] = msg.content
+		delete(m.histPending, "content:"+msg.path+":"+msg.rev)
+		if m.history.Path() == msg.path && m.currentContentKey() == msg.rev {
+			m.history.ApplyContent(msg.rev, msg.content)
+		}
+		return m, nil
+
+	case historyDiffMsg:
+		key := msg.fromRev + ":" + msg.toRev
+		if m.histDiffs[msg.path] == nil {
+			m.histDiffs[msg.path] = make(map[string]*cvs.DiffResult)
+		}
+		m.histDiffs[msg.path][key] = msg.diff
+		delete(m.histPending, "diff:"+msg.path+":"+key)
+		if m.history.Path() == msg.path {
+			fromRev, toRev := m.currentDiffKey()
+			if fromRev == msg.fromRev && toRev == msg.toRev {
+				m.history.ApplyDiff(msg.fromRev, msg.toRev, msg.diff)
+			}
+		}
+		return m, nil
 
 	case dirStatusMsg:
 		m.console.refreshContent()
@@ -493,11 +545,6 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	m.console, cmd = m.console.Update(msg)
-	if cmd != nil {
-		cmds = append(cmds, cmd)
-	}
-
-	m.history, cmd = m.history.Update(msg)
 	if cmd != nil {
 		cmds = append(cmds, cmd)
 	}

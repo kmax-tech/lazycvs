@@ -230,7 +230,11 @@ func (m App) renderMainContent() string {
 	case TabStaged:
 		leftTitle = fmt.Sprintf("Staged (%d)", len(m.staged.files))
 	case TabHistory:
-		leftTitle = "Revisions"
+		if p := m.history.Path(); p != "" {
+			leftTitle = "Revisions — " + p
+		} else {
+			leftTitle = "Revisions"
+		}
 	}
 	lt := " " + lipgloss.NewStyle().Foreground(colorMuted).Bold(true).Render(leftTitle) + " "
 
@@ -262,8 +266,8 @@ func (m App) renderMainContent() string {
 			leftInfo = fmt.Sprintf(" %d of %d ", m.staged.cursor+1, len(m.staged.files))
 		}
 	case TabHistory:
-		if m.history.numRows() > 0 {
-			leftInfo = fmt.Sprintf(" %d of %d ", m.history.cursor+1, m.history.numRows())
+		if m.history.NumRevisions() > 0 {
+			leftInfo = fmt.Sprintf(" %d of %d ", m.history.cursor+1, m.history.NumRevisions())
 		}
 	}
 
@@ -309,7 +313,11 @@ func (m App) renderMainContent() string {
 	case TabHistory:
 		switch m.history.mode {
 		case HistoryContent:
-			rightTitle = "Content"
+			if m.history.diffToRev != "" {
+				rightTitle = fmt.Sprintf("Content — %s", m.history.diffToRev)
+			} else {
+				rightTitle = "Content"
+			}
 		case HistoryDiff:
 			if m.history.diffFromRev != "" && m.history.diffToRev != "" {
 				rightTitle = fmt.Sprintf("Diff — %s ↔ %s", m.history.diffFromRev, m.history.diffToRev)
@@ -320,12 +328,6 @@ func (m App) renderMainContent() string {
 			}
 		case HistoryBlame:
 			rightTitle = "Blame"
-		case HistoryCompare:
-			if m.history.compareFromRev != "" && m.history.compareToRev != "" {
-				rightTitle = fmt.Sprintf("Compare %s ↔ %s", m.history.compareFromRev, m.history.compareToRev)
-			} else {
-				rightTitle = "Compare"
-			}
 		}
 	}
 
@@ -398,19 +400,10 @@ func (m App) renderKeybar() string {
 			keyHelp(keys.Diff) + mergeHint
 	case TabHistory:
 		hScroll := keyStyle.Render("</>") + ":scroll"
-		spRef := keyStyle.Render("space") + ":ref"
-		if m.history.HasCompare() {
-			actions = keyHelp(keys.SideBySide, keys.EditDiff) + "  " +
-				spRef + "  " +
-				keyHelp(keys.CompareWorking, keys.Escape) + "  " + hScroll
-		} else if m.history.mode == HistoryDiff {
-			actions = keyHelp(keys.SideBySide, keys.Blame, keys.Edit, keys.EditDiff) + "  " +
-				spRef + "  " +
-				keyHelp(keys.CompareWorking) + "  " + hScroll
+		if m.history.mode == HistoryDiff {
+			actions = keyHelp(keys.SideBySide, keys.Blame, keys.Edit, keys.EditDiff) + "  " + hScroll
 		} else {
-			actions = keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff) + "  " +
-				spRef + "  " +
-				keyHelp(keys.CompareWorking) + "  " + hScroll
+			actions = keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff) + "  " + hScroll
 		}
 	}
 

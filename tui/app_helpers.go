@@ -319,7 +319,7 @@ func (m App) selectedFilePath() string {
 	case TabStaged:
 		return m.staged.SelectedPath()
 	case TabHistory:
-		return m.history.path
+		return m.history.Path()
 	case TabTree:
 		if m.focus == PanelRight && m.treeMode != TreeViewDetails {
 			if f := m.filelist.SelectedFile(); f != nil {
@@ -416,155 +416,204 @@ func (m *App) blockedByConflict(paths []string, statusGetter func(string) string
 	return blocked
 }
 
-// fileHasLocalChanges reports whether the path has uncommitted modifications
-// (M or C) according to the App's statusMap.
-func (m *App) fileHasLocalChanges(path string) bool {
-	switch m.statusMap[path] {
-	case "M", "C":
-		return true
-	}
-	return false
-}
-
+// autoLoadHistory is called when the user opens the History tab. If the
+// currently-selected file in tree/filelist differs from what History is
+// showing, switch the History view to that file.
 func (m *App) autoLoadHistory() tea.Cmd {
-	// Find a selected file path from tree or filelist
 	var path string
 	if f := m.filelist.SelectedFile(); f != nil {
 		path = f.Path
 	} else if node := m.tree.SelectedNode(); node != nil && !node.IsDir {
 		path = node.Path
 	}
-	if path == "" || path == m.history.path {
+	if path == "" || path == m.history.Path() {
 		return nil
 	}
-	return loadHistory(m.exec, path, m.fileHasLocalChanges(path))
+	return m.openHistoryFor(path)
 }
 
-func (m *App) loadHistoryContent() tea.Cmd {
-	path := m.history.path
+// openHistoryFor switches the History view to path. Revisions are served
+// from the per-file cache when available (no re-fetch on revisit); only
+// the first visit hits the cvs binary.
+func (m *App) openHistoryFor(path string) tea.Cmd {
+	if path == "" {
+		return nil
+	}
+	if path == m.history.Path() {
+		return nil
+	}
+	m.history.SwitchTo(path)
 
-	m.history.loadGen++
-	gen := m.history.loadGen
+	// Cache hit: push revisions in synchronously and load content.
+	if hist, ok := m.histRevisions[path]; ok {
+		m.history.ApplyRevisions(hist)
+		if m.history.NumRevisions() > 0 {
+			return m.loadHistoryContent()
+		}
+		return nil
+	}
+
+	// Cache miss: dispatch async. Guard against duplicate dispatch.
+	pendKey := "log:" + path
+	if m.histPending[pendKey] {
+		return nil
+	}
+	m.histPending[pendKey] = true
+	return loadHistory(m.exec, path)
+}
+
+// currentContentKey returns the cache key for the right-pane content the
+// cursor is currently asking for. Empty when the model isn't asking for
+// content (e.g. it's asking for a diff). Used by msg handlers to decide
+// whether an arriving result should update the display.
+func (m *App) currentContentKey() string {
+	rev := m.history.SelectedRevision()
+	if rev == nil {
+		return ""
+	}
+	switch m.history.mode {
+	case HistoryContent:
+		return rev.Number
+	case HistoryBlame:
+		return "@blame"
+	case HistoryDiff:
+		// Diff mode falls back to content for the initial revision (no parent).
+		if rev.PrevNumber == "" {
+			return rev.Number
+		}
+	}
+	return ""
+}
+
+// currentDiffKey returns the (from, to) pair the cursor is asking for, or
+// ("", "") when not in a diff scenario.
+func (m *App) currentDiffKey() (string, string) {
+	if m.history.mode != HistoryDiff {
+		return "", ""
+	}
+	rev := m.history.SelectedRevision()
+	if rev == nil || rev.PrevNumber == "" {
+		return "", ""
+	}
+	return rev.PrevNumber, rev.Number
+}
+
+// loadHistoryContent figures out what the right pane should be showing
+// (diff, content, blame), serves it from cache if possible, and dispatches
+// an async load otherwise. Pending dispatches are tracked so fast scrolling
+// doesn't flood the cvs binary with duplicate requests for the same key.
+func (m *App) loadHistoryContent() tea.Cmd {
+	path := m.history.Path()
+	if path == "" {
+		return nil
+	}
 
 	if fs.IsBinary(filepath.Join(m.exec.WorkDir, path)) {
-		return func() tea.Msg {
-			return historyContentMsg{content: "Binary file — cannot display content", gen: gen}
-		}
-	}
-
-	// Compare mode: combinations of working-copy and revisions on either side.
-	if m.history.mode == HistoryCompare {
-		toIsWorking := m.history.IsWorkingCopyRow() || m.history.compareToWorking
-		fromIsWorking := m.history.CompareFromIsWorking()
-		fromRev := m.history.CompareFromRev()
-		toRev := m.history.SelectedRevision()
-
-		if toIsWorking || fromIsWorking {
-			fullPath := filepath.Join(m.exec.WorkDir, path)
-			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
-				return func() tea.Msg {
-					return historyContentMsg{content: "File does not exist on disk — cannot compare against working copy", gen: gen}
-				}
-			}
-		}
-
-		switch {
-		case fromIsWorking && toRev != nil:
-			return loadCompareWorking(m.exec, path, toRev.Number, gen)
-		case toIsWorking && fromRev != nil:
-			return loadCompareWorking(m.exec, path, fromRev.Number, gen)
-		case fromRev != nil && toRev != nil:
-			return loadCompare(m.exec, path, fromRev.Number, toRev.Number, gen)
-		}
+		m.history.ApplyContent("", "Binary file — cannot display content")
 		return nil
 	}
 
-	// Working-copy pseudo-row: read on-disk content / run plain `cvs diff`.
-	if m.history.IsWorkingCopyRow() {
-		switch m.history.mode {
-		case HistoryContent:
-			return loadWorkingContent(m.exec.WorkDir, path, gen)
-		case HistoryDiff:
-			return loadWorkingDiff(m.exec, path, gen)
-		case HistoryBlame:
-			return loadBlame(m.exec, path, gen)
-		}
-		return nil
-	}
-
-	// Real revision under cursor.
 	rev := m.history.SelectedRevision()
 	if rev == nil {
 		return nil
 	}
+
 	switch m.history.mode {
 	case HistoryContent:
-		m.history.diffFromRev = ""
-		m.history.diffToRev = rev.Number
-		if cached, ok := m.history.contentCache[rev.Number]; ok {
-			m.history.applyContent(cached)
-			return nil
-		}
-		return loadRevisionContent(m.exec, path, rev.Number, "", rev.Number, gen)
-	case HistoryDiff:
-		if rev.PrevNumber != "" {
-			m.history.diffFromRev = rev.PrevNumber
-			m.history.diffToRev = rev.Number
-			cacheKey := rev.PrevNumber + ":" + rev.Number
-			if cached, ok := m.history.diffCache[cacheKey]; ok {
-				m.history.applyDiff(cached)
-				return m.prefetchAdjacentDiffs(path)
-			}
-			return m.withPrefetch(
-				loadRevisionDiff(m.exec, path, rev.PrevNumber, rev.Number, gen),
-				path,
-			)
-		}
-		m.history.diffFromRev = ""
-		m.history.diffToRev = rev.Number
-		if cached, ok := m.history.contentCache[rev.Number]; ok {
-			m.history.applyContent(cached)
-			return nil
-		}
-		return loadRevisionContent(m.exec, path, rev.Number, "", rev.Number, gen)
+		return m.serveContent(path, rev.Number)
 	case HistoryBlame:
-		return loadBlame(m.exec, path, gen)
+		return m.serveBlame(path)
+	case HistoryDiff:
+		if rev.PrevNumber == "" {
+			// Initial revision — show its content, since there's no parent.
+			return m.serveContent(path, rev.Number)
+		}
+		return m.serveDiff(path, rev.PrevNumber, rev.Number)
 	}
 	return nil
 }
 
+func (m *App) serveContent(path, rev string) tea.Cmd {
+	m.history.SetPendingLabels("", rev)
+	if cached, ok := m.histContents[path][rev]; ok {
+		m.history.ApplyContent(rev, cached)
+		return nil
+	}
+	pendKey := "content:" + path + ":" + rev
+	if m.histPending[pendKey] {
+		return nil
+	}
+	m.histPending[pendKey] = true
+	return loadRevisionContent(m.exec, path, rev)
+}
+
+func (m *App) serveDiff(path, fromRev, toRev string) tea.Cmd {
+	m.history.SetPendingLabels(fromRev, toRev)
+	cacheKey := fromRev + ":" + toRev
+	if cached, ok := m.histDiffs[path][cacheKey]; ok {
+		m.history.ApplyDiff(fromRev, toRev, cached)
+		return m.prefetchAdjacentDiffs(path)
+	}
+	pendKey := "diff:" + path + ":" + cacheKey
+	if m.histPending[pendKey] {
+		return m.prefetchAdjacentDiffs(path)
+	}
+	m.histPending[pendKey] = true
+	main := loadRevisionDiff(m.exec, path, fromRev, toRev)
+	prefetch := m.prefetchAdjacentDiffs(path)
+	if prefetch == nil {
+		return main
+	}
+	return tea.Batch(main, prefetch)
+}
+
+func (m *App) serveBlame(path string) tea.Cmd {
+	m.history.SetPendingLabels("", "@blame")
+	if cached, ok := m.histContents[path]["@blame"]; ok {
+		m.history.ApplyContent("@blame", cached)
+		return nil
+	}
+	pendKey := "content:" + path + ":@blame"
+	if m.histPending[pendKey] {
+		return nil
+	}
+	m.histPending[pendKey] = true
+	return loadBlame(m.exec, path)
+}
+
+// prefetchAdjacentDiffs warms the cache for revisions near the cursor so
+// neighbor navigation is instant. Skips entries already cached or pending.
 func (m *App) prefetchAdjacentDiffs(path string) tea.Cmd {
+	revs := m.histRevisions[path]
+	if revs == nil {
+		return nil
+	}
+	cursor := m.history.cursor
 	var cmds []tea.Cmd
 	for _, delta := range []int{-1, 1} {
-		adjIdx := m.history.revisionIndex(m.history.cursor + delta)
-		if adjIdx < 0 || adjIdx >= len(m.history.revisions) {
+		idx := cursor + delta
+		if idx < 0 || idx >= len(revs.Revisions) {
 			continue
 		}
-		adj := m.history.revisions[adjIdx]
+		adj := revs.Revisions[idx]
 		if adj.PrevNumber == "" {
 			continue
 		}
-		cacheKey := adj.PrevNumber + ":" + adj.Number
-		if _, ok := m.history.diffCache[cacheKey]; ok {
+		key := adj.PrevNumber + ":" + adj.Number
+		if _, ok := m.histDiffs[path][key]; ok {
 			continue
 		}
-		cmds = append(cmds, loadRevisionDiff(m.exec, path, adj.PrevNumber, adj.Number, 0))
+		pendKey := "diff:" + path + ":" + key
+		if m.histPending[pendKey] {
+			continue
+		}
+		m.histPending[pendKey] = true
+		cmds = append(cmds, loadRevisionDiff(m.exec, path, adj.PrevNumber, adj.Number))
 	}
 	if len(cmds) == 0 {
 		return nil
 	}
 	return tea.Batch(cmds...)
-}
-
-func (m *App) withPrefetch(mainCmd tea.Cmd, path string) tea.Cmd {
-	if mainCmd == nil {
-		return nil
-	}
-	prefetch := m.prefetchAdjacentDiffs(path)
-	if prefetch == nil {
-		return mainCmd
-	}
-	return tea.Batch(mainCmd, prefetch)
 }
 
 func refreshStagedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
@@ -723,39 +772,11 @@ func (m *App) launchExternalDiffForCurrent(selectedPath string) tea.Cmd {
 			diffSide{working: true})    // local file
 	}
 
-	path := m.history.path
+	path := m.history.Path()
 	if path == "" {
 		return nil
 	}
 
-	if m.history.mode == HistoryCompare {
-		// from-rev (or working) vs to-rev (or working).
-		left := diffSide{working: m.history.CompareFromIsWorking()}
-		if !left.working {
-			if r := m.history.CompareFromRev(); r != nil {
-				left.rev = r.Number
-			} else {
-				return nil
-			}
-		}
-		right := diffSide{working: m.history.IsWorkingCopyRow() || m.history.compareToWorking}
-		if !right.working {
-			if r := m.history.SelectedRevision(); r != nil {
-				right.rev = r.Number
-			} else {
-				return nil
-			}
-		}
-		return m.launchExternalDiffFor(path, left, right)
-	}
-
-	// Diff / Content / Blame at the cursor row.
-	if m.history.IsWorkingCopyRow() {
-		// HEAD vs working copy — same as the non-history default.
-		return m.launchExternalDiffFor(path,
-			diffSide{rev: ""},
-			diffSide{working: true})
-	}
 	rev := m.history.SelectedRevision()
 	if rev == nil {
 		return nil
@@ -932,12 +953,13 @@ func (m *App) clickLeft(row int) tea.Cmd {
 		}
 	case TabHistory:
 		prevCursor := m.history.cursor
-		idx := m.history.offset + row - 1 // header row
-		if idx >= 0 && idx < m.history.numRows() {
+		// Each revision row spans 2 visual lines and there's no inline
+		// header (the file name lives in the panel frame title).
+		idx := m.history.offset + row/2
+		if idx >= 0 && idx < m.history.NumRevisions() {
 			m.history.cursor = idx
 		}
 		if m.history.cursor != prevCursor {
-			// DISABLED: auto-compare on click (bug analysis)
 			return m.loadHistoryContent()
 		}
 	}
@@ -974,10 +996,9 @@ func (m *App) scrollLeft(delta int) tea.Cmd {
 		m.favorites.cursor = clamp(m.favorites.cursor+delta, 0, max(0, len(m.favorites.favorites)-1))
 	case TabHistory:
 		prevCursor := m.history.cursor
-		m.history.cursor = clamp(m.history.cursor+delta, 0, max(0, m.history.numRows()-1))
+		m.history.cursor = clamp(m.history.cursor+delta, 0, max(0, m.history.NumRevisions()-1))
 		m.history.ensureVisible()
 		if m.history.cursor != prevCursor {
-			// DISABLED: auto-compare on scroll (bug analysis)
 			return m.loadHistoryContent()
 		}
 	}
@@ -1005,12 +1026,10 @@ func (m *App) scrollRight(delta int) {
 		m.filelist.cursor = clamp(m.filelist.cursor+delta, 0, max(0, len(files)-1))
 		m.filelist.ensureVisible()
 	case TabHistory:
-		if m.history.ready {
-			if delta < 0 {
-				m.history.viewport.LineUp(3)
-			} else {
-				m.history.viewport.LineDown(3)
-			}
+		if delta < 0 {
+			m.history.viewport.LineUp(3)
+		} else {
+			m.history.viewport.LineDown(3)
 		}
 	}
 }

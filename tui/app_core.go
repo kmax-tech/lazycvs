@@ -262,7 +262,13 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.updateSizes()
-		return m, nil
+		// Force a full repaint after a resize. Bubbletea's differential
+		// renderer diffs the new (larger) frame against the previous
+		// (smaller) one; cells that didn't exist in the previous frame
+		// can be left holding stale or indeterminate content from the
+		// terminal's pre-altscreen buffer. ClearScreen drops the diff
+		// baseline so the next View() repaints every cell.
+		return m, tea.ClearScreen
 
 	case tea.MouseMsg:
 		if !m.dialog.Active() && !m.search.active {

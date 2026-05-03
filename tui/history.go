@@ -280,11 +280,25 @@ func (m *HistoryModel) ensureVisible() {
 }
 
 func (m *HistoryModel) SetSize(leftWidth, rightWidth, height int) {
+	widthChanged := rightWidth != m.rightWidth
 	m.leftWidth = leftWidth
 	m.rightWidth = rightWidth
 	m.height = height
 	m.viewport.Width = rightWidth
 	m.viewport.Height = height
+	// On a width change we have to re-render the right-pane content at
+	// the new width: the cached rawView was computed for the old width
+	// and stretching/squeezing it by changing the viewport bounds alone
+	// produces wrapped or truncated lines (UTF-8 sequences cut mid-byte
+	// surface as � replacement chars).
+	if widthChanged {
+		switch {
+		case m.diffData != nil:
+			m.setView(m.renderDiffView())
+		case m.content != "":
+			m.setView(m.content)
+		}
+	}
 }
 
 func (m *HistoryModel) resetViewport() {

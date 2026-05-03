@@ -119,7 +119,7 @@ func loadRevisionContent(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
 		if err != nil {
 			return historyContentMsg{path: path, rev: rev, content: "Error loading revision: " + err.Error()}
 		}
-		return historyContentMsg{path: path, rev: rev, content: content}
+		return historyContentMsg{path: path, rev: rev, content: cvs.EnsureUTF8(content)}
 	}
 }
 
@@ -128,7 +128,7 @@ func loadRevisionDiff(exec *cvs.CVSExecutor, path, fromRev, toRev string) tea.Cm
 		result, _ := exec.RunReadOnly("diff", "-u", "-r", fromRev, "-r", toRev, path)
 		var diff *cvs.DiffResult
 		if result != nil {
-			diff = cvs.ParseDiff(result.Stdout)
+			diff = cvs.ParseDiff(cvs.EnsureUTF8(result.Stdout))
 		}
 		return historyDiffMsg{path: path, fromRev: fromRev, toRev: toRev, diff: diff}
 	}
@@ -140,7 +140,7 @@ func loadBlame(exec *cvs.CVSExecutor, path string) tea.Cmd {
 		if err != nil && result == nil {
 			return historyContentMsg{path: path, rev: "@blame", content: "Error loading blame"}
 		}
-		return historyContentMsg{path: path, rev: "@blame", content: result.Stdout}
+		return historyContentMsg{path: path, rev: "@blame", content: cvs.EnsureUTF8(result.Stdout)}
 	}
 }
 

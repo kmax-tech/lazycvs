@@ -315,7 +315,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			data, err := os.ReadFile(fullPath)
 			if err == nil {
-				content := string(data)
+				content := cvs.EnsureUTF8(string(data))
 				// Limit preview to ~500 lines
 				if lines := strings.Split(content, "\n"); len(lines) > 500 {
 					content = strings.Join(lines[:500], "\n") + "\n..."

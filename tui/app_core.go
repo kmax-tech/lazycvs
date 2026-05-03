@@ -232,12 +232,6 @@ func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
 func (m App) Init() tea.Cmd {
 	initEpoch := m.statusEpoch
 	return tea.Batch(
-		// Clear the screen up front so the initial frame doesn't paint
-		// on top of stale content the terminal had before lazycvs
-		// started. Without this, cells outside the first frame's bounds
-		// can carry through (the "default-state corruption" that goes
-		// away as soon as the user resizes the terminal).
-		tea.ClearScreen,
 		m.tree.Init(),
 		backgroundDirScan(m.exec, initEpoch, m.initialPath),
 	)
@@ -268,13 +262,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width = msg.Width
 		m.height = msg.Height
 		m.updateSizes()
-		// Force a full repaint after a resize. Bubbletea's differential
-		// renderer diffs the new (larger) frame against the previous
-		// (smaller) one; cells that didn't exist in the previous frame
-		// can be left holding stale or indeterminate content from the
-		// terminal's pre-altscreen buffer. ClearScreen drops the diff
-		// baseline so the next View() repaints every cell.
-		return m, tea.ClearScreen
+		return m, nil
 
 	case tea.MouseMsg:
 		if !m.dialog.Active() && !m.search.active {

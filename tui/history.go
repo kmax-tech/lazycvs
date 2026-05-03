@@ -355,12 +355,24 @@ func (m HistoryModel) ViewLeft() string {
 	}
 	end := min(m.offset+visibleCount, len(m.revisions))
 
+	// Use a guaranteed-distinct prefix character per row: "▌" for the cursor
+	// row, " " otherwise. This forces the differential renderer to repaint
+	// the prefix cell when the cursor moves, which in turn flushes any
+	// stale reverse-video styling on the row left over from a previous
+	// frame. Without this, a terminal that diff-skips identical content
+	// can leave the previous cursor row visually highlighted.
 	var lines []string
 	for i := m.offset; i < end; i++ {
 		rev := m.revisions[i]
 		date := rev.Date.Format("Jan 02 06")
 
-		line1 := fmt.Sprintf(" %-6s %-8s %s", rev.Number, truncate(rev.Author, 8), date)
+		isCursor := i == m.cursor
+		marker := " "
+		if isCursor {
+			marker = "▌"
+		}
+
+		line1 := fmt.Sprintf("%s%-6s %-8s %s", marker, rev.Number, truncate(rev.Author, 8), date)
 		if len(rev.Tags) > 0 {
 			line1 += " " + lipgloss.NewStyle().Foreground(colorStale).Render(truncate(rev.Tags[0], 12))
 		}
@@ -373,9 +385,9 @@ func (m HistoryModel) ViewLeft() string {
 				lipgloss.NewStyle().Foreground(colorUpdated).Render(fmt.Sprintf("+%d", rev.LinesAdded)),
 				lipgloss.NewStyle().Foreground(colorConflict).Render(fmt.Sprintf("-%d", rev.LinesRemoved)))
 		}
-		line2 := "   " + mutedStyle.Render(msg) + delta
+		line2 := marker + "  " + mutedStyle.Render(msg) + delta
 
-		if i == m.cursor {
+		if isCursor {
 			sel := lipgloss.NewStyle().Reverse(true)
 			plain1 := ansi.Strip(line1)
 			plain2 := ansi.Strip(line2)
@@ -391,8 +403,14 @@ func (m HistoryModel) ViewLeft() string {
 		lines = append(lines, line1, line2)
 	}
 
+	// Always pad to exactly m.height lines so renderPanel never has to
+	// extend or truncate. Inconsistent line counts between frames are
+	// what allow stale rows to persist outside the panel frame.
 	for len(lines) < m.height {
 		lines = append(lines, "")
+	}
+	if len(lines) > m.height {
+		lines = lines[:m.height]
 	}
 	return strings.Join(lines, "\n")
 }

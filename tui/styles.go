@@ -11,7 +11,8 @@ var (
 	colorStale     = lipgloss.Color("3") // Yellow
 	colorBorder    = lipgloss.Color("8") // Gray
 	colorActive    = lipgloss.Color("4") // Blue
-	colorMuted     = lipgloss.Color("8") // Gray
+	colorMuted     = lipgloss.Color("8")  // Gray
+	colorIgnored   = lipgloss.Color("239") // Dark gray (256-color)
 )
 
 // Status and keys
@@ -20,7 +21,8 @@ var (
 	keyStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorActive)
 	helpStyle   = lipgloss.NewStyle().Foreground(colorMuted)
 	titleStyle  = lipgloss.NewStyle().Bold(true)
-	mutedStyle  = lipgloss.NewStyle().Foreground(colorMuted)
+	mutedStyle   = lipgloss.NewStyle().Foreground(colorMuted)
+	ignoredStyle = lipgloss.NewStyle().Foreground(colorIgnored).Strikethrough(true)
 )
 
 // Console

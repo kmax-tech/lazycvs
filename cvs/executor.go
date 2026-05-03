@@ -13,14 +13,15 @@ import (
 )
 
 // CVSExecutor runs CVS commands with mutex serialization and timeout.
+// Write commands use an exclusive lock; read-only commands (status, diff,
+// log) can run concurrently via RunReadOnly.
 type CVSExecutor struct {
 	WorkDir string
 	CVSBin  string
 	Timeout time.Duration
 	Log     *CommandLog
-	mu      sync.Mutex
+	mu      sync.RWMutex
 
-	lastUpdate *UpdateResult
 }
 
 // NewCVSExecutor creates a new executor.
@@ -33,11 +34,22 @@ func NewCVSExecutor(workDir, cvsBin string, timeout time.Duration, log *CommandL
 	}
 }
 
-// Run executes a CVS command with the given arguments.
+// Run executes a CVS command with an exclusive lock.
 func (e *CVSExecutor) Run(args ...string) (*CommandResult, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	return e.run(args...)
+}
 
+// RunReadOnly executes a read-only CVS command (status, diff, log) with a
+// shared lock, allowing multiple reads to run concurrently.
+func (e *CVSExecutor) RunReadOnly(args ...string) (*CommandResult, error) {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.run(args...)
+}
+
+func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.Timeout)
 	defer cancel()
 
@@ -52,8 +64,17 @@ func (e *CVSExecutor) Run(args ...string) (*CommandResult, error) {
 	err := cmd.Run()
 	duration := time.Since(start)
 
+	quoted := make([]string, len(args))
+	for i, a := range args {
+		if strings.ContainsAny(a, " \t\"'") {
+			quoted[i] = fmt.Sprintf("%q", a)
+		} else {
+			quoted[i] = a
+		}
+	}
+
 	result := &CommandResult{
-		Command:   e.CVSBin + " " + strings.Join(args, " "),
+		Command:   e.CVSBin + " " + strings.Join(quoted, " "),
 		Args:      args,
 		Stdout:    stdout.String(),
 		Stderr:    stderr.String(),
@@ -67,13 +88,6 @@ func (e *CVSExecutor) Run(args ...string) (*CommandResult, error) {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			result.ExitCode = exitErr.ExitCode()
-			// Several CVS commands return exit 1 to mean "done, here's the
-			// info you asked for, but there's something noteworthy about it"
-			// — not actual command failures. Don't flag those as errors.
-			//   - diff: differences found
-			//   - status: file in conflict (status data still valid)
-			//   - log: file has no revisions on the requested branch
-			//   - update -n: dry-run reporting un-applied changes / conflicts
 			if result.ExitCode == 1 && isInformationalExit(args) {
 				result.Success = true
 			}
@@ -101,26 +115,7 @@ func (e *CVSExecutor) DryRunUpdate() (*UpdateResult, error) {
 
 	update := ParseUpdate(result.Stdout, result.Stderr, e.WorkDir)
 	update.Duration = result.Duration
-	e.lastUpdate = update
 	return update, nil
-}
-
-// Update runs cvs update and parses the result.
-func (e *CVSExecutor) Update() (*UpdateResult, error) {
-	result, err := e.Run("-q", "update", "-d", "-P")
-	if err != nil && result == nil {
-		return nil, err
-	}
-
-	update := ParseUpdate(result.Stdout, result.Stderr, e.WorkDir)
-	update.Duration = result.Duration
-	e.lastUpdate = update
-	return update, nil
-}
-
-// LastUpdate returns the most recently cached update result.
-func (e *CVSExecutor) LastUpdate() *UpdateResult {
-	return e.lastUpdate
 }
 
 // ValidatePath checks that a path is safe (no traversal, no symlink escape).
@@ -177,7 +172,16 @@ func isInformationalExit(args []string) bool {
 	case "diff", "status", "log":
 		return true
 	case "update":
-		return dryRun
+		return dryRun || hasFlag(args, "-C")
+	}
+	return false
+}
+
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
 	}
 	return false
 }

@@ -24,7 +24,19 @@ var globalBindings = []struct {
 	{keys.Tab2, func(m *App) tea.Cmd { m.activeTab = TabFavorites; return nil }},
 	{keys.Tab3, func(m *App) tea.Cmd {
 		m.activeTab = TabStaged
-		m.staged.Refresh(m.filelist.marked, m.statusMap)
+		// Auto-mark the selected file if nothing is staged yet
+		if len(m.filelist.marked) == 0 {
+			var path string
+			if f := m.filelist.SelectedFile(); f != nil && f.Status != "" {
+				path = f.Path
+			} else if node := m.tree.SelectedNode(); node != nil && !node.IsDir && node.Status != "" {
+				path = node.Path
+			}
+			if path != "" {
+				m.filelist.marked[path] = true
+			}
+		}
+		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		paths := m.filelist.MarkedFiles()
 		if len(paths) > 0 {
 			return refreshStagedFiles(m.exec, paths)
@@ -33,6 +45,7 @@ var globalBindings = []struct {
 	}},
 	{keys.Tab4, func(m *App) tea.Cmd {
 		m.activeTab = TabHistory
+		m.focus = PanelLeft
 		return m.autoLoadHistory()
 	}},
 	{keys.FocusL, func(m *App) tea.Cmd { m.focus = PanelLeft; return nil }},
@@ -64,7 +77,7 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// place.
 		untracked := m.staged.PathsByStatus("?")
 		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")
-		if m.staged.input.Value() == "" || len(commitFiles) == 0 {
+		if len(commitFiles) == 0 {
 			return nil, true
 		}
 		message := m.staged.input.Value()
@@ -75,6 +88,9 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return func() tea.Msg {
 			return commitMsg{message: message, untracked: untracked, files: commitFiles}
 		}, true
+	case key.Matches(msg, keys.Tab1), key.Matches(msg, keys.Tab2),
+		key.Matches(msg, keys.Tab3), key.Matches(msg, keys.Tab4):
+		return nil, false // let globalBindings handle tab switching
 	}
 	var cmd tea.Cmd
 	m.staged.input, cmd = m.staged.input.Update(msg)
@@ -180,14 +196,27 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case msg.String() == "l" && m.focus == PanelRight:
 		// No panel right of the right one — silently consume.
 		return nil, true
+	case msg.String() == "I" && m.activeTab == TabTree:
+		m.filelist.hideIgnored = !m.filelist.hideIgnored
+		m.filelist.cursor = 0
+		m.filelist.offset = 0
+		m.updateFileList()
+		return nil, true
+	case key.Matches(msg, keys.Status):
+		return m.refreshStatusUser(), true
 	case key.Matches(msg, keys.Update):
 		if m.activeTab == TabTree || m.activeTab == TabFavorites {
+			if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
+				return m.doUpdatePaths(paths), true
+			}
 			return m.doUpdateSelected(), true
 		}
-		return m.refreshStatus(), true
+		m.statusEpoch++
+		return backgroundDirScan(m.exec, m.statusEpoch, ""), true
 	case msg.String() == "U" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
-		target := m.selectedTarget()
-		if target != "" {
+		if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
+			m.dialog.OpenForceUpdate(paths)
+		} else if target := m.selectedTarget(); target != "" {
 			m.dialog.OpenForceUpdate([]string{target})
 		}
 		return nil, true
@@ -202,10 +231,8 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return m.applyTreeMode(), true
 	case key.Matches(msg, keys.Escape):
-		if m.activeTab == TabHistory && m.history.HasCompare() {
-			m.history.ClearCompare()
-			return m.loadHistoryContent(), true
-		}
+		// DISABLED: compare clear on Escape (bug analysis)
+		// if m.activeTab == TabHistory && m.history.HasCompare() { ... }
 		if m.activeTab == TabStaged {
 			if m.staged.mode == StagedCommit {
 				m.staged.mode = StagedActions
@@ -251,7 +278,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		}
 
 		switch {
-		case key.Matches(msg, keys.Diff) && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
+		case key.Matches(msg, keys.Diff) && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			m.activeTab = TabHistory
 			return loadHistory(m.exec, selectedPath, m.fileHasLocalChanges(selectedPath))
 		case key.Matches(msg, keys.EditDiff) && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
@@ -286,7 +313,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				}
 			}
 			return nil
-		case msg.String() == "p" && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
+		case msg.String() == "p" && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			data, err := os.ReadFile(fullPath)
 			if err == nil {
@@ -343,7 +370,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			case key.Matches(msg, keys.Space), msg.String() == "x":
 				if path := m.staged.SelectedPath(); path != "" {
 					delete(m.filelist.marked, path)
-					m.staged.Refresh(m.filelist.marked, m.statusMap)
+					m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 				}
 			case key.Matches(msg, keys.Commit):
 				// Commit: switch to commit mode for everything that can end
@@ -390,9 +417,11 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			prevMode := m.history.mode
 			var cmd tea.Cmd
 			m.history, cmd = m.history.Update(msg)
+			// DISABLED: auto-compare on cursor move (bug analysis)
 			// Auto-load content when cursor moves, mode changes, or Enter
 			if m.history.cursor != prevCursor || m.history.mode != prevMode || key.Matches(msg, keys.Enter) {
-				return tea.Batch(cmd, m.loadHistoryContent())
+				contentCmd := m.loadHistoryContent()
+				return tea.Batch(cmd, contentCmd)
 			}
 			return cmd
 		}
@@ -422,9 +451,13 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		case TabHistory:
-			var cmd tea.Cmd
-			m.history, cmd = m.history.Update(msg)
-			return cmd
+			// Right panel: scroll the diff/content viewport only
+			if m.history.ready {
+				var cmd tea.Cmd
+				m.history.viewport, cmd = m.history.viewport.Update(msg)
+				return cmd
+			}
+			return nil
 		}
 	case PanelConsole:
 		// Console resize

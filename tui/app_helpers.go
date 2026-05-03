@@ -1,10 +1,10 @@
 package tui
 
 import (
-	"lazycvs/config"
 	"lazycvs/cvs"
 	"lazycvs/fs"
 	"fmt"
+	ioFS "io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,18 +13,96 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// cvsDefaultIgnore is the built-in CVS ignore list (see cvs(5) "Ignoring files
+// via cvsignore"). These patterns are always active unless cleared with "!".
+var cvsDefaultIgnore = strings.Fields(`
+	RCS SCCS CVS CVS.adm
+	RCSLOG cvslog.*
+	tags TAGS
+	.make.state .nse_depinfo
+	*~ #* .#* ,* _$* *$
+	*.old *.bak *.BAK *.orig *.rej .del-*
+	*.a *.olb *.o *.obj *.so *.exe
+	*.Z *.elc *.ln
+	core
+`)
+
+// globalIgnorePatterns returns the ignore list built from:
+//  1. CVS built-in defaults
+//  2. ~/.cvsignore
+//  3. $CVSIGNORE environment variable
+//
+// A lone "!" entry resets the list.
+func globalIgnorePatterns() []string {
+	patterns := append([]string{}, cvsDefaultIgnore...)
+	if home, err := os.UserHomeDir(); err == nil {
+		patterns = appendIgnoreFile(patterns, filepath.Join(home, ".cvsignore"))
+	}
+	if env := os.Getenv("CVSIGNORE"); env != "" {
+		patterns = appendPatterns(patterns, strings.Fields(env))
+	}
+	return patterns
+}
+
+// loadIgnorePatterns collects all CVS ignore patterns that apply to a directory:
+// built-in defaults + ~/.cvsignore + $CVSIGNORE + per-directory .cvsignore.
+func loadIgnorePatterns(absDir string) []string {
+	patterns := globalIgnorePatterns()
+	patterns = appendIgnoreFile(patterns, filepath.Join(absDir, ".cvsignore"))
+	return patterns
+}
+
+// appendIgnoreFile reads a cvsignore file and appends its patterns. CVS ignore
+// files contain space-separated patterns (no comment syntax). "!" resets the
+// list.
+func appendIgnoreFile(patterns []string, path string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return patterns
+	}
+	return appendPatterns(patterns, strings.Fields(string(data)))
+}
+
+// appendPatterns adds entries to the pattern list, handling "!" as a reset.
+func appendPatterns(patterns, entries []string) []string {
+	for _, e := range entries {
+		if e == "!" {
+			patterns = patterns[:0]
+		} else {
+			patterns = append(patterns, e)
+		}
+	}
+	return patterns
+}
+
+func matchesIgnore(name string, patterns []string) bool {
+	for _, p := range patterns {
+		if matched, _ := filepath.Match(p, name); matched {
+			return true
+		}
+	}
+	return false
+}
+
+func skipInListing(name string) bool {
+	return name == "CVS" || name == ".cvsignore" || name == ".DS_Store" ||
+		strings.HasPrefix(name, ".#") || strings.HasSuffix(name, ".~")
+}
+
 func (m *App) updateFileList() {
 	var dir string
 	switch m.activeTab {
 	case TabTree:
 		node := m.tree.SelectedNode()
 		if node == nil {
+			// No node selected (e.g. root has only files, no dirs) —
+			// fall back to showing root directory.
+			m.updateFileListForDir(".")
 			return
 		}
 		if node.IsDir {
 			dir = node.Path
 		} else {
-			// Show parent directory files
 			dir = filepath.Dir(node.Path)
 			if dir == "." {
 				dir = "."
@@ -40,6 +118,10 @@ func (m *App) updateFileList() {
 		return
 	}
 
+	m.updateFileListForDir(dir)
+}
+
+func (m *App) updateFileListForDir(dir string) {
 	prefix := dir + "/"
 	if dir == "." {
 		prefix = ""
@@ -53,10 +135,11 @@ func (m *App) updateFileList() {
 
 	var files []cvs.FileEntry
 	var subDirs []SubDirGroup
+	ignorePatterns := loadIgnorePatterns(absDir)
 
 	for _, e := range entries {
 		name := e.Name()
-		if name == "CVS" || name == ".cvsignore" || name == ".DS_Store" || strings.HasPrefix(name, ".#") {
+		if skipInListing(name) {
 			continue
 		}
 
@@ -67,17 +150,19 @@ func (m *App) updateFileList() {
 
 		if e.IsDir() {
 			sg := SubDirGroup{
-				Name:   name,
-				Path:   path,
-				Counts: countsByPrefix(path+"/", m.statusMap),
+				Name: name,
+				Path: path,
 			}
-			// Scan subdir for files (one level deep)
+			if node := m.tree.findNode(path); node != nil {
+				sg.Counts = node.Counts
+			}
 			subAbsDir := filepath.Join(absDir, name)
 			subEntries, err := os.ReadDir(subAbsDir)
+			subIgnore := loadIgnorePatterns(subAbsDir)
 			if err == nil {
 				for _, se := range subEntries {
 					sn := se.Name()
-					if sn == "CVS" || sn == ".cvsignore" || sn == ".DS_Store" || strings.HasPrefix(sn, ".#") || se.IsDir() {
+					if skipInListing(sn) || se.IsDir() {
 						continue
 					}
 					sp := path + "/" + sn
@@ -85,11 +170,9 @@ func (m *App) updateFileList() {
 					if info, err := se.Info(); err == nil {
 						sz = info.Size()
 					}
-					st := ""
-					if s, ok := m.statusMap[sp]; ok {
-						st = s
-					}
-					sg.Files = append(sg.Files, cvs.FileEntry{Path: sp, Status: st, Size: sz})
+					st := m.resolveFileStatus(sp)
+					ignored := st == "" && matchesIgnore(sn, subIgnore)
+					sg.Files = append(sg.Files, cvs.FileEntry{Path: sp, Status: st, Size: sz, Ignored: ignored})
 				}
 			}
 			subDirs = append(subDirs, sg)
@@ -100,14 +183,27 @@ func (m *App) updateFileList() {
 		if info, err := e.Info(); err == nil {
 			size = info.Size()
 		}
-		status := ""
-		if s, ok := m.statusMap[path]; ok {
-			status = s
-		}
-		files = append(files, cvs.FileEntry{Path: path, Status: status, Size: size})
+		status := m.resolveFileStatus(path)
+		ignored := status == "" && matchesIgnore(name, ignorePatterns)
+		files = append(files, cvs.FileEntry{Path: path, Status: status, Size: size, Ignored: ignored})
 	}
 
 	m.filelist.SetFiles(dir, files, subDirs)
+}
+
+// resolveFileStatus returns the effective status for a file. If the statusMap
+// has no entry (empty string), checks whether the parent directory is unknown
+// to CVS (no CVS/ subdir) — if so the file is untracked ("?").
+func (m *App) resolveFileStatus(path string) string {
+	if s := m.statusMap[path]; s != "" {
+		return s
+	}
+	dir := filepath.Dir(path)
+	cvsDir := filepath.Join(m.exec.WorkDir, dir, "CVS")
+	if _, err := os.Stat(cvsDir); os.IsNotExist(err) {
+		return "?"
+	}
+	return ""
 }
 
 func (m *App) openCommitDialog() tea.Cmd {
@@ -115,15 +211,18 @@ func (m *App) openCommitDialog() tea.Cmd {
 	if len(marked) > 0 {
 		statuses := make(map[string]string, len(marked))
 		for _, p := range marked {
-			statuses[p] = m.statusMap[p]
+			statuses[p] = m.resolveFileStatus(p)
 		}
 		m.dialog.OpenCommit(marked, statuses)
 		return nil
 	}
 	// If nothing marked, commit the selected modified file
-	if f := m.filelist.SelectedFile(); f != nil && f.Status == "M" {
-		m.dialog.OpenCommit([]string{f.Path}, map[string]string{f.Path: f.Status})
-		return nil
+	if f := m.filelist.SelectedFile(); f != nil {
+		s := m.resolveFileStatus(f.Path)
+		if isCommittable(s) {
+			m.dialog.OpenCommit([]string{f.Path}, map[string]string{f.Path: s})
+			return nil
+		}
 	}
 	return nil
 }
@@ -161,44 +260,28 @@ func (m *App) toggleDirFiles(dirPath string) {
 }
 
 func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
-	// `add` transitions the file from ? to A — the user typically wants to
-	// commit it immediately afterwards, so keep it marked. revert/update
-	// "finish" the file's role in the staged set, so we drop it from marked
-	// to make the Staged view reflect what's still pending.
 	if action != "add" {
 		for _, p := range paths {
 			delete(m.filelist.marked, p)
 		}
 	}
-	// Optimistic statusMap update — done before the async cvs run so other
-	// tabs already see the expected outcome when the user navigates away.
-	switch action {
-	case "add":
-		m.applyOptimisticStatus(paths, "A") // ? → A
-	case "revert":
-		m.applyOptimisticStatus(paths, "") // M → clean
-	case "update":
-		// Outcome is uncertain (could be clean, M, or C with new conflicts).
-		// Skip the optimistic update and let the async refresh decide.
-	}
-	m.staged.Refresh(m.filelist.marked, m.statusMap)
+	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 	exec := m.exec
 	switch action {
 	case "add":
 		return func() tea.Msg {
 			for _, p := range paths {
+				ensureParentDirs(exec, p)
 				exec.Run("add", p)
 			}
-			result, _ := exec.DryRunUpdate()
-			return statusRefreshedMsg{result: result}
+			return actionDoneMsg{paths: paths}
 		}
 	case "revert":
 		return func() tea.Msg {
 			for _, p := range paths {
 				exec.Run("update", "-C", p)
 			}
-			result, _ := exec.DryRunUpdate()
-			return statusRefreshedMsg{result: result}
+			return actionDoneMsg{paths: paths}
 		}
 	case "update":
 		return func() tea.Msg {
@@ -224,8 +307,8 @@ func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
 			f.Close()
 		}
 	}
-	m.staged.Refresh(m.filelist.marked, m.statusMap)
-	return m.refreshStatus()
+	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+	return m.refreshStatusForPaths(paths)
 }
 
 // selectedFilePath returns the path of the file under cursor in the active
@@ -273,10 +356,23 @@ func (m *App) selectedTarget() string {
 // Returns updateDoneMsg with success/error; the handler in App.Update shows
 // a banner and dispatches the follow-up status refresh. With no node
 // selected, falls back to a silent status refresh (no banner).
+func (m *App) doUpdatePaths(paths []string) tea.Cmd {
+	exec := m.exec
+	return func() tea.Msg {
+		args := append([]string{"update", "-d"}, paths...)
+		r, err := exec.Run(args...)
+		if err == nil && r != nil && !r.Success {
+			err = fmt.Errorf("cvs update exited %d", r.ExitCode)
+		}
+		return updateDoneMsg{paths: paths, err: err}
+	}
+}
+
 func (m *App) doUpdateSelected() tea.Cmd {
 	node := m.tree.SelectedNode()
 	if node == nil {
-		return m.refreshStatus()
+		m.statusEpoch++
+		return backgroundDirScan(m.exec, m.statusEpoch, "")
 	}
 	target := node.Path
 	exec := m.exec
@@ -290,17 +386,11 @@ func (m *App) doUpdateSelected() tea.Cmd {
 }
 
 func (m *App) addFile(path string) tea.Cmd {
-	// Optimistic: ? → A. Status map flips immediately so the Tree marker
-	// is up-to-date even before the async cvs add finishes.
-	m.applyOptimisticStatus([]string{path}, "A")
 	exec := m.exec
 	return func() tea.Msg {
+		ensureParentDirs(exec, path)
 		exec.Run("add", path)
-		// Reconcile via DryRunUpdate so the rest of the repo state stays
-		// consistent (the previous version of this function returned an
-		// empty statusRefreshedMsg, which silently skipped the rebuild).
-		result, _ := exec.DryRunUpdate()
-		return statusRefreshedMsg{result: result}
+		return actionDoneMsg{paths: []string{path}}
 	}
 }
 
@@ -324,27 +414,6 @@ func (m *App) blockedByConflict(paths []string, statusGetter func(string) string
 		}
 	}
 	return blocked
-}
-
-// applyOptimisticStatus updates statusMap for the given paths to the expected
-// new status, then rebuilds tree/file-list/favorites views. Use right after
-// dispatching an action whose CVS command is still running but whose outcome
-// is predictable, so the UI reflects the new state immediately. The async
-// status refresh that follows reconciles any remaining discrepancy.
-//
-// newStatus="" clears the entry (file becomes clean).
-func (m *App) applyOptimisticStatus(paths []string, newStatus string) {
-	for _, p := range paths {
-		if newStatus == "" {
-			delete(m.statusMap, p)
-		} else {
-			m.statusMap[p] = newStatus
-		}
-	}
-	m.tree.applyStatusToNodes(m.tree.root, m.statusMap)
-	m.tree.rebuildFlat()
-	m.favorites.UpdateCounts(m.statusMap)
-	m.updateFileList()
 }
 
 // fileHasLocalChanges reports whether the path has uncommitted modifications
@@ -374,9 +443,12 @@ func (m *App) autoLoadHistory() tea.Cmd {
 func (m *App) loadHistoryContent() tea.Cmd {
 	path := m.history.path
 
+	m.history.loadGen++
+	gen := m.history.loadGen
+
 	if fs.IsBinary(filepath.Join(m.exec.WorkDir, path)) {
 		return func() tea.Msg {
-			return historyContentMsg{content: "Binary file — cannot display content"}
+			return historyContentMsg{content: "Binary file — cannot display content", gen: gen}
 		}
 	}
 
@@ -387,13 +459,22 @@ func (m *App) loadHistoryContent() tea.Cmd {
 		fromRev := m.history.CompareFromRev()
 		toRev := m.history.SelectedRevision()
 
+		if toIsWorking || fromIsWorking {
+			fullPath := filepath.Join(m.exec.WorkDir, path)
+			if _, err := os.Stat(fullPath); os.IsNotExist(err) {
+				return func() tea.Msg {
+					return historyContentMsg{content: "File does not exist on disk — cannot compare against working copy", gen: gen}
+				}
+			}
+		}
+
 		switch {
 		case fromIsWorking && toRev != nil:
-			return loadCompareWorking(m.exec, path, toRev.Number)
+			return loadCompareWorking(m.exec, path, toRev.Number, gen)
 		case toIsWorking && fromRev != nil:
-			return loadCompareWorking(m.exec, path, fromRev.Number)
+			return loadCompareWorking(m.exec, path, fromRev.Number, gen)
 		case fromRev != nil && toRev != nil:
-			return loadCompare(m.exec, path, fromRev.Number, toRev.Number)
+			return loadCompare(m.exec, path, fromRev.Number, toRev.Number, gen)
 		}
 		return nil
 	}
@@ -402,12 +483,11 @@ func (m *App) loadHistoryContent() tea.Cmd {
 	if m.history.IsWorkingCopyRow() {
 		switch m.history.mode {
 		case HistoryContent:
-			return loadWorkingContent(m.exec.WorkDir, path)
+			return loadWorkingContent(m.exec.WorkDir, path, gen)
 		case HistoryDiff:
-			return loadWorkingDiff(m.exec, path)
+			return loadWorkingDiff(m.exec, path, gen)
 		case HistoryBlame:
-			// Blame on uncommitted state isn't meaningful — fall back to HEAD blame.
-			return loadBlame(m.exec, path)
+			return loadBlame(m.exec, path, gen)
 		}
 		return nil
 	}
@@ -419,22 +499,78 @@ func (m *App) loadHistoryContent() tea.Cmd {
 	}
 	switch m.history.mode {
 	case HistoryContent:
-		return loadRevisionContent(m.exec, path, rev.Number)
+		m.history.diffFromRev = ""
+		m.history.diffToRev = rev.Number
+		if cached, ok := m.history.contentCache[rev.Number]; ok {
+			m.history.applyContent(cached)
+			return nil
+		}
+		return loadRevisionContent(m.exec, path, rev.Number, "", rev.Number, gen)
 	case HistoryDiff:
 		if rev.PrevNumber != "" {
-			return loadRevisionDiff(m.exec, path, rev.PrevNumber, rev.Number)
+			m.history.diffFromRev = rev.PrevNumber
+			m.history.diffToRev = rev.Number
+			cacheKey := rev.PrevNumber + ":" + rev.Number
+			if cached, ok := m.history.diffCache[cacheKey]; ok {
+				m.history.applyDiff(cached)
+				return m.prefetchAdjacentDiffs(path)
+			}
+			return m.withPrefetch(
+				loadRevisionDiff(m.exec, path, rev.PrevNumber, rev.Number, gen),
+				path,
+			)
 		}
-		return loadRevisionContent(m.exec, path, rev.Number)
+		m.history.diffFromRev = ""
+		m.history.diffToRev = rev.Number
+		if cached, ok := m.history.contentCache[rev.Number]; ok {
+			m.history.applyContent(cached)
+			return nil
+		}
+		return loadRevisionContent(m.exec, path, rev.Number, "", rev.Number, gen)
 	case HistoryBlame:
-		return loadBlame(m.exec, path)
+		return loadBlame(m.exec, path, gen)
 	}
 	return nil
+}
+
+func (m *App) prefetchAdjacentDiffs(path string) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, delta := range []int{-1, 1} {
+		adjIdx := m.history.revisionIndex(m.history.cursor + delta)
+		if adjIdx < 0 || adjIdx >= len(m.history.revisions) {
+			continue
+		}
+		adj := m.history.revisions[adjIdx]
+		if adj.PrevNumber == "" {
+			continue
+		}
+		cacheKey := adj.PrevNumber + ":" + adj.Number
+		if _, ok := m.history.diffCache[cacheKey]; ok {
+			continue
+		}
+		cmds = append(cmds, loadRevisionDiff(m.exec, path, adj.PrevNumber, adj.Number, 0))
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
+
+func (m *App) withPrefetch(mainCmd tea.Cmd, path string) tea.Cmd {
+	if mainCmd == nil {
+		return nil
+	}
+	prefetch := m.prefetchAdjacentDiffs(path)
+	if prefetch == nil {
+		return mainCmd
+	}
+	return tea.Batch(mainCmd, prefetch)
 }
 
 func refreshStagedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
 	return func() tea.Msg {
 		args := append([]string{"status"}, paths...)
-		result, _ := exec.Run(args...)
+		result, _ := exec.RunReadOnly(args...)
 		if result == nil {
 			return stagedStatusMsg{paths: paths}
 		}
@@ -458,7 +594,7 @@ func refreshStagedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
 
 func loadPreviewDiff(exec *cvs.CVSExecutor, path string) tea.Cmd {
 	return func() tea.Msg {
-		result, _ := exec.Run("diff", "-u", path)
+		result, _ := exec.RunReadOnly("diff", "-u", path)
 		if result == nil {
 			return previewMsg{path: path}
 		}
@@ -645,20 +781,31 @@ func (m *App) handleIgnore(msg ignoreMsg) tea.Cmd {
 			f.Close()
 		}
 	case 2:
-		// Global pattern
+		// Global pattern → ~/.cvsignore
 		e := ext(msg.path)
 		if e != "" {
-			m.cfgMgr.Update(func(cfg *config.Config) {
-				cfg.Ignore.GlobalPatterns = append(cfg.Ignore.GlobalPatterns, "*"+e)
-			})
+			appendToGlobalCvsignore("*" + e)
 		}
 	case 3:
-		// Global exact
-		m.cfgMgr.Update(func(cfg *config.Config) {
-			cfg.Ignore.GlobalPatterns = append(cfg.Ignore.GlobalPatterns, base(msg.path))
-		})
+		// Global exact → ~/.cvsignore
+		appendToGlobalCvsignore(base(msg.path))
 	}
-	return m.refreshStatus()
+	return m.refreshStatusForPaths([]string{msg.path})
+}
+
+func appendToGlobalCvsignore(pattern string) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return
+	}
+	path := filepath.Join(home, ".cvsignore")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	// CVS ignore files are space-separated, but one pattern per line is safe
+	f.WriteString(pattern + "\n")
 }
 
 func (m *App) handleConflictResolve(msg conflictResolveMsg) tea.Cmd {
@@ -669,15 +816,29 @@ func (m *App) handleConflictResolve(msg conflictResolveMsg) tea.Cmd {
 	}
 	resolved := cvs.ResolveConflict(string(data), msg.choice, 0) // 0 = all regions
 	os.WriteFile(fullPath, []byte(resolved), 0644)
-	return m.refreshStatus()
+	return m.refreshStatusForPaths([]string{msg.path})
 }
 
 func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	leftW, _, contentH, consoleH := m.layout()
 	x, y := msg.X, msg.Y
 
-	// Layout: main panel (0..contentH+1), console (contentH+2..contentH+consoleH+3), keybar
-	mainTop := 0                         // top border of main content
+	// Layout: [banner] tabBar mainContent console keybar
+	tabBarY := 0
+	if m.notification != "" {
+		tabBarY = 1
+	}
+
+	// Tab bar click
+	if y == tabBarY && msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
+		if tab := m.tabAtX(x); tab >= 0 {
+			m.activeTab = tab
+			m.updateFileList()
+		}
+		return nil
+	}
+
+	mainTop := tabBarY + 1               // top border of main content
 	mainBottom := mainTop + contentH + 1 // bottom border
 	consoleTop := mainBottom + 1         // top border of console
 	consoleBottom := consoleTop + consoleH + 1
@@ -689,7 +850,7 @@ func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 			if x < leftW {
 				m.focus = PanelLeft
-				m.clickLeft(contentRow)
+				return m.clickLeft(contentRow)
 			} else {
 				m.focus = PanelRight
 				m.clickRight(contentRow)
@@ -704,7 +865,7 @@ func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 				delta = -3
 			}
 			if x < leftW {
-				m.scrollLeft(delta)
+				return m.scrollLeft(delta)
 			} else {
 				m.scrollRight(delta)
 			}
@@ -732,7 +893,30 @@ func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	return nil
 }
 
-func (m *App) clickLeft(row int) {
+// tabAtX returns the tab index for a given X coordinate, or -1 if outside.
+func (m *App) tabAtX(x int) int {
+	treeName := "Files"
+	if m.treeMode == TreeViewDetails {
+		treeName = "Detail"
+	}
+	stagedName := "Staged"
+	if n := len(m.filelist.marked); n > 0 {
+		stagedName = fmt.Sprintf("Staged(%d)", n)
+	}
+	names := []string{treeName, "Fav", stagedName, "History"}
+	pos := 0
+	for i, name := range names {
+		label := fmt.Sprintf(" %d:%s ", i+1, name)
+		end := pos + len(label)
+		if x >= pos && x < end {
+			return i
+		}
+		pos = end + 1 // +1 for the │ separator
+	}
+	return -1
+}
+
+func (m *App) clickLeft(row int) tea.Cmd {
 	switch m.activeTab {
 	case TabTree:
 		idx := m.tree.offset + row
@@ -747,11 +931,17 @@ func (m *App) clickLeft(row int) {
 			m.updateFileList()
 		}
 	case TabHistory:
+		prevCursor := m.history.cursor
 		idx := m.history.offset + row - 1 // header row
-		if idx >= 0 && idx < len(m.history.revisions) {
+		if idx >= 0 && idx < m.history.numRows() {
 			m.history.cursor = idx
 		}
+		if m.history.cursor != prevCursor {
+			// DISABLED: auto-compare on click (bug analysis)
+			return m.loadHistoryContent()
+		}
 	}
+	return nil
 }
 
 func (m *App) clickRight(row int) {
@@ -774,7 +964,7 @@ func (m *App) clickRight(row int) {
 	}
 }
 
-func (m *App) scrollLeft(delta int) {
+func (m *App) scrollLeft(delta int) tea.Cmd {
 	switch m.activeTab {
 	case TabTree:
 		m.tree.cursor = clamp(m.tree.cursor+delta, 0, max(0, len(m.tree.flat)-1))
@@ -783,9 +973,15 @@ func (m *App) scrollLeft(delta int) {
 	case TabFavorites:
 		m.favorites.cursor = clamp(m.favorites.cursor+delta, 0, max(0, len(m.favorites.favorites)-1))
 	case TabHistory:
-		m.history.cursor = clamp(m.history.cursor+delta, 0, max(0, len(m.history.revisions)-1))
+		prevCursor := m.history.cursor
+		m.history.cursor = clamp(m.history.cursor+delta, 0, max(0, m.history.numRows()-1))
 		m.history.ensureVisible()
+		if m.history.cursor != prevCursor {
+			// DISABLED: auto-compare on scroll (bug analysis)
+			return m.loadHistoryContent()
+		}
 	}
+	return nil
 }
 
 func (m *App) scrollRight(delta int) {
@@ -829,18 +1025,58 @@ func clamp(v, lo, hi int) int {
 	return v
 }
 
-func loadDirStatus(executor *cvs.CVSExecutor, dir string) tea.Cmd {
+func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch uint64) tea.Cmd {
 	return func() tea.Msg {
 		args := []string{"status", "-l"}
 		if dir != "." {
 			args = append(args, dir)
 		}
-		result, _ := executor.Run(args...)
+		result, _ := executor.RunReadOnly(args...)
 		if result == nil {
-			return dirStatusMsg{dir: dir}
+			return dirStatusMsg{dir: dir, epoch: epoch}
 		}
-		return dirStatusMsg{dir: dir, statuses: cvs.ParseStatus(result.Stdout)}
+		return dirStatusMsg{dir: dir, statuses: cvs.ParseStatus(result.Stdout), epoch: epoch}
 	}
+}
+
+// backgroundDirScan walks the working directory, collects all CVS-managed
+// directories, and returns a tea.Batch that runs loadDirStatus for each one.
+// Because loadDirStatus uses RunReadOnly (shared lock), all directory scans
+// run concurrently. Results arrive as individual dirStatusMsg messages and
+// render progressively.
+func backgroundDirScan(executor *cvs.CVSExecutor, epoch uint64, scope string) tea.Cmd {
+	root := executor.WorkDir
+	if scope != "" {
+		root = filepath.Join(executor.WorkDir, scope)
+	}
+	var dirs []string
+	filepath.WalkDir(root, func(path string, d ioFS.DirEntry, err error) error {
+		if err != nil {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
+			return nil
+		}
+		name := d.Name()
+		if name == "CVS" || strings.HasPrefix(name, ".") {
+			return filepath.SkipDir
+		}
+		cvsDir := filepath.Join(path, "CVS")
+		if _, err := os.Stat(cvsDir); err != nil {
+			return filepath.SkipDir
+		}
+		rel, _ := filepath.Rel(executor.WorkDir, path)
+		if rel == "" {
+			rel = "."
+		}
+		dirs = append(dirs, rel)
+		return nil
+	})
+	cmds := make([]tea.Cmd, len(dirs))
+	for i, dir := range dirs {
+		cmds[i] = loadDirStatus(executor, dir, epoch)
+	}
+	return tea.Batch(cmds...)
 }
 
 func cvsStatusCode(status string) string {

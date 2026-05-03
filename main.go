@@ -54,30 +54,37 @@ func main() {
 		os.Exit(1)
 	}
 
-	if !hasCVSMetadata(absTarget) {
-		if pathExplicit {
-			fmt.Fprintf(os.Stderr, "Error: %q has no CVS/Root (not a CVS working copy directory).\n", absTarget)
-			os.Exit(1)
-		}
-		if cfg.CVS.DefaultPath == "" {
-			fmt.Fprintf(os.Stderr, "Error: %q has no CVS/Root and no [cvs] default_path is configured.\n", absTarget)
-			os.Exit(1)
-		}
-		fallback, err := resolvePath(cfg.CVS.DefaultPath)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: cannot resolve default_path %q: %v\n", cfg.CVS.DefaultPath, err)
-			os.Exit(1)
-		}
-		if !hasCVSMetadata(fallback) {
-			fmt.Fprintf(os.Stderr, "Error: default_path %q has no CVS/Root.\n", fallback)
-			os.Exit(1)
-		}
-		fmt.Fprintf(os.Stderr, "No CVS/Root in cwd; using default_path %q.\n", fallback)
-		absTarget = fallback
-	}
-
 	workDir := absTarget
 	initialPath := ""
+
+	if !hasCVSMetadata(absTarget) {
+		// Check parent directory before giving up
+		parent := filepath.Dir(absTarget)
+		if parent != absTarget && hasCVSMetadata(parent) {
+			workDir = parent
+			rel, _ := filepath.Rel(parent, absTarget)
+			initialPath = rel
+		} else if pathExplicit {
+			fmt.Fprintf(os.Stderr, "Error: %q has no CVS/Root (not a CVS working copy directory).\n", absTarget)
+			os.Exit(1)
+		} else {
+			if cfg.CVS.DefaultPath == "" {
+				fmt.Fprintf(os.Stderr, "Error: %q has no CVS/Root and no [cvs] default_path is configured.\n", absTarget)
+				os.Exit(1)
+			}
+			fallback, err := resolvePath(cfg.CVS.DefaultPath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: cannot resolve default_path %q: %v\n", cfg.CVS.DefaultPath, err)
+				os.Exit(1)
+			}
+			if !hasCVSMetadata(fallback) {
+				fmt.Fprintf(os.Stderr, "Error: default_path %q has no CVS/Root.\n", fallback)
+				os.Exit(1)
+			}
+			fmt.Fprintf(os.Stderr, "No CVS/Root in cwd; using default_path %q.\n", fallback)
+			workDir = fallback
+		}
+	}
 
 	actualCVS := cfg.CVS.Binary
 	if *cvsBin != "" {

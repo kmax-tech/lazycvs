@@ -111,23 +111,3 @@ func isIgnorableLine(line string) bool {
 	return false
 }
 
-// ErrorPatterns maps stderr substrings to human-readable error messages.
-var ErrorPatterns = map[string]string{
-	"failed to create lock directory": "Lock conflict — another user or process is using the repository. Wait a moment and try again.",
-	"authorization failed":            "Authentication failed — run 'cvs login' to refresh your credentials.",
-	"cannot open directory":           "Stale directory — the server directory is empty or missing.",
-	"connection refused":              "CVS server unreachable — check your network connection.",
-	"move away":                       "A local file conflicts with a new server file. Rename or remove the local file.",
-	"up-to-date check failed":        "The file has been modified on the server since your last update. Run update first.",
-}
-
-// MatchErrorPattern returns a human-readable message for a CVS error, or empty string.
-func MatchErrorPattern(stderr string) string {
-	lower := strings.ToLower(stderr)
-	for pattern, message := range ErrorPatterns {
-		if strings.Contains(lower, strings.ToLower(pattern)) {
-			return message
-		}
-	}
-	return ""
-}

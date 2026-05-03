@@ -35,21 +35,23 @@ type fileRow struct {
 }
 
 type FileListModel struct {
-	files    []cvs.FileEntry
-	subDirs  []SubDirGroup
-	cursor   int
-	offset   int
-	width    int
-	height   int
-	dir      string
-	filter   string // "M", "C", "?", or "" for all
-	marked   map[string]bool
-	viewMode FileViewMode
+	files       []cvs.FileEntry
+	subDirs     []SubDirGroup
+	cursor      int
+	offset      int
+	width       int
+	height      int
+	dir         string
+	filter      string // "M", "C", "?", or "" for all
+	marked      map[string]bool
+	viewMode    FileViewMode
+	hideIgnored bool
 }
 
 func NewFileListModel() FileListModel {
 	return FileListModel{
-		marked: make(map[string]bool),
+		marked:      make(map[string]bool),
+		hideIgnored: true,
 	}
 }
 
@@ -76,7 +78,7 @@ func (m FileListModel) rows() []fileRow {
 	switch m.viewMode {
 	case FileViewFlat:
 		for i := range m.files {
-			if !m.matchesFilter(m.files[i].Status) {
+			if !m.showFile(&m.files[i]) {
 				continue
 			}
 			rows = append(rows, fileRow{file: &m.files[i]})
@@ -85,7 +87,7 @@ func (m FileListModel) rows() []fileRow {
 	case FileViewSub, FileViewTree:
 		// Top-level files first
 		for i := range m.files {
-			if !m.matchesFilter(m.files[i].Status) {
+			if !m.showFile(&m.files[i]) {
 				continue
 			}
 			rows = append(rows, fileRow{file: &m.files[i]})
@@ -100,7 +102,7 @@ func (m FileListModel) rows() []fileRow {
 			expanded := m.viewMode == FileViewSub || sd.Expanded
 			if expanded {
 				for j := range sd.Files {
-					if !m.matchesFilter(sd.Files[j].Status) {
+					if !m.showFile(&sd.Files[j]) {
 						continue
 					}
 					rows = append(rows, fileRow{file: &sd.Files[j], subDir: sd})
@@ -109,6 +111,13 @@ func (m FileListModel) rows() []fileRow {
 		}
 	}
 	return rows
+}
+
+func (m FileListModel) showFile(f *cvs.FileEntry) bool {
+	if m.hideIgnored && f.Ignored {
+		return false
+	}
+	return m.matchesFilter(f.Status)
 }
 
 func (m FileListModel) matchesFilter(status string) bool {
@@ -251,17 +260,24 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 			}
 			m.cursor = 0
 			m.offset = 0
-		// View mode switching
+		// View mode switching: f cycles flat→sub→tree, t jumps to tree
 		case msg.String() == "f":
-			m.viewMode = FileViewFlat
-			m.cursor = 0
-			m.offset = 0
-		case msg.String() == "s":
-			m.viewMode = FileViewSub
+			switch m.viewMode {
+			case FileViewFlat:
+				m.viewMode = FileViewSub
+			case FileViewSub:
+				m.viewMode = FileViewTree
+			default:
+				m.viewMode = FileViewFlat
+			}
 			m.cursor = 0
 			m.offset = 0
 		case msg.String() == "t":
 			m.viewMode = FileViewTree
+			m.cursor = 0
+			m.offset = 0
+		case msg.String() == "I":
+			m.hideIgnored = !m.hideIgnored
 			m.cursor = 0
 			m.offset = 0
 		}
@@ -308,6 +324,9 @@ func (m FileListModel) View() string {
 				if m.filter != "" {
 					info += fmt.Sprintf(" [%s]", m.filter)
 				}
+				if m.hideIgnored {
+					info += " -ign"
+				}
 				// Count visible files
 				fileCount := 0
 				for _, r := range rows {
@@ -346,7 +365,12 @@ func (m FileListModel) View() string {
 			}
 
 			status := "  "
-			if f.Status != "" {
+			if f.Ignored {
+				status = lipgloss.NewStyle().
+					Width(2).
+					Foreground(colorIgnored).
+					Render("I")
+			} else if f.Status != "" {
 				status = lipgloss.NewStyle().
 					Width(2).
 					Foreground(statusColor(f.Status)).

@@ -64,3 +64,7 @@ Planning docs are in German, but all code, comments, commit messages, and identi
 ## Path Validation
 
 All handlers accepting file paths must call `ValidatePath()` which checks for path traversal and symlink escapes before any CVS operation.
+
+## Issue Notes
+
+When a bug is discovered and fixed during implementation, create a short technical note in `issues/` (e.g. `issues/002-short-name.md`). Document: what the problem was, what caused it, and how it was fixed. Use the next sequential number. This happens automatically as part of the fix — no separate request needed.

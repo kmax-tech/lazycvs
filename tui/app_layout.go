@@ -48,6 +48,10 @@ func (m App) layout() (leftWidth, rightWidth, contentHeight, consoleHeight int) 
 	contentHeight = m.height - consoleHeight - overhead
 	if contentHeight < 5 {
 		contentHeight = 5
+		consoleHeight = m.height - contentHeight - overhead
+		if consoleHeight < 3 {
+			consoleHeight = 3
+		}
 	}
 	return
 }
@@ -66,8 +70,21 @@ func (m App) View() string {
 	if m.notification != "" {
 		rows = append(rows, m.renderBanner())
 	}
-	rows = append(rows, tabBar, mainContent, console, keybar)
-	view := lipgloss.JoinVertical(lipgloss.Left, rows...)
+	rows = append(rows, tabBar, mainContent, console)
+
+	// Assemble body (everything except keybar) with explicit join, then
+	// enforce exactly m.height lines with the keybar always last.
+	body := strings.Join(rows, "\n")
+	lines := strings.Split(body, "\n")
+	target := m.height - 1 // reserve one line for keybar
+	if len(lines) > target {
+		lines = lines[:target]
+	}
+	for len(lines) < target {
+		lines = append(lines, "")
+	}
+	lines = append(lines, keybar)
+	view := strings.Join(lines, "\n")
 
 	// Overlay dialog/search if active
 	if m.dialog.Active() {
@@ -245,8 +262,8 @@ func (m App) renderMainContent() string {
 			leftInfo = fmt.Sprintf(" %d of %d ", m.staged.cursor+1, len(m.staged.files))
 		}
 	case TabHistory:
-		if len(m.history.revisions) > 0 {
-			leftInfo = fmt.Sprintf(" %d of %d ", m.history.cursor+1, len(m.history.revisions))
+		if m.history.numRows() > 0 {
+			leftInfo = fmt.Sprintf(" %d of %d ", m.history.cursor+1, m.history.numRows())
 		}
 	}
 
@@ -294,7 +311,13 @@ func (m App) renderMainContent() string {
 		case HistoryContent:
 			rightTitle = "Content"
 		case HistoryDiff:
-			rightTitle = "Diff"
+			if m.history.diffFromRev != "" && m.history.diffToRev != "" {
+				rightTitle = fmt.Sprintf("Diff — %s ↔ %s", m.history.diffFromRev, m.history.diffToRev)
+			} else if m.history.diffToRev != "" {
+				rightTitle = fmt.Sprintf("Content — %s (initial)", m.history.diffToRev)
+			} else {
+				rightTitle = "Diff"
+			}
 		case HistoryBlame:
 			rightTitle = "Blame"
 		case HistoryCompare:
@@ -362,11 +385,11 @@ func (m App) renderKeybar() string {
 	var actions string
 	switch m.activeTab {
 	case TabTree:
-		actions = keyHelp(keys.ViewMode, keys.Diff, keys.Commit, keys.Edit, keys.Update) +
-			"  " + keyStyle.Render("f") + "/" + keyStyle.Render("s") + "/" + keyStyle.Render("t") + ":view" + mergeHint
+		actions = keyHelp(keys.ViewMode, keys.Diff, keys.Commit, keys.Edit, keys.Status, keys.Update) +
+			"  " + keyStyle.Render("f") + ":view  " + keyStyle.Render("t") + ":tree" + mergeHint
 	case TabFavorites:
-		actions = keyHelp(keys.Diff, keys.Commit, keys.Edit, keys.Update) +
-			"  " + keyStyle.Render("f") + "/" + keyStyle.Render("s") + "/" + keyStyle.Render("t") + ":view" + mergeHint
+		actions = keyHelp(keys.Diff, keys.Commit, keys.Edit, keys.Status, keys.Update) +
+			"  " + keyStyle.Render("f") + ":view  " + keyStyle.Render("t") + ":tree" + mergeHint
 	case TabStaged:
 		// `c` covers both add+commit (for ?-files) and plain commit, so a:add
 		// is no longer offered separately in the staged tab.
@@ -375,20 +398,18 @@ func (m App) renderKeybar() string {
 			keyHelp(keys.Diff) + mergeHint
 	case TabHistory:
 		hScroll := keyStyle.Render("</>") + ":scroll"
-		if m.history.mode == HistoryCompare {
+		spRef := keyStyle.Render("space") + ":ref"
+		if m.history.HasCompare() {
 			actions = keyHelp(keys.SideBySide, keys.EditDiff) + "  " +
-				keyStyle.Render("space") + ":compare  " +
+				spRef + "  " +
 				keyHelp(keys.CompareWorking, keys.Escape) + "  " + hScroll
 		} else if m.history.mode == HistoryDiff {
 			actions = keyHelp(keys.SideBySide, keys.Blame, keys.Edit, keys.EditDiff) + "  " +
-				keyStyle.Render("space") + ":compare  " +
+				spRef + "  " +
 				keyHelp(keys.CompareWorking) + "  " + hScroll
-		} else if m.history.HasCompare() {
-			actions = keyStyle.Render("space") + ":compare  " +
-				keyHelp(keys.CompareWorking, keys.Escape) + "  " + hScroll
 		} else {
 			actions = keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff) + "  " +
-				keyStyle.Render("space") + ":compare  " +
+				spRef + "  " +
 				keyHelp(keys.CompareWorking) + "  " + hScroll
 		}
 	}

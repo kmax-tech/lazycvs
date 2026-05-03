@@ -45,7 +45,7 @@ func catRevisionStdout(executor *cvs.CVSExecutor, path, rev string) (string, err
 	}
 	args = append(args, modulePath)
 
-	result, err := executor.Run(args...)
+	result, err := executor.RunReadOnly(args...)
 	if err != nil && result == nil {
 		return "", fmt.Errorf("cvs %s: %w", strings.Join(args, " "), err)
 	}

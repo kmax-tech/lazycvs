@@ -40,10 +40,11 @@ func NewStagedModel() StagedModel {
 }
 
 // Refresh rebuilds the staged file list from the marked set.
-func (m *StagedModel) Refresh(marked map[string]bool, statusMap map[string]string) {
+// resolveStatus returns the effective CVS status for a path.
+func (m *StagedModel) Refresh(marked map[string]bool, resolveStatus func(string) string) {
 	var files []stagedFile
 	for path := range marked {
-		files = append(files, stagedFile{path: path, status: statusMap[path]})
+		files = append(files, stagedFile{path: path, status: resolveStatus(path)})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
 	m.files = files

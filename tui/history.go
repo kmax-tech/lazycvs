@@ -44,6 +44,12 @@ type HistoryModel struct {
 	// of the revision list and represents the current on-disk state.
 	hasWorkingCopy bool
 
+	// loadGen is a monotonic counter incremented every time new content is
+	// requested. Async results carry the gen they were dispatched with; stale
+	// results (gen != loadGen) are silently dropped so fast scrolling doesn't
+	// flash intermediate diffs.
+	loadGen uint64
+
 	// hOffset is the horizontal scroll offset (visible columns) applied to
 	// the right-panel viewport. rawView holds the un-shifted rendered string;
 	// applyHOffset re-derives viewport content from rawView whenever hOffset
@@ -60,12 +66,24 @@ type HistoryModel struct {
 	compareSBS       bool            // side-by-side toggle for compare
 
 	// Diff mode state (parent-rev diff)
-	diffData *cvs.DiffResult // parsed diff between selected rev and its parent
-	diffSBS  bool            // side-by-side toggle for diff
+	diffData    *cvs.DiffResult // parsed diff between selected rev and its parent
+	diffSBS     bool            // side-by-side toggle for diff
+	diffFromRev string          // "from" revision label for header
+	diffToRev   string          // "to" revision label for header
+
+	// Per-file caches — keyed by "fromRev:toRev" for diffs, rev number for content.
+	// Cleared when a new file is loaded. Avoids re-running CVS commands when
+	// scrolling back to a previously visited revision.
+	diffCache    map[string]*cvs.DiffResult
+	contentCache map[string]string
 }
 
 func NewHistoryModel() HistoryModel {
-	return HistoryModel{compareFrom: -1}
+	return HistoryModel{
+		compareFrom:  -1,
+		diffCache:    make(map[string]*cvs.DiffResult),
+		contentCache: make(map[string]string),
+	}
 }
 
 type historyLoadedMsg struct {
@@ -76,15 +94,21 @@ type historyLoadedMsg struct {
 
 type historyContentMsg struct {
 	content string
+	gen     uint64
+	fromRev string
+	toRev   string
 }
 
 type historyDiffMsg struct {
-	diff *cvs.DiffResult
+	diff    *cvs.DiffResult
+	gen     uint64
+	fromRev string
+	toRev   string
 }
 
 func loadHistory(exec *cvs.CVSExecutor, path string, hasWorkingCopy bool) tea.Cmd {
 	return func() tea.Msg {
-		result, err := exec.Run("log", path)
+		result, err := exec.RunReadOnly("log", path)
 		if err != nil && result == nil {
 			return historyLoadedMsg{path: path, hasWorkingCopy: hasWorkingCopy}
 		}
@@ -95,55 +119,55 @@ func loadHistory(exec *cvs.CVSExecutor, path string, hasWorkingCopy bool) tea.Cm
 
 // loadWorkingDiff runs `cvs diff -u <file>` (working copy vs HEAD) and reports
 // the parsed result via historyDiffMsg, the same channel used for revision diffs.
-func loadWorkingDiff(exec *cvs.CVSExecutor, path string) tea.Cmd {
+func loadWorkingDiff(exec *cvs.CVSExecutor, path string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		result, _ := exec.Run("diff", "-u", path)
+		result, _ := exec.RunReadOnly("diff", "-u", path)
 		if result == nil {
-			return historyDiffMsg{}
+			return historyDiffMsg{gen: gen, fromRev: "HEAD", toRev: "working copy"}
 		}
-		return historyDiffMsg{diff: cvs.ParseDiff(result.Stdout)}
+		return historyDiffMsg{diff: cvs.ParseDiff(result.Stdout), gen: gen, fromRev: "HEAD", toRev: "working copy"}
 	}
 }
 
 // loadWorkingContent reads the file's current on-disk content directly (no CVS
 // command needed) and reports it via historyContentMsg.
-func loadWorkingContent(workDir, path string) tea.Cmd {
+func loadWorkingContent(workDir, path string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		data, err := os.ReadFile(filepath.Join(workDir, path))
 		if err != nil {
-			return historyContentMsg{content: "Error reading file: " + err.Error()}
+			return historyContentMsg{content: "Error reading file: " + err.Error(), gen: gen}
 		}
-		return historyContentMsg{content: string(data)}
+		return historyContentMsg{content: string(data), gen: gen}
 	}
 }
 
-func loadRevisionContent(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
+func loadRevisionContent(exec *cvs.CVSExecutor, path, rev, fromRev, toRev string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		content, err := catRevisionStdout(exec, path, rev)
 		if err != nil {
-			return historyContentMsg{content: "Error loading revision: " + err.Error()}
+			return historyContentMsg{content: "Error loading revision: " + err.Error(), gen: gen, fromRev: fromRev, toRev: toRev}
 		}
-		return historyContentMsg{content: content}
+		return historyContentMsg{content: content, gen: gen, fromRev: fromRev, toRev: toRev}
 	}
 }
 
-func loadRevisionDiff(exec *cvs.CVSExecutor, path, rev1, rev2 string) tea.Cmd {
+func loadRevisionDiff(exec *cvs.CVSExecutor, path, rev1, rev2 string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		result, _ := exec.Run("diff", "-u", "-r", rev1, "-r", rev2, path)
+		result, _ := exec.RunReadOnly("diff", "-u", "-r", rev1, "-r", rev2, path)
 		if result == nil {
-			return historyDiffMsg{}
+			return historyDiffMsg{gen: gen, fromRev: rev1, toRev: rev2}
 		}
-		return historyDiffMsg{diff: cvs.ParseDiff(result.Stdout)}
+		return historyDiffMsg{diff: cvs.ParseDiff(result.Stdout), gen: gen, fromRev: rev1, toRev: rev2}
 	}
 }
 
-func loadBlame(exec *cvs.CVSExecutor, path string) tea.Cmd {
+func loadBlame(exec *cvs.CVSExecutor, path string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		result, err := exec.Run("annotate", path)
+		result, err := exec.RunReadOnly("annotate", path)
 		if err != nil && result == nil {
-			return historyContentMsg{content: "Error loading blame"}
+			return historyContentMsg{content: "Error loading blame", gen: gen}
 		}
-		return historyContentMsg{content: result.Stdout}
+		return historyContentMsg{content: result.Stdout, gen: gen}
 	}
 }
 
@@ -151,27 +175,28 @@ type historyCompareMsg struct {
 	diff    *cvs.DiffResult
 	fromRev string
 	toRev   string
+	gen     uint64
 }
 
-func loadCompare(exec *cvs.CVSExecutor, path, rev1, rev2 string) tea.Cmd {
+func loadCompare(exec *cvs.CVSExecutor, path, rev1, rev2 string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		result, _ := exec.Run("diff", "-u", "-r", rev1, "-r", rev2, path)
+		result, _ := exec.RunReadOnly("diff", "-u", "-r", rev1, "-r", rev2, path)
 		if result == nil {
-			return historyCompareMsg{}
+			return historyCompareMsg{gen: gen}
 		}
 		parsed := cvs.ParseDiff(result.Stdout)
-		return historyCompareMsg{diff: parsed, fromRev: rev1, toRev: rev2}
+		return historyCompareMsg{diff: parsed, fromRev: rev1, toRev: rev2, gen: gen}
 	}
 }
 
-func loadCompareWorking(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
+func loadCompareWorking(exec *cvs.CVSExecutor, path, rev string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		result, _ := exec.Run("diff", "-u", "-r", rev, path)
+		result, _ := exec.RunReadOnly("diff", "-u", "-r", rev, path)
 		if result == nil {
-			return historyCompareMsg{}
+			return historyCompareMsg{gen: gen}
 		}
 		parsed := cvs.ParseDiff(result.Stdout)
-		return historyCompareMsg{diff: parsed, fromRev: rev, toRev: "working copy"}
+		return historyCompareMsg{diff: parsed, fromRev: rev, toRev: "working copy", gen: gen}
 	}
 }
 
@@ -184,18 +209,27 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 		} else {
 			m.revisions = nil
 		}
-		m.hasWorkingCopy = msg.hasWorkingCopy
+		// DISABLED: working-copy pseudo-row (bug analysis)
+		// m.hasWorkingCopy = msg.hasWorkingCopy
+		m.hasWorkingCopy = false
 		m.cursor = 0
 		m.offset = 0
 		m.content = ""
 		m.diffData = nil
 		m.diffSBS = false
+		m.diffFromRev = ""
+		m.diffToRev = ""
 		m.ready = false
 		m.ClearCompare()
+		m.diffCache = make(map[string]*cvs.DiffResult)
+		m.contentCache = make(map[string]string)
 		m.mode = HistoryDiff // default landing — "what changed" view
 		return m, nil
 
 	case historyCompareMsg:
+		if msg.gen != m.loadGen {
+			return m, nil
+		}
 		m.compareDiff = msg.diff
 		m.compareFromRev = msg.fromRev
 		m.compareToRev = msg.toRev
@@ -210,28 +244,29 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 		return m, nil
 
 	case historyContentMsg:
-		m.content = msg.content
-		m.diffData = nil // content fallback (e.g. first revision, no parent)
-		m.hOffset = 0
-		w := 80
-		if m.rightWidth > 0 {
-			w = m.rightWidth
+		// Cache even stale results — they're valid for their revision.
+		if msg.toRev != "" {
+			m.contentCache[msg.toRev] = msg.content
 		}
-		m.viewport = viewport.New(w, m.height)
-		m.setView(m.content)
-		m.ready = true
+		if msg.gen != m.loadGen {
+			return m, nil
+		}
+		m.diffFromRev = msg.fromRev
+		m.diffToRev = msg.toRev
+		m.applyContent(msg.content)
 		return m, nil
 
 	case historyDiffMsg:
-		m.diffData = msg.diff
-		m.hOffset = 0
-		w := 80
-		if m.rightWidth > 0 {
-			w = m.rightWidth
+		// Cache even stale results — they're valid for their revision pair.
+		if msg.fromRev != "" && msg.toRev != "" {
+			m.diffCache[msg.fromRev+":"+msg.toRev] = msg.diff
 		}
-		m.viewport = viewport.New(w, m.height)
-		m.setView(m.renderDiffView())
-		m.ready = true
+		if msg.gen != m.loadGen {
+			return m, nil
+		}
+		m.diffFromRev = msg.fromRev
+		m.diffToRev = msg.toRev
+		m.applyDiff(msg.diff)
 		return m, nil
 
 	case tea.KeyMsg:
@@ -260,28 +295,12 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 			m.mode = HistoryContent
 			m.compareFrom = -1
 			return m, nil
+		// DISABLED: compare / select-revision functionality (bug analysis)
+		// case key.Matches(msg, keys.Space):
+		// case key.Matches(msg, keys.CompareWorking):
 		case key.Matches(msg, keys.Space):
-			if m.compareFrom < 0 {
-				// Mark first revision for compare
-				m.compareFrom = m.cursor
-			} else if m.cursor == m.compareFrom {
-				// Unmark — exit compare mode entirely so navigation works again
-				m.ClearCompare()
-			} else {
-				// Second selection — trigger compare
-				m.compareToWorking = false
-				m.mode = HistoryCompare
-			}
 			return m, nil
 		case key.Matches(msg, keys.CompareWorking):
-			// Only meaningful when cursor is on a real revision, not the
-			// working-copy pseudo-row (which is already the working copy).
-			if m.IsWorkingCopyRow() || m.SelectedRevision() == nil {
-				return m, nil
-			}
-			m.compareFrom = m.cursor
-			m.compareToWorking = true
-			m.mode = HistoryCompare
 			return m, nil
 		case key.Matches(msg, keys.SideBySide):
 			switch {
@@ -445,6 +464,31 @@ func applyHOffset(s string, offset int) string {
 	return strings.Join(lines, "\n")
 }
 
+func (m *HistoryModel) applyDiff(diff *cvs.DiffResult) {
+	m.diffData = diff
+	m.hOffset = 0
+	w := 80
+	if m.rightWidth > 0 {
+		w = m.rightWidth
+	}
+	m.viewport = viewport.New(w, m.height)
+	m.setView(m.renderDiffView())
+	m.ready = true
+}
+
+func (m *HistoryModel) applyContent(content string) {
+	m.content = content
+	m.diffData = nil
+	m.hOffset = 0
+	w := 80
+	if m.rightWidth > 0 {
+		w = m.rightWidth
+	}
+	m.viewport = viewport.New(w, m.height)
+	m.setView(content)
+	m.ready = true
+}
+
 func (m HistoryModel) renderCompare() string {
 	if m.compareDiff == nil || len(m.compareDiff.Hunks) == 0 {
 		return "No differences"
@@ -534,7 +578,17 @@ func (m HistoryModel) ViewLeft() string {
 		}
 
 		if i == m.cursor {
-			line1 = lipgloss.NewStyle().Reverse(true).Render(line1)
+			sel := lipgloss.NewStyle().Reverse(true)
+			plain1 := ansi.Strip(line1)
+			plain2 := ansi.Strip(line2)
+			if w := lipgloss.Width(plain1); w < m.leftWidth {
+				plain1 += strings.Repeat(" ", m.leftWidth-w)
+			}
+			if w := lipgloss.Width(plain2); w < m.leftWidth {
+				plain2 += strings.Repeat(" ", m.leftWidth-w)
+			}
+			line1 = sel.Render(plain1)
+			line2 = sel.Render(plain2)
 		}
 		lines = append(lines, line1)
 		lines = append(lines, line2)

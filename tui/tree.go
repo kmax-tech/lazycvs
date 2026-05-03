@@ -85,7 +85,14 @@ type treeDirLoadedMsg struct{ path string; nodes []*TreeNode }
 func (m TreeModel) Update(msg tea.Msg) (TreeModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case treeLoadedMsg:
-		m.root = msg.nodes
+		rootNode := &TreeNode{
+			Name:     filepath.Base(m.workDir),
+			Path:     ".",
+			IsDir:    true,
+			Expanded: true,
+			Children: msg.nodes,
+		}
+		m.root = []*TreeNode{rootNode}
 		m.rebuildFlat()
 		return m, nil
 
@@ -237,6 +244,8 @@ func (m *TreeModel) SetSize(width, height int) {
 
 // applyStatusToNodes annotates each TreeNode with its status and aggregate
 // counts, using the App-owned statusMap as the read-only source of truth.
+// Directory counts are computed bottom-up: sum children's counts, then add
+// statusMap entries not covered by any loaded child node.
 func (m *TreeModel) applyStatusToNodes(nodes []*TreeNode, statusMap map[string]string) {
 	for _, n := range nodes {
 		if s, ok := statusMap[n.Path]; ok {
@@ -247,31 +256,60 @@ func (m *TreeModel) applyStatusToNodes(nodes []*TreeNode, statusMap map[string]s
 		n.Counts = StatusCounts{}
 		if n.IsDir {
 			m.applyStatusToNodes(n.Children, statusMap)
-			// Compute counts from statusMap by prefix — works even when children aren't loaded
-			n.Counts = countsByPrefix(n.Path+"/", statusMap)
+			// Sum loaded children (their counts already include their subtrees).
+			coveredPrefixes := make([]string, 0, len(n.Children))
+			for _, child := range n.Children {
+				n.Counts.add(child.Counts)
+				addStatusToCount(&n.Counts, child.Status)
+				if child.IsDir {
+					coveredPrefixes = append(coveredPrefixes, child.Path+"/")
+				} else {
+					coveredPrefixes = append(coveredPrefixes, child.Path)
+				}
+			}
+			// Add statusMap entries under this directory not covered by any
+			// loaded child. This handles untracked files and unloaded subdirs.
+			prefix := n.Path + "/"
+			if n.Path == "." {
+				prefix = ""
+			}
+			for path, status := range statusMap {
+				if !strings.HasPrefix(path, prefix) {
+					continue
+				}
+				covered := false
+				for _, cp := range coveredPrefixes {
+					if path == cp || strings.HasPrefix(path, cp) {
+						covered = true
+						break
+					}
+				}
+				if !covered {
+					addStatusToCount(&n.Counts, status)
+				}
+			}
 		}
 	}
 }
 
-// countsByPrefix counts all statuses in statusMap whose path starts with prefix.
-// This works regardless of whether child nodes are loaded in the tree.
-func countsByPrefix(prefix string, statusMap map[string]string) StatusCounts {
-	var c StatusCounts
-	for path, status := range statusMap {
-		if strings.HasPrefix(path, prefix) {
-			switch status {
-			case "M":
-				c.Modified++
-			case "C":
-				c.Conflict++
-			case "U", "P":
-				c.Updated++
-			case "?":
-				c.Untracked++
-			}
-		}
+func (c *StatusCounts) add(other StatusCounts) {
+	c.Modified += other.Modified
+	c.Conflict += other.Conflict
+	c.Updated += other.Updated
+	c.Untracked += other.Untracked
+}
+
+func addStatusToCount(c *StatusCounts, status string) {
+	switch status {
+	case "M":
+		c.Modified++
+	case "C":
+		c.Conflict++
+	case "U", "P":
+		c.Updated++
+	case "?":
+		c.Untracked++
 	}
-	return c
 }
 
 func (m *TreeModel) rebuildFlat() {
@@ -303,6 +341,9 @@ func (m *TreeModel) ExpandToPath(relPath string) []string {
 	}
 	parts := strings.Split(relPath, "/")
 	nodes := m.root
+	if len(nodes) == 1 && nodes[0].Path == "." {
+		nodes = nodes[0].Children
+	}
 	var expanded []string
 
 	for _, part := range parts {
@@ -469,7 +510,7 @@ func scanDir(workDir, relPath string) []*TreeNode {
 	var dirs, files []*TreeNode
 	for _, e := range entries {
 		name := e.Name()
-		if name == "CVS" || name == ".cvsignore" || name == ".DS_Store" || strings.HasPrefix(name, ".#") {
+		if skipInListing(name) {
 			continue
 		}
 

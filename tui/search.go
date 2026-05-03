@@ -151,7 +151,7 @@ func collectPaths(workDir string) []string {
 			return nil
 		}
 		name := info.Name()
-		if name == "CVS" || name == ".cvsignore" || name == ".DS_Store" || strings.HasPrefix(name, ".#") {
+		if skipInListing(name) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}

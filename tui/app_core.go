@@ -4,9 +4,7 @@ import (
 	"lazycvs/config"
 	"lazycvs/cvs"
 	"fmt"
-	ioFS "io/fs"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -37,11 +35,13 @@ const (
 
 type statusRefreshedMsg struct {
 	result *cvs.UpdateResult
+	epoch  uint64
 }
 
 type dirStatusMsg struct {
 	dir      string
 	statuses []cvs.FileStatus
+	epoch    uint64
 }
 
 type previewMsg struct {
@@ -77,9 +77,40 @@ type updateDoneMsg struct {
 	err   error
 }
 
+// actionDoneMsg is sent by async actions (add, revert) that previously ran a
+// full DryRunUpdate. It carries the affected paths so the handler can dispatch
+// a fast, targeted directory refresh instead of a full repo scan.
+type actionDoneMsg struct {
+	paths []string
+}
+
 // notifyAfter schedules a notificationExpiredMsg after d.
 func notifyAfter(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return notificationExpiredMsg{} })
+}
+
+// refreshStatusForPaths dispatches loadDirStatus for each unique parent
+// directory of the given paths. Much faster than a full DryRunUpdate when
+// only a few directories are affected.
+func (m *App) refreshStatusForPaths(paths []string) tea.Cmd {
+	m.statusEpoch++
+	epoch := m.statusEpoch
+	seen := make(map[string]bool)
+	var cmds []tea.Cmd
+	for _, p := range paths {
+		dir := filepath.Dir(p)
+		if dir == "" {
+			dir = "."
+		}
+		if !seen[dir] {
+			seen[dir] = true
+			cmds = append(cmds, loadDirStatus(m.exec, dir, epoch))
+		}
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }
 
 // notifyDuration controls how long success/error banners stay visible.
@@ -115,6 +146,14 @@ type App struct {
 	// a read-only parameter when they need to render or compute over it.
 	statusMap map[string]string
 
+	// Epoch-based staleness tracking: each status command dispatch
+	// increments statusEpoch. dirEpoch records the epoch of the most
+	// recently applied update per directory. A result is only applied if
+	// its epoch >= dirEpoch for that directory, so late-arriving full
+	// scans don't overwrite fresher dir scans.
+	statusEpoch uint64
+	dirEpoch    map[string]uint64
+
 	// Preview state for Variant B (TreeViewDetails)
 	previewPath  string
 	previewDiff  *cvs.DiffResult
@@ -147,6 +186,8 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		consoleHeight: 6,
 		initialPath:   initialPath,
 		statusMap:     make(map[string]string),
+		statusEpoch:   1,
+		dirEpoch:      make(map[string]uint64),
 	}
 }
 
@@ -171,68 +212,24 @@ func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
 	}
 }
 
-const maxFilesForFullScan = 1000
-
 func (m App) Init() tea.Cmd {
-	cmds := []tea.Cmd{m.tree.Init()}
-	if m.initialPath != "" {
-		scopeDir := filepath.Join(m.exec.WorkDir, m.initialPath)
-		if countFilesQuick(scopeDir, maxFilesForFullScan) < maxFilesForFullScan {
-			cmds = append(cmds, m.refreshStatusScoped(m.initialPath))
-		}
-	} else if countFilesQuick(m.exec.WorkDir, maxFilesForFullScan) < maxFilesForFullScan {
-		// Small repo — full recursive scan
-		cmds = append(cmds, m.refreshStatus())
-	}
-	// Large repo without initialPath: skip full scan, rely on per-directory status
-	return tea.Batch(cmds...)
+	initEpoch := m.statusEpoch
+	return tea.Batch(
+		m.tree.Init(),
+		backgroundDirScan(m.exec, initEpoch, m.initialPath),
+	)
 }
 
-// countFilesQuick counts files up to a limit, skipping CVS/hidden dirs.
-func countFilesQuick(dir string, limit int) int {
-	count := 0
-	filepath.WalkDir(dir, func(path string, d ioFS.DirEntry, err error) error {
-		if err != nil {
-			return filepath.SkipDir
-		}
-		if d.IsDir() {
-			name := d.Name()
-			if name == "CVS" || strings.HasPrefix(name, ".") {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		count++
-		if count >= limit {
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return count
-}
-
-// refreshStatus runs a full recursive dry-run update.
-func (m App) refreshStatus() tea.Cmd {
+func (m *App) refreshStatusUser() tea.Cmd {
+	m.statusEpoch++
+	epoch := m.statusEpoch
 	exec := m.exec
 	return func() tea.Msg {
 		result, _ := exec.DryRunUpdate()
-		return statusRefreshedMsg{result: result}
+		return statusRefreshedMsg{result: result, epoch: epoch}
 	}
 }
 
-// refreshStatusScoped runs a dry-run update scoped to a specific directory.
-func (m App) refreshStatusScoped(dir string) tea.Cmd {
-	exec := m.exec
-	return func() tea.Msg {
-		result, err := exec.Run("-n", "-q", "update", "-d", "-P", dir)
-		if err != nil && result == nil {
-			return statusRefreshedMsg{}
-		}
-		update := cvs.ParseUpdate(result.Stdout, result.Stderr, exec.WorkDir)
-		update.Duration = result.Duration
-		return statusRefreshedMsg{result: update}
-	}
-}
 
 func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// While the user has the console panel focused, treat any logged errors
@@ -273,22 +270,21 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case treeLoadedMsg:
 		var cmd tea.Cmd
 		m.tree, cmd = m.tree.Update(msg)
-		cmds := []tea.Cmd{cmd, loadDirStatus(m.exec, ".")}
 		if m.initialPath != "" {
-			expandedDirs := m.tree.ExpandToPath(m.initialPath)
+			m.tree.ExpandToPath(m.initialPath)
 			m.updateFileList()
-			for _, dir := range expandedDirs {
-				cmds = append(cmds, loadDirStatus(m.exec, dir))
-			}
 			m.initialPath = ""
+		} else {
+			m.updateFileListForDir(".")
 		}
-		return m, tea.Batch(cmds...)
+		return m, cmd
 
 	case treeDirLoadedMsg:
 		var cmd tea.Cmd
 		m.tree, cmd = m.tree.Update(msg)
 		m.updateFileList()
-		statusCmd := loadDirStatus(m.exec, msg.path)
+		m.statusEpoch++
+		statusCmd := backgroundDirScan(m.exec, m.statusEpoch, msg.path)
 		return m, tea.Batch(cmd, statusCmd)
 
 	case historyLoadedMsg:
@@ -302,6 +298,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dirStatusMsg:
 		m.console.refreshContent()
+		if msg.epoch < m.dirEpoch[msg.dir] {
+			return m, nil
+		}
+		m.dirEpoch[msg.dir] = msg.epoch
+		for path := range m.statusMap {
+			if filepath.Dir(path) == msg.dir {
+				delete(m.statusMap, path)
+			}
+		}
 		for _, fs := range msg.statuses {
 			code := cvsStatusCode(fs.Status)
 			if code != "" {
@@ -311,22 +316,27 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tree.applyStatusToNodes(m.tree.root, m.statusMap)
 		m.tree.rebuildFlat()
 		m.updateFileList()
+		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		return m, nil
 
 	case statusRefreshedMsg:
 		m.console.refreshContent()
 		if msg.result != nil {
 			m.rebuildStatusMap(msg.result)
+			for dir := range m.dirEpoch {
+				m.dirEpoch[dir] = msg.epoch
+			}
 			m.tree.applyStatusToNodes(m.tree.root, m.statusMap)
 			m.tree.rebuildFlat()
 			m.favorites.UpdateCounts(m.statusMap)
 			m.updateFileList()
-			// Also load per-directory status for expanded dirs
-			var cmds []tea.Cmd
-			for _, dir := range m.tree.ExpandedDirs() {
-				cmds = append(cmds, loadDirStatus(m.exec, dir))
-			}
-			return m, tea.Batch(cmds...)
+			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+			changes := len(m.statusMap)
+			m.notification = fmt.Sprintf("Status: %d file(s) with changes (dry-run, nothing pulled)", changes)
+			m.notificationOK = true
+			m.notificationExpiry = time.Now().Add(notifyDuration)
+			m.updateSizes()
+			return m, notifyAfter(notifyDuration)
 		}
 
 	case commitMsg:
@@ -349,28 +359,25 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, doCommit(m.exec, msg.message, msg.untracked, msg.files)
 
+	case actionDoneMsg:
+		m.console.refreshContent()
+		return m, m.refreshStatusForPaths(msg.paths)
+
 	case commitDoneMsg:
 		if msg.err == nil {
 			m.notification = fmt.Sprintf("✓ Committed %d file(s): %q", len(msg.files), msg.message)
 			m.notificationOK = true
-			// Drop committed paths from the staged set — the commit
-			// succeeded so they're no longer pending. (For a failed
-			// commit we leave them so the user can retry.)
 			for _, p := range msg.files {
 				delete(m.filelist.marked, p)
 			}
-			// Optimistic: committed files are now clean. Update statusMap
-			// + tree + file list immediately so switching to Tab 1 shows
-			// the new state without waiting for the async refresh.
-			m.applyOptimisticStatus(msg.files, "")
-			m.staged.Refresh(m.filelist.marked, m.statusMap)
+			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		} else {
 			m.notification = "✗ Commit failed — see Console for details"
 			m.notificationOK = false
 		}
 		m.notificationExpiry = time.Now().Add(notifyDuration)
 		m.updateSizes() // banner reduces contentHeight by 1 — relayout sub-panels
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatus())
+		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.files))
 
 	case notificationExpiredMsg:
 		// Only clear if we're actually past the displayed expiry. Multiple
@@ -406,49 +413,27 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.notificationExpiry = time.Now().Add(notifyDuration)
 		m.updateSizes()
-		// Update can produce arbitrary status changes (M, C, "" — we
-		// can't predict per-file). Always run the full refresh to pick
-		// up the actual state. No optimistic update.
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatus())
+		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths))
 
 	case removeDoneMsg:
+		paths := []string{msg.path}
 		if msg.err != nil {
 			m.notification = fmt.Sprintf("✗ Remove failed for %s — see Console", filepath.Base(msg.path))
 			m.notificationOK = false
 			m.notificationExpiry = time.Now().Add(notifyDuration)
 			m.updateSizes()
-			return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatus())
+			return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(paths))
 		}
-		// Drop the path from the staged set — it's gone or scheduled for
-		// removal, no point leaving it marked for commit.
 		delete(m.filelist.marked, msg.path)
-		// Optimistic status update: choose the next status based on the
-		// pre-remove status, so other tabs reflect the new state without
-		// waiting for the async refreshStatus to complete.
-		var newStatus string
-		switch msg.oldStatus {
-		case "?", "A":
-			// Untracked file → gone. Added-but-not-committed → un-added.
-			// In both cases the file is no longer relevant to CVS.
-			newStatus = ""
-		case "R":
-			// Already R — no transition.
-			newStatus = "R"
-		default:
-			// Tracked file (clean / M / C / U / "") → scheduled for
-			// removal. cvs remove -f sets the entry to R until commit.
-			newStatus = "R"
-		}
-		m.applyOptimisticStatus([]string{msg.path}, newStatus)
-		m.staged.Refresh(m.filelist.marked, m.statusMap)
+		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		m.notification = fmt.Sprintf("✓ Removed %s", filepath.Base(msg.path))
 		m.notificationOK = true
 		m.notificationExpiry = time.Now().Add(notifyDuration)
 		m.updateSizes()
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatus())
+		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(paths))
 
 	case editorClosedMsg:
-		return m, m.refreshStatus()
+		return m, m.refreshStatusForPaths([]string{msg.path})
 
 	case searchSelectedMsg:
 		// Navigate to the selected path
@@ -465,7 +450,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, p := range msg.paths {
 			delete(m.filelist.marked, p)
 		}
-		m.staged.Refresh(m.filelist.marked, m.statusMap)
+		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		return m, m.stagedBulkAction("revert", msg.paths)
 
 	case stagedStatusMsg:
@@ -481,7 +466,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.tree.applyStatusToNodes(m.tree.root, m.statusMap)
 		m.tree.rebuildFlat()
-		m.staged.Refresh(m.filelist.marked, m.statusMap)
+		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		return m, nil
 
 	case previewMsg:

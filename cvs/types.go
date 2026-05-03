@@ -9,6 +9,7 @@ type FileEntry struct {
 	IsDir   bool      `json:"is_dir"`
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"mod_time"`
+	Ignored bool      `json:"ignored,omitempty"`
 }
 
 // InTheWayEntry represents a file that blocks a server update ("move away").

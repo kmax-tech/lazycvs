@@ -81,10 +81,14 @@ Files in here cover every status the TUI cares about:
 - src/util.go            — locally modified (M)
 - src/scratch.go         — untracked, needs `a` to add (?)
 - docs/CONTRIBUTING.md   — untracked, needs `a` to add (?)
+- experiments/           — entire directory is new to CVS (?)
 - src/feature.go         — added but uncommitted, needs `c` (A)
 - docs/TODO.md           — added but uncommitted, needs `c` (A)
 - docs/notes.txt         — IN CONFLICT (C) after parallel edit
 - docs/icon.bin          — small binary file
+- src/debug.log          — ignored by .cvsignore (I)
+- docs/notes.aux         — ignored by .cvsignore (I)
+- build/                 — ignored directory
 
 The history of src/main.go and src/util.go has multiple revisions
 so the History tab has something to scroll through.
@@ -261,6 +265,32 @@ to schedule it for addition (status flips ? → A), then `c` to commit.
 4. Open a pull request
 """)
 
+    print("==> introducing untracked directory with files (? dir)")
+    write(wc / "experiments/prototype.go", """\
+package experiments
+
+func prototype() string {
+\treturn "this whole directory is new to CVS"
+}
+""")
+    write(wc / "experiments/config.yaml", """\
+name: prototype
+version: 0.1
+enabled: true
+""")
+
+    print("==> adding .cvsignore and ignored files")
+    write(wc / ".cvsignore", """\
+*.log
+*.tmp
+*.aux
+*.blg
+build/
+""")
+    write(wc / "build/output.bin", content="", binary=b"\x00compiled\x00")
+    write(wc / "src/debug.log", "2026-04-28 10:00:00 DEBUG starting up\n")
+    write(wc / "docs/notes.aux", "\\relax\n")
+
     print("==> adding new files (A status — added, not committed)")
     write(wc / "src/feature.go", """\
 package main
@@ -297,8 +327,6 @@ can resolve from inside the TUI to test the merge tool integration.
 Architecture (UPSTREAM EDIT):
 - single-package Go program
 - no external dependencies
-- runs locally without a server
-- vendored libraries are forbidden
 
 Status:
 - All commits made through cvs CLI directly.
@@ -350,8 +378,11 @@ Status:
     print(f"  {lazycvs_path}\n")
     print("Things to test:\n")
     print("  Tree tab (1)")
-    print("    - status markers: M (util.go), ? (scratch.go), A (feature.go,")
-    print("      TODO.md), C (notes.txt), per-dir aggregate counts")
+    print("    - status markers: M (util.go), ? (scratch.go, experiments/),")
+    print("      A (feature.go, TODO.md), C (notes.txt), I (debug.log, notes.aux)")
+    print("    - experiments/ is a new dir: files inside should show ? and")
+    print("      be committable (auto-adds parent dir + file)")
+    print("    - ignored files (I) hidden by default; Shift+I to toggle")
     print("    - press d on src/util.go    → History tab opens at WORK row")
     print("    - press space on a file     → mark for commit")
     print("    - press 3                   → Staged tab with marked files\n")

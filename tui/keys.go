@@ -14,6 +14,7 @@ type keyMap struct {
 	FocusL  key.Binding
 	FocusR  key.Binding
 	FocusC  key.Binding
+	Status  key.Binding
 	Update  key.Binding
 	Help    key.Binding
 
@@ -70,6 +71,7 @@ var keys = keyMap{
 	FocusL:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "left panel")),
 	FocusR:  key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "right panel")),
 	FocusC:  key.NewBinding(key.WithKeys("ctrl+j"), key.WithHelp("C-j", "console")),
+	Status:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "status")),
 	Update:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "update")),
 	Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 
@@ -98,7 +100,7 @@ var keys = keyMap{
 	FavDel:  key.NewBinding(key.WithKeys("-"), key.WithHelp("-", "del fav")),
 
 	Blame:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "blame")),
-	SideBySide:     key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "side-by-side")),
+	SideBySide:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "parallel")),
 	CompareWorking: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "vs working")),
 	ViewMode:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view mode")),
 

@@ -88,6 +88,10 @@ func (m *DialogModel) OpenConflict(path string, conflict *cvs.ConflictFile) {
 
 func (m *DialogModel) OpenHelp() {
 	m.kind = DialogHelp
+	w := min(m.width-6, 65)
+	h := min(m.height-8, 35)
+	m.preview = viewport.New(w, h)
+	m.preview.SetContent(helpContent())
 }
 
 func (m *DialogModel) OpenForceUpdate(paths []string) {
@@ -159,6 +163,29 @@ type editorClosedMsg struct {
 	err  error
 }
 
+// ensureParentDirs adds any ancestor directories of relPath that are not yet
+// known to CVS (i.e. missing a CVS/ subdirectory). Directories are added
+// top-down so that `cvs add <file>` inside a new directory tree succeeds.
+func ensureParentDirs(exec *cvs.CVSExecutor, relPath string) error {
+	dir := filepath.Dir(relPath)
+	if dir == "." || dir == "" {
+		return nil
+	}
+	// Collect ancestors that need adding (bottom-up), then add top-down.
+	var missing []string
+	for d := dir; d != "." && d != ""; d = filepath.Dir(d) {
+		cvsDir := filepath.Join(exec.WorkDir, d, "CVS")
+		if info, err := os.Stat(cvsDir); err == nil && info.IsDir() {
+			break
+		}
+		missing = append(missing, d)
+	}
+	for i := len(missing) - 1; i >= 0; i-- {
+		exec.Run("add", missing[i])
+	}
+	return nil
+}
+
 // doCommit runs `cvs add` for any untracked paths first (one command per
 // file so each shows in the console), then a single `cvs commit -m msg` for
 // all files. After cvs-add the untracked files are in A status and the
@@ -171,6 +198,7 @@ func doCommit(exec *cvs.CVSExecutor, message string, untracked, files []string) 
 	return func() tea.Msg {
 		var firstErr error
 		for _, p := range untracked {
+			ensureParentDirs(exec, p)
 			r, err := exec.Run("add", p)
 			if firstErr == nil && err != nil && (r == nil || !r.Success) {
 				firstErr = err
@@ -194,8 +222,7 @@ func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
 			os.WriteFile(path+".lazycvs-backup", data, 0644)
 		}
 		exec.Run("update", "-C", path)
-		result, _ := exec.DryRunUpdate()
-		return statusRefreshedMsg{result: result}
+		return actionDoneMsg{paths: []string{path}}
 	}
 }
 
@@ -270,8 +297,11 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 		case DialogHelp:
 			if key.Matches(msg, keys.Escape) || msg.String() == "?" || msg.String() == "q" {
 				m.Close()
+				return m, nil
 			}
-			return m, nil
+			var cmd tea.Cmd
+			m.preview, cmd = m.preview.Update(msg)
+			return m, cmd
 		}
 	}
 
@@ -291,9 +321,6 @@ func (m DialogModel) updateCommit(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 		return m, nil
 	case key.Matches(msg, keys.Enter):
 		message := m.input.Value()
-		if message == "" {
-			return m, nil
-		}
 		// Universal commit: include untracked (?), added (A), modified (M),
 		// conflict (C), removed (R). The handler runs `cvs add` for ?
 		// files first, then a single `cvs commit` for everything.
@@ -581,6 +608,16 @@ func (m DialogModel) viewForceUpdate() string {
 func (m DialogModel) viewHelp() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Keybindings") + "\n\n")
+	b.WriteString(m.preview.View())
+
+	pct := m.preview.ScrollPercent()
+	scroll := helpStyle.Render(fmt.Sprintf("  ↑/↓:scroll  %.0f%%", pct*100))
+	b.WriteString("\n" + scroll + "  " + helpStyle.Render("esc:close"))
+	return b.String()
+}
+
+func helpContent() string {
+	var b strings.Builder
 
 	b.WriteString(titleStyle.Render("Global") + "\n")
 	b.WriteString(keyHelp(keys.Tab1, keys.Tab2, keys.Tab3, keys.Tab4) + "\n")
@@ -633,9 +670,10 @@ func (m DialogModel) viewHelp() string {
 	b.WriteString(lipgloss.NewStyle().Foreground(colorUpdated).Render("  U") + "  Updated — newer revision on server, pull with " + keyStyle.Render("u") + "\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorConflict).Render("  C") + "  Conflict — both you and server changed it\n")
 	b.WriteString(lipgloss.NewStyle().Foreground(colorUntracked).Render("  ?") + "  Untracked — not in CVS\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorUpdated).Render("  A") + "  Added — scheduled for commit\n\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(colorIgnored).Render("  I") + "  Ignored — matched by .cvsignore (Shift+I to toggle)\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(colorUpdated).Render("  A") + "  Added — scheduled for commit\n")
+	b.WriteString(lipgloss.NewStyle().Foreground(colorConflict).Render("  R") + "  Removed — scheduled for deletion\n")
 
-	b.WriteString(helpStyle.Render("esc:close"))
 	return b.String()
 }
 

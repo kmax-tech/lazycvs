@@ -1,7 +1,6 @@
 package cvs
 
 import (
-	"fmt"
 	"strconv"
 	"strings"
 )
@@ -196,13 +195,3 @@ func copyLine(l DiffLine) *DiffLine {
 	return &l
 }
 
-// FormatFileSize returns a human-readable file size.
-func FormatFileSize(size int64) string {
-	if size < 1024 {
-		return fmt.Sprintf("%d B", size)
-	}
-	if size < 1024*1024 {
-		return fmt.Sprintf("%.1f KB", float64(size)/1024)
-	}
-	return fmt.Sprintf("%.1f MB", float64(size)/(1024*1024))
-}

@@ -232,6 +232,12 @@ func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
 func (m App) Init() tea.Cmd {
 	initEpoch := m.statusEpoch
 	return tea.Batch(
+		// Clear the screen up front so the initial frame doesn't paint
+		// on top of stale content the terminal had before lazycvs
+		// started. Without this, cells outside the first frame's bounds
+		// can carry through (the "default-state corruption" that goes
+		// away as soon as the user resizes the terminal).
+		tea.ClearScreen,
 		m.tree.Init(),
 		backgroundDirScan(m.exec, initEpoch, m.initialPath),
 	)

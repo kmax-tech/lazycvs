@@ -217,7 +217,7 @@ func (m *App) updateFileListForDir(dir string) {
 		switch len(parts) {
 		case 1:
 			// Direct child of dir, missing on disk.
-			files = append(files, cvs.FileEntry{Path: path, Status: status})
+			files = append(files, cvs.FileEntry{Path: path, Status: status, ServerOnly: true})
 		case 2:
 			// File inside an immediate subdir — attach to the matching
 			// SubDirGroup if we already have one. Skip otherwise (the
@@ -225,7 +225,7 @@ func (m *App) updateFileListForDir(dir string) {
 			subdirName := parts[0]
 			for j := range subDirs {
 				if subDirs[j].Name == subdirName {
-					subDirs[j].Files = append(subDirs[j].Files, cvs.FileEntry{Path: path, Status: status})
+					subDirs[j].Files = append(subDirs[j].Files, cvs.FileEntry{Path: path, Status: status, ServerOnly: true})
 					break
 				}
 			}

@@ -385,8 +385,15 @@ func (m FileListModel) View() string {
 				name = "  " + name
 			}
 
+			// Right-hand column: size, or "(server)" for entries that
+			// CVS reports a status for but which don't exist locally
+			// yet (e.g. files newly added on the server). 8 chars
+			// matches the formatSize column width.
 			size := ""
-			if f.Size > 0 {
+			switch {
+			case f.ServerOnly:
+				size = "(server)"
+			case f.Size > 0:
 				size = formatSize(f.Size)
 			}
 

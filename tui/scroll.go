@@ -17,3 +17,16 @@ func ensureCursorVisible(cursor, offset, visibleRows int) int {
 	}
 	return offset
 }
+
+// clamp returns v constrained to [lo, hi]. Used by the mouse handlers to
+// keep cursor positions in range when the user wheel-scrolls past the
+// list bounds.
+func clamp(v, lo, hi int) int {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
+}

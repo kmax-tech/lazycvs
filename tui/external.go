@@ -389,3 +389,18 @@ func (m *App) handleConflictResolve(msg conflictResolveMsg) tea.Cmd {
 	os.WriteFile(fullPath, []byte(resolved), 0644)
 	return m.refreshStatusForPaths([]string{msg.path})
 }
+
+// openInOS opens the given path with the OS default viewer (macOS open,
+// Linux xdg-open). The launch is fire-and-forget — we don't wait for the
+// viewer to exit and don't surface launch failures.
+func openInOS(path string) tea.Cmd {
+	return func() tea.Msg {
+		bin := "open"
+		if _, err := os.Stat("/usr/bin/xdg-open"); err == nil {
+			bin = "xdg-open"
+		}
+		cmd := exec.Command(bin, path)
+		cmd.Start()
+		return nil
+	}
+}

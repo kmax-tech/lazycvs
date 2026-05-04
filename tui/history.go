@@ -338,16 +338,9 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 }
 
 func (m *HistoryModel) ensureVisible() {
-	visibleCount := m.height / 2
-	if visibleCount < 1 {
-		visibleCount = 1
-	}
-	if m.cursor < m.offset {
-		m.offset = m.cursor
-	}
-	if m.cursor >= m.offset+visibleCount {
-		m.offset = m.cursor - visibleCount + 1
-	}
+	// Each revision takes two rows (header + description), so the
+	// visible-row count is half the panel height.
+	m.offset = ensureCursorVisible(m.cursor, m.offset, m.height/2)
 }
 
 func (m *HistoryModel) SetSize(leftWidth, rightWidth, height int) {

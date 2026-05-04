@@ -96,12 +96,8 @@ func (m StagedModel) PathsByStatus(statuses ...string) []string {
 }
 
 func (m *StagedModel) ensureVisible() {
-	if m.cursor < m.offset {
-		m.offset = m.cursor
-	}
-	if m.cursor >= m.offset+m.height-1 {
-		m.offset = m.cursor - m.height + 2
-	}
+	// One row reserved for the header line.
+	m.offset = ensureCursorVisible(m.cursor, m.offset, m.height-1)
 }
 
 func (m StagedModel) ViewLeft() string {

@@ -320,6 +320,17 @@ func (m *TreeModel) rebuildFlat() {
 	}
 }
 
+// RefreshStatus annotates every node with the new statusMap and rebuilds
+// the flattened display list. Callers used to do these two steps in
+// sequence everywhere; bundling them keeps the order correct (nodes must
+// be annotated before flattening, so aggregate counts on directories are
+// up to date) and prevents the silent-display-bug class where one of the
+// two calls is forgotten.
+func (m *TreeModel) RefreshStatus(statusMap map[string]string) {
+	m.applyStatusToNodes(m.root, statusMap)
+	m.rebuildFlat()
+}
+
 func (m *TreeModel) flatten(nodes []*TreeNode, depth int) {
 	for _, n := range nodes {
 		if !n.IsDir && !m.showFiles {
@@ -404,12 +415,7 @@ func (m *TreeModel) collapseAll(node *TreeNode) {
 }
 
 func (m *TreeModel) ensureVisible() {
-	if m.cursor < m.offset {
-		m.offset = m.cursor
-	}
-	if m.cursor >= m.offset+m.height {
-		m.offset = m.cursor - m.height + 1
-	}
+	m.offset = ensureCursorVisible(m.cursor, m.offset, m.height)
 }
 
 func (m *TreeModel) findNode(path string) *TreeNode {

@@ -286,12 +286,7 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 }
 
 func (m *FileListModel) ensureVisible() {
-	if m.cursor < m.offset {
-		m.offset = m.cursor
-	}
-	if m.cursor >= m.offset+m.height {
-		m.offset = m.cursor - m.height + 1
-	}
+	m.offset = ensureCursorVisible(m.cursor, m.offset, m.height)
 }
 
 func (m FileListModel) View() string {

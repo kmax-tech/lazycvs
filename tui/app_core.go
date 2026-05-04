@@ -208,6 +208,24 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 	}
 }
 
+// applyStatuses removes statusMap entries listed in toClear, then merges
+// the codes parsed from statuses on top, and refreshes the tree and
+// staged panel. Used by both dirStatusMsg (clears a whole directory)
+// and stagedStatusMsg (clears specific paths) so the
+// clear-then-merge-then-refresh sequence stays in one place.
+func (m *App) applyStatuses(toClear []string, statuses []cvs.FileStatus) {
+	for _, p := range toClear {
+		delete(m.statusMap, p)
+	}
+	for _, fs := range statuses {
+		if code := cvsStatusCode(fs.Status); code != "" {
+			m.statusMap[fs.Path] = code
+		}
+	}
+	m.tree.RefreshStatus(m.statusMap)
+	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+}
+
 // rebuildStatusMap replaces the map with fresh entries derived from a dry-run
 // update result. Called from the statusRefreshedMsg handler.
 func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
@@ -354,21 +372,14 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.dirEpoch[msg.dir] = msg.epoch
+		var toClear []string
 		for path := range m.statusMap {
 			if filepath.Dir(path) == msg.dir {
-				delete(m.statusMap, path)
+				toClear = append(toClear, path)
 			}
 		}
-		for _, fs := range msg.statuses {
-			code := cvsStatusCode(fs.Status)
-			if code != "" {
-				m.statusMap[fs.Path] = code
-			}
-		}
-		m.tree.applyStatusToNodes(m.tree.root, m.statusMap)
-		m.tree.rebuildFlat()
+		m.applyStatuses(toClear, msg.statuses)
 		m.updateFileList()
-		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		return m, nil
 
 	case statusRefreshedMsg:
@@ -378,8 +389,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for dir := range m.dirEpoch {
 				m.dirEpoch[dir] = msg.epoch
 			}
-			m.tree.applyStatusToNodes(m.tree.root, m.statusMap)
-			m.tree.rebuildFlat()
+			m.tree.RefreshStatus(m.statusMap)
 			m.favorites.UpdateCounts(m.statusMap)
 			m.updateFileList()
 			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
@@ -506,19 +516,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.stagedBulkAction("revert", msg.paths)
 
 	case stagedStatusMsg:
-		// Clear old status for checked files, apply new
-		for _, p := range msg.paths {
-			delete(m.statusMap, p)
-		}
-		for _, fs := range msg.statuses {
-			code := cvsStatusCode(fs.Status)
-			if code != "" {
-				m.statusMap[fs.Path] = code
-			}
-		}
-		m.tree.applyStatusToNodes(m.tree.root, m.statusMap)
-		m.tree.rebuildFlat()
-		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+		m.applyStatuses(msg.paths, msg.statuses)
 		return m, nil
 
 	case previewMsg:

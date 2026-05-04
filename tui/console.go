@@ -161,11 +161,14 @@ func (m *ConsoleModel) refreshContent() {
 	m.viewport.GotoBottom()
 }
 
-func (m *ConsoleModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
-	m.viewport.Width = width
-	m.viewport.Height = height
+// SetSize takes the App's layout envelope. The console spans the full
+// terminal width below the main panels, so the App passes the total
+// width via LeftW; RightW is unused.
+func (m *ConsoleModel) SetSize(d PanelDims) {
+	m.width = d.LeftW
+	m.height = d.Height
+	m.viewport.Width = d.LeftW
+	m.viewport.Height = d.Height
 }
 
 func (m ConsoleModel) View() string {

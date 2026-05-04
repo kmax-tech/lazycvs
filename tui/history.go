@@ -343,13 +343,16 @@ func (m *HistoryModel) ensureVisible() {
 	m.offset = ensureCursorVisible(m.cursor, m.offset, m.height/2)
 }
 
-func (m *HistoryModel) SetSize(leftWidth, rightWidth, height int) {
-	widthChanged := rightWidth != m.rightWidth
-	m.leftWidth = leftWidth
-	m.rightWidth = rightWidth
-	m.height = height
-	m.viewport.Width = rightWidth
-	m.viewport.Height = height
+// SetSize takes the App's layout envelope. History fills both panels —
+// revisions list on the left, diff/content viewport on the right — so it
+// reads LeftW, RightW, and Height.
+func (m *HistoryModel) SetSize(d PanelDims) {
+	widthChanged := d.RightW != m.rightWidth
+	m.leftWidth = d.LeftW
+	m.rightWidth = d.RightW
+	m.height = d.Height
+	m.viewport.Width = d.RightW
+	m.viewport.Height = d.Height
 	// On a width change we have to re-render the right-pane content at
 	// the new width: the cached rawView was computed for the old width
 	// and stretching/squeezing it by changing the viewport bounds alone

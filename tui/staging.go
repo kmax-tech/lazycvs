@@ -53,11 +53,14 @@ func (m *StagedModel) Refresh(marked map[string]bool, resolveStatus func(string)
 	}
 }
 
-func (m *StagedModel) SetSize(leftWidth, rightWidth, height int) {
-	m.leftWidth = leftWidth
-	m.rightWidth = rightWidth
-	m.height = height
-	m.input.Width = max(10, rightWidth-4)
+// SetSize takes the App's layout envelope. Staged fills both panels —
+// file list on the left, commit form on the right — so it reads LeftW,
+// RightW, and Height.
+func (m *StagedModel) SetSize(d PanelDims) {
+	m.leftWidth = d.LeftW
+	m.rightWidth = d.RightW
+	m.height = d.Height
+	m.input.Width = max(10, d.RightW-4)
 }
 
 func (m StagedModel) SelectedPath() string {

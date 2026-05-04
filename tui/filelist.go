@@ -63,9 +63,12 @@ func (m *FileListModel) SetFiles(dir string, files []cvs.FileEntry, subDirs []Su
 	m.offset = 0
 }
 
-func (m *FileListModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
+// SetSize takes the App's layout envelope. FileList fills the right panel
+// only (in the Tree and Favorites tabs), so it reads RightW and Height;
+// LeftW is ignored.
+func (m *FileListModel) SetSize(d PanelDims) {
+	m.width = d.RightW
+	m.height = d.Height
 }
 
 // rows builds the flat navigable list based on current mode and filter.

@@ -10,18 +10,30 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// PanelDims is the layout envelope passed to every sub-model's SetSize.
+// Each model reads only the fields it cares about: a single-panel model
+// (tree, filelist, favorites, console) ignores the side it doesn't fill;
+// a two-panel model (staged, history) reads both LeftW and RightW. Zero
+// values for unread fields are by design — they're never inspected, so
+// no sentinel logic is needed inside the models.
+type PanelDims struct {
+	LeftW  int
+	RightW int
+	Height int
+}
+
 func (m *App) updateSizes() {
 	leftW, rightW, contentH, consoleH := m.layout()
 	innerLeftW := leftW - 2
 	innerRightW := rightW - 2
 
-	m.tree.SetSize(innerLeftW, contentH)
-	m.filelist.SetSize(innerRightW, contentH)
-	m.favorites.SetSize(innerLeftW, contentH)
-	m.staged.SetSize(innerLeftW, innerRightW, contentH)
-	m.history.SetSize(innerLeftW, innerRightW, contentH)
-	m.console.SetSize(m.width-2, consoleH)
-	m.dialog.SetSize(m.width, m.height)
+	m.tree.SetSize(PanelDims{LeftW: innerLeftW, Height: contentH})
+	m.filelist.SetSize(PanelDims{RightW: innerRightW, Height: contentH})
+	m.favorites.SetSize(PanelDims{LeftW: innerLeftW, Height: contentH})
+	m.staged.SetSize(PanelDims{LeftW: innerLeftW, RightW: innerRightW, Height: contentH})
+	m.history.SetSize(PanelDims{LeftW: innerLeftW, RightW: innerRightW, Height: contentH})
+	m.console.SetSize(PanelDims{LeftW: m.width - 2, Height: consoleH})
+	m.dialog.SetSize(PanelDims{LeftW: m.width, Height: m.height})
 	m.search.width = m.width
 	m.search.height = m.height
 	if m.previewReady {

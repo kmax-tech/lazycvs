@@ -56,9 +56,11 @@ func (m FavoritesModel) SelectedPath() string {
 	return m.favorites[m.cursor].Config.Path
 }
 
-func (m *FavoritesModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
+// SetSize takes the App's layout envelope. Favorites fills the left panel
+// only, so it reads LeftW and Height; RightW is ignored.
+func (m *FavoritesModel) SetSize(d PanelDims) {
+	m.width = d.LeftW
+	m.height = d.Height
 }
 
 func (m *FavoritesModel) UpdateCounts(statusMap map[string]string) {

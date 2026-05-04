@@ -113,9 +113,12 @@ func (m *DialogModel) Close() {
 	m.input.Blur()
 }
 
-func (m *DialogModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
+// SetSize takes the App's layout envelope. Dialogs are overlays sized to
+// the full terminal, so the App passes the screen size via LeftW and
+// Height; RightW is unused.
+func (m *DialogModel) SetSize(d PanelDims) {
+	m.width = d.LeftW
+	m.height = d.Height
 }
 
 func (m DialogModel) Active() bool {

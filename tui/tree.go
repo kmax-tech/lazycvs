@@ -237,9 +237,11 @@ func (m TreeModel) SelectedNode() *TreeNode {
 	return m.flat[m.cursor].node
 }
 
-func (m *TreeModel) SetSize(width, height int) {
-	m.width = width
-	m.height = height
+// SetSize takes the App's layout envelope. Tree fills the left panel only,
+// so it reads LeftW and Height; RightW is ignored.
+func (m *TreeModel) SetSize(d PanelDims) {
+	m.width = d.LeftW
+	m.height = d.Height
 }
 
 // applyStatusToNodes annotates each TreeNode with its status and aggregate

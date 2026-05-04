@@ -242,6 +242,13 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			return nil, true
 		}
 		if m.activeTab == TabHistory {
+			// In a comparison? Clear the comparison first; only leave
+			// the tab on a second Escape.
+			if m.history.compareAnchor >= 0 || m.history.vsWorking {
+				m.history.compareAnchor = -1
+				m.history.vsWorking = false
+				return m.loadHistoryContent(), true
+			}
 			m.activeTab = TabTree
 			return nil, true
 		}
@@ -413,9 +420,15 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		case TabHistory:
 			prevCursor := m.history.cursor
 			prevMode := m.history.mode
+			prevAnchor := m.history.compareAnchor
+			prevWorking := m.history.vsWorking
 			var cmd tea.Cmd
 			m.history, cmd = m.history.Update(msg)
-			if m.history.cursor != prevCursor || m.history.mode != prevMode || key.Matches(msg, keys.Enter) {
+			if m.history.cursor != prevCursor ||
+				m.history.mode != prevMode ||
+				m.history.compareAnchor != prevAnchor ||
+				m.history.vsWorking != prevWorking ||
+				key.Matches(msg, keys.Enter) {
 				contentCmd := m.loadHistoryContent()
 				return tea.Batch(cmd, contentCmd)
 			}

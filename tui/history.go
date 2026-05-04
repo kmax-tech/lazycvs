@@ -23,13 +23,16 @@ const (
 	HistoryBlame
 )
 
-// historyFileUI is the per-file UI state (cursor, mode, scroll). Preserved
-// across file switches so navigating away and back keeps the user's place.
+// historyFileUI is the per-file UI state (cursor, mode, scroll, compare
+// state). Preserved across file switches so navigating away and back
+// keeps the user's place — including any active comparison.
 type historyFileUI struct {
-	cursor  int
-	offset  int
-	mode    HistoryMode
-	diffSBS bool
+	cursor        int
+	offset        int
+	mode          HistoryMode
+	diffSBS       bool
+	compareAnchor int
+	vsWorking     bool
 }
 
 // HistoryModel renders the History tab. It owns only the *current* view
@@ -62,6 +65,17 @@ type HistoryModel struct {
 	diffFromRev string
 	diffToRev   string
 
+	// compareAnchor is the index of a revision the user pinned as the
+	// "from" side of a diff via the space key. -1 = no anchor; in that
+	// case the parent revision is used as "from". When set, the right
+	// pane shows revisions[anchor] ↔ cursor instead of cursor.parent ↔
+	// cursor.
+	compareAnchor int
+
+	// vsWorking, when true, replaces the "to" side of the diff with the
+	// on-disk working copy. Toggled with the w key.
+	vsWorking bool
+
 	viewport viewport.Model
 	hOffset  int
 	rawView  string
@@ -72,7 +86,8 @@ type HistoryModel struct {
 
 func NewHistoryModel() HistoryModel {
 	return HistoryModel{
-		uiState: make(map[string]historyFileUI),
+		compareAnchor: -1,
+		uiState:       make(map[string]historyFileUI),
 	}
 }
 
@@ -134,6 +149,35 @@ func loadRevisionDiff(exec *cvs.CVSExecutor, path, fromRev, toRev string) tea.Cm
 	}
 }
 
+// loadWorkingDiff runs `cvs diff -u -r <fromRev> <file>` (one -r flag), which
+// produces a diff from fromRev to the on-disk working copy. The result is
+// stored in the diff cache under the sentinel toRev "@working" so the
+// working-copy comparison gets cached just like a rev-to-rev diff.
+func loadWorkingDiff(exec *cvs.CVSExecutor, path, fromRev string) tea.Cmd {
+	return func() tea.Msg {
+		result, _ := exec.RunReadOnly("diff", "-u", "-r", fromRev, path)
+		var diff *cvs.DiffResult
+		if result != nil {
+			diff = cvs.ParseDiff(cvs.EnsureUTF8(result.Stdout))
+		}
+		return historyDiffMsg{path: path, fromRev: fromRev, toRev: workingRev, diff: diff}
+	}
+}
+
+// workingRev is the sentinel revision string used as the "to" side of a
+// working-copy diff. It's not a real CVS revision, just a stable cache
+// key and label. prettyRev maps it to a human-readable form for titles.
+const workingRev = "@working"
+
+// prettyRev converts internal sentinel revision identifiers into the
+// labels we want to show in panel titles.
+func prettyRev(rev string) string {
+	if rev == workingRev {
+		return "working"
+	}
+	return rev
+}
+
 func loadBlame(exec *cvs.CVSExecutor, path string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := exec.RunReadOnly("annotate", path)
@@ -152,7 +196,12 @@ func loadBlame(exec *cvs.CVSExecutor, path string) tea.Cmd {
 func (m *HistoryModel) SwitchTo(path string) {
 	if m.path != "" {
 		m.uiState[m.path] = historyFileUI{
-			cursor: m.cursor, offset: m.offset, mode: m.mode, diffSBS: m.diffSBS,
+			cursor:        m.cursor,
+			offset:        m.offset,
+			mode:          m.mode,
+			diffSBS:       m.diffSBS,
+			compareAnchor: m.compareAnchor,
+			vsWorking:     m.vsWorking,
 		}
 	}
 	m.path = path
@@ -164,11 +213,18 @@ func (m *HistoryModel) SwitchTo(path string) {
 	m.hOffset = 0
 	m.rawView = ""
 	if s, ok := m.uiState[path]; ok {
-		m.cursor, m.offset, m.mode, m.diffSBS = s.cursor, s.offset, s.mode, s.diffSBS
+		m.cursor = s.cursor
+		m.offset = s.offset
+		m.mode = s.mode
+		m.diffSBS = s.diffSBS
+		m.compareAnchor = s.compareAnchor
+		m.vsWorking = s.vsWorking
 	} else {
 		m.cursor, m.offset = 0, 0
 		m.mode = HistoryDiff
 		m.diffSBS = false
+		m.compareAnchor = -1
+		m.vsWorking = false
 	}
 }
 
@@ -247,6 +303,21 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 			m.diffSBS = !m.diffSBS
 			m.setView(m.renderDiffView())
 		}
+	case key.Matches(keyMsg, keys.Space):
+		// Toggle the "from" anchor. Pressing space on the already-anchored
+		// row clears it; otherwise pin the cursor row as the comparison
+		// origin. Force Diff mode so the result is visible.
+		if m.compareAnchor == m.cursor {
+			m.compareAnchor = -1
+		} else {
+			m.compareAnchor = m.cursor
+		}
+		m.mode = HistoryDiff
+	case key.Matches(keyMsg, keys.CompareWorking):
+		// Toggle the "to" side between the cursor's revision and the
+		// on-disk working copy.
+		m.vsWorking = !m.vsWorking
+		m.mode = HistoryDiff
 	case keyMsg.String() == "<":
 		if m.hOffset > 0 {
 			m.hOffset -= hScrollStep
@@ -381,12 +452,33 @@ func (m HistoryModel) ViewLeft() string {
 		date := rev.Date.Format("Jan 02 06")
 
 		isCursor := i == m.cursor
+		isAnchor := i == m.compareAnchor
+		// Marker glyph at column 0:
+		//   "▌" — cursor row (also reverse-video styled below)
+		//   "▸" — comparison anchor row (when not also the cursor)
+		//   " " — neither
+		// The cursor case wins when both are true; the reverse-video on
+		// the whole row makes the anchor's identity unambiguous from the
+		// title bar instead.
 		marker := " "
-		if isCursor {
+		switch {
+		case isCursor:
 			marker = "▌"
+		case isAnchor:
+			marker = "▸"
 		}
 
-		line1 := fmt.Sprintf("%s%-6s %-8s %s", marker, rev.Number, truncate(rev.Author, 8), date)
+		// Render the marker with the active color when it's the anchor
+		// glyph; the cursor glyph picks up reverse-video below and
+		// doesn't need a foreground tint.
+		var renderedMarker string
+		if isAnchor && !isCursor {
+			renderedMarker = lipgloss.NewStyle().Foreground(colorActive).Render(marker)
+		} else {
+			renderedMarker = marker
+		}
+
+		line1 := fmt.Sprintf("%s%-6s %-8s %s", renderedMarker, rev.Number, truncate(rev.Author, 8), date)
 		if len(rev.Tags) > 0 {
 			line1 += " " + lipgloss.NewStyle().Foreground(colorStale).Render(truncate(rev.Tags[0], 12))
 		}
@@ -399,7 +491,7 @@ func (m HistoryModel) ViewLeft() string {
 				lipgloss.NewStyle().Foreground(colorUpdated).Render(fmt.Sprintf("+%d", rev.LinesAdded)),
 				lipgloss.NewStyle().Foreground(colorConflict).Render(fmt.Sprintf("-%d", rev.LinesRemoved)))
 		}
-		line2 := marker + "  " + mutedStyle.Render(msg) + delta
+		line2 := renderedMarker + "  " + mutedStyle.Render(msg) + delta
 
 		if isCursor {
 			sel := lipgloss.NewStyle().Reverse(true)

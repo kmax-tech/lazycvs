@@ -486,16 +486,37 @@ func (m *App) currentContentKey() string {
 }
 
 // currentDiffKey returns the (from, to) pair the cursor is asking for, or
-// ("", "") when not in a diff scenario.
+// ("", "") when not in a diff scenario. The "from" side defaults to the
+// cursor revision's parent but is overridden by an active compare anchor.
+// The "to" side defaults to the cursor revision but is replaced by the
+// workingRev sentinel when vs-working is toggled.
 func (m *App) currentDiffKey() (string, string) {
 	if m.history.mode != HistoryDiff {
 		return "", ""
 	}
 	rev := m.history.SelectedRevision()
-	if rev == nil || rev.PrevNumber == "" {
+	if rev == nil {
 		return "", ""
 	}
-	return rev.PrevNumber, rev.Number
+
+	fromRev := rev.PrevNumber
+	if a := m.history.compareAnchor; a >= 0 && a < len(m.history.revisions) {
+		fromRev = m.history.revisions[a].Number
+	}
+	toRev := rev.Number
+	if m.history.vsWorking {
+		toRev = workingRev
+	}
+
+	// Initial revision with no parent and no anchor — nothing to diff.
+	if fromRev == "" {
+		return "", ""
+	}
+	// Anchor on the cursor row with no working-copy override is a no-op.
+	if fromRev == toRev {
+		return "", ""
+	}
+	return fromRev, toRev
 }
 
 // loadHistoryContent figures out what the right pane should be showing
@@ -524,11 +545,14 @@ func (m *App) loadHistoryContent() tea.Cmd {
 	case HistoryBlame:
 		return m.serveBlame(path)
 	case HistoryDiff:
-		if rev.PrevNumber == "" {
-			// Initial revision — show its content, since there's no parent.
+		fromRev, toRev := m.currentDiffKey()
+		if fromRev == "" {
+			// No diff to compute — initial revision with no parent or
+			// the anchor coincides with the cursor row. Fall back to
+			// the revision's content.
 			return m.serveContent(path, rev.Number)
 		}
-		return m.serveDiff(path, rev.PrevNumber, rev.Number)
+		return m.serveDiff(path, fromRev, toRev)
 	}
 	return nil
 }
@@ -552,19 +576,50 @@ func (m *App) serveDiff(path, fromRev, toRev string) tea.Cmd {
 	cacheKey := fromRev + ":" + toRev
 	if cached, ok := m.histDiffs[path][cacheKey]; ok {
 		m.history.ApplyDiff(fromRev, toRev, cached)
-		return m.prefetchAdjacentDiffs(path)
+		// Prefetch only makes sense for the default parent-diff case;
+		// in compare/working modes the adjacency relationship doesn't
+		// hold and prefetching neighbors would just be wasted work.
+		if m.parentDiff(fromRev, toRev) {
+			return m.prefetchAdjacentDiffs(path)
+		}
+		return nil
 	}
 	pendKey := "diff:" + path + ":" + cacheKey
 	if m.histPending[pendKey] {
-		return m.prefetchAdjacentDiffs(path)
+		return nil
 	}
 	m.histPending[pendKey] = true
-	main := loadRevisionDiff(m.exec, path, fromRev, toRev)
+
+	var loader tea.Cmd
+	if toRev == workingRev {
+		loader = loadWorkingDiff(m.exec, path, fromRev)
+	} else {
+		loader = loadRevisionDiff(m.exec, path, fromRev, toRev)
+	}
+
+	if !m.parentDiff(fromRev, toRev) {
+		return loader
+	}
 	prefetch := m.prefetchAdjacentDiffs(path)
 	if prefetch == nil {
-		return main
+		return loader
 	}
-	return tea.Batch(main, prefetch)
+	return tea.Batch(loader, prefetch)
+}
+
+// parentDiff reports whether (fromRev, toRev) is the cursor's natural
+// parent-vs-cursor diff. Anchored compares and working-copy diffs are
+// excluded — they don't follow the linear adjacency that prefetching
+// exploits.
+func (m *App) parentDiff(fromRev, toRev string) bool {
+	if m.history.compareAnchor >= 0 || m.history.vsWorking {
+		return false
+	}
+	rev := m.history.SelectedRevision()
+	if rev == nil {
+		return false
+	}
+	return fromRev == rev.PrevNumber && toRev == rev.Number
 }
 
 func (m *App) serveBlame(path string) tea.Cmd {

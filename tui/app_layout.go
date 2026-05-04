@@ -319,12 +319,19 @@ func (m App) renderMainContent() string {
 				rightTitle = "Content"
 			}
 		case HistoryDiff:
-			if m.history.diffFromRev != "" && m.history.diffToRev != "" {
-				rightTitle = fmt.Sprintf("Diff — %s ↔ %s", m.history.diffFromRev, m.history.diffToRev)
-			} else if m.history.diffToRev != "" {
-				rightTitle = fmt.Sprintf("Content — %s (initial)", m.history.diffToRev)
-			} else {
-				rightTitle = "Diff"
+			from := m.history.diffFromRev
+			to := prettyRev(m.history.diffToRev)
+			verb := "Diff"
+			if m.history.compareAnchor >= 0 {
+				verb = "Compare"
+			}
+			switch {
+			case from != "" && to != "":
+				rightTitle = fmt.Sprintf("%s — %s ↔ %s", verb, from, to)
+			case to != "":
+				rightTitle = fmt.Sprintf("Content — %s (initial)", to)
+			default:
+				rightTitle = verb
 			}
 		case HistoryBlame:
 			rightTitle = "Blame"
@@ -400,10 +407,18 @@ func (m App) renderKeybar() string {
 			keyHelp(keys.Diff) + mergeHint
 	case TabHistory:
 		hScroll := keyStyle.Render("</>") + ":scroll"
-		if m.history.mode == HistoryDiff {
-			actions = keyHelp(keys.SideBySide, keys.Blame, keys.Edit, keys.EditDiff) + "  " + hScroll
+		spAnchor := keyStyle.Render("space") + ":anchor"
+		if m.history.compareAnchor >= 0 || m.history.vsWorking {
+			// In a comparison: surface Esc as the way out, and keep
+			// the toggle for working-copy on the keybar.
+			actions = keyHelp(keys.SideBySide, keys.Blame, keys.CompareWorking, keys.Escape) +
+				"  " + spAnchor + "  " + hScroll
+		} else if m.history.mode == HistoryDiff {
+			actions = keyHelp(keys.SideBySide, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking) +
+				"  " + spAnchor + "  " + hScroll
 		} else {
-			actions = keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff) + "  " + hScroll
+			actions = keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking) +
+				"  " + spAnchor + "  " + hScroll
 		}
 	}
 

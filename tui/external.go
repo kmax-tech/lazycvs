@@ -270,3 +270,122 @@ func launchExternalMerge(cfg config.Config, base, local, remote, merged string) 
 		return externalDiffMsg{}
 	}
 }
+
+// --- App-level dispatch helpers ----------------------------------------
+
+// diffSide describes one side of an external-diff invocation.
+// If working is true, the file is the on-disk working copy (no extraction).
+// Otherwise rev is checked out via `cvs update -p [-r rev]` to a temp file
+// (rev="" means HEAD).
+type diffSide struct {
+	rev     string
+	working bool
+}
+
+// launchExternalDiffFor extracts both sides to files (or uses the working
+// file directly) and spawns the configured external diff tool. If no tool is
+// configured, opens a preview dialog explaining how to set one.
+func (m *App) launchExternalDiffFor(path string, left, right diffSide) tea.Cmd {
+	cfg := m.cfgMgr.Get()
+	if cfg.Editor.DiffTool == "" && cfg.Editor.DiffCommand == "" {
+		m.dialog.OpenPreview("external diff", "No diff tool configured.\n\n"+
+			"Set [editor] diff_tool in your config, e.g.:\n\n"+
+			"  [editor]\n"+
+			"  diff_tool = \"meld\"\n\n"+
+			"Built-in presets: vscode, emacs, vimdiff, meld,\n"+
+			"opendiff, kdiff3, diffuse, bcompare.\n\n"+
+			"Or use a custom command template:\n"+
+			"  diff_command = \"my-tool $LEFT $RIGHT\"")
+		return nil
+	}
+	executor := m.exec
+	return func() tea.Msg {
+		leftFile, err := materializeSide(executor, path, left)
+		if err != nil {
+			return externalDiffMsg{err: err}
+		}
+		rightFile, err := materializeSide(executor, path, right)
+		if err != nil {
+			return externalDiffMsg{err: err}
+		}
+		return launchExternalDiff(cfg, leftFile, rightFile)()
+	}
+}
+
+// materializeSide returns the absolute file path for a diff side, extracting
+// the revision to a temp file if necessary.
+func materializeSide(executor *cvs.CVSExecutor, path string, side diffSide) (string, error) {
+	if side.working {
+		return filepath.Join(executor.WorkDir, path), nil
+	}
+	return extractRevToTemp(executor, path, side.rev)
+}
+
+// launchExternalMergeFor extracts the four sides of a CVS conflict file and
+// spawns the configured 3-way merge tool. Returns nil with a help dialog
+// open if no merge tool is configured.
+func (m *App) launchExternalMergeFor(path string) tea.Cmd {
+	cfg := m.cfgMgr.Get()
+	if cfg.Editor.MergeTool == "" && cfg.Editor.MergeCommand == "" {
+		m.dialog.OpenPreview("merge tool", "No merge tool configured.\n\n"+
+			"Set [editor] merge_tool in your config, e.g.:\n\n"+
+			"  [editor]\n"+
+			"  merge_tool = \"meld\"\n\n"+
+			"Built-in 3-way presets: meld, kdiff3, vimdiff,\n"+
+			"vscode, opendiff, diffuse, bcompare.\n\n"+
+			"Or use a custom command:\n"+
+			"  merge_command = \"my-tool $BASE $LOCAL $REMOTE -o $MERGED\"")
+		return nil
+	}
+	executor := m.exec
+	return func() tea.Msg {
+		base, local, remote, merged, err := extractConflictSides(executor, path)
+		if err != nil {
+			return externalDiffMsg{err: err}
+		}
+		return launchExternalMerge(cfg, base, local, remote, merged)()
+	}
+}
+
+// launchExternalDiffForCurrent picks left/right based on the active tab and,
+// when on TabHistory, the history mode + cursor. The selectedPath argument is
+// the path under cursor in Tree/Fav/Staged; for TabHistory we use m.history.path.
+func (m *App) launchExternalDiffForCurrent(selectedPath string) tea.Cmd {
+	if m.activeTab != TabHistory {
+		// Working copy vs HEAD — what most users want from outside History.
+		return m.launchExternalDiffFor(selectedPath,
+			diffSide{rev: ""},          // HEAD
+			diffSide{working: true})    // local file
+	}
+
+	path := m.history.Path()
+	if path == "" {
+		return nil
+	}
+
+	rev := m.history.SelectedRevision()
+	if rev == nil {
+		return nil
+	}
+	if rev.PrevNumber == "" {
+		// First revision has no parent — nothing to diff against.
+		return nil
+	}
+	return m.launchExternalDiffFor(path,
+		diffSide{rev: rev.PrevNumber},
+		diffSide{rev: rev.Number})
+}
+
+// handleConflictResolve applies a resolution choice to a file with merge
+// markers and refreshes its status. Lives next to the merge launching code
+// because both walk the conflict-resolution flow.
+func (m *App) handleConflictResolve(msg conflictResolveMsg) tea.Cmd {
+	fullPath := filepath.Join(m.exec.WorkDir, msg.path)
+	data, err := os.ReadFile(fullPath)
+	if err != nil {
+		return nil
+	}
+	resolved := cvs.ResolveConflict(string(data), msg.choice, 0) // 0 = all regions
+	os.WriteFile(fullPath, []byte(resolved), 0644)
+	return m.refreshStatusForPaths([]string{msg.path})
+}

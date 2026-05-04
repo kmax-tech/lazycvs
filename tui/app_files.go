@@ -191,6 +191,47 @@ func (m *App) updateFileListForDir(dir string) {
 		files = append(files, cvs.FileEntry{Path: path, Status: status, Size: size, Ignored: ignored})
 	}
 
+	// Surface server-only files. CVS status "U" / "P" can refer to files
+	// that exist on the server but haven't been pulled to disk yet; they
+	// show up in statusMap (so the directory's aggregate count is right)
+	// but `os.ReadDir` doesn't see them. Without this pass the user sees
+	// "1U" on a directory and no U row to act on.
+	seen := make(map[string]bool, len(files))
+	for _, f := range files {
+		seen[f.Path] = true
+	}
+	for i := range subDirs {
+		for _, sf := range subDirs[i].Files {
+			seen[sf.Path] = true
+		}
+	}
+	for path, status := range m.statusMap {
+		if status == "" || seen[path] {
+			continue
+		}
+		if !strings.HasPrefix(path, prefix) {
+			continue
+		}
+		rel := strings.TrimPrefix(path, prefix)
+		parts := strings.Split(rel, "/")
+		switch len(parts) {
+		case 1:
+			// Direct child of dir, missing on disk.
+			files = append(files, cvs.FileEntry{Path: path, Status: status})
+		case 2:
+			// File inside an immediate subdir — attach to the matching
+			// SubDirGroup if we already have one. Skip otherwise (the
+			// subdir itself doesn't exist on disk, which is rare).
+			subdirName := parts[0]
+			for j := range subDirs {
+				if subDirs[j].Name == subdirName {
+					subDirs[j].Files = append(subDirs[j].Files, cvs.FileEntry{Path: path, Status: status})
+					break
+				}
+			}
+		}
+	}
+
 	m.filelist.SetFiles(dir, files, subDirs)
 }
 

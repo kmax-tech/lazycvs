@@ -17,23 +17,24 @@ import (
 //     m.statusMap via m.applyStatuses
 
 // resolveFileStatus returns the CVS status code for path. If statusMap
-// has no entry, walks up the file's ancestor directories (at most three
-// levels) looking for a missing CVS/ marker. A *single* missing marker
-// in the chain means the file is in a user-created subdirectory that
-// hasn't been `cvs add`-ed yet — its files aren't tracked, so we
-// report "?". The file is only treated as tracked-but-clean ("") when
-// every ancestor we checked has its own CVS/ marker.
+// has no entry, walks every ancestor directory from the file's
+// immediate parent up to the working-copy root, looking for a missing
+// CVS/ marker. A *single* missing marker anywhere in the chain means
+// the file is in a user-created subdirectory that hasn't been
+// `cvs add`-ed yet — its files aren't tracked, so we report "?". The
+// file is only treated as tracked-but-clean ("") when every ancestor
+// has its own CVS/ marker.
 //
-// Three levels is a syscall-budget cap: most "user created a fresh
-// subdir inside a managed tree" cases are caught within one or two
-// hops; deeper broken chains are accepted as the cost of not stat'ing
-// every ancestor up to the filesystem root for every file.
+// Stat'ing each ancestor is cheap (the filesystem caches inode lookups
+// and CVS depths are usually shallow), so there's no artificial cap on
+// the walk: an unbroken chain of CVS/ markers all the way to the root
+// is the only condition that returns "".
 func (m *App) resolveFileStatus(path string) string {
 	if s := m.statusMap[path]; s != "" {
 		return s
 	}
 	dir := filepath.Dir(path)
-	for i := 0; i < 3; i++ {
+	for {
 		cvsDir := filepath.Join(m.exec.WorkDir, dir, "CVS")
 		if _, err := os.Stat(cvsDir); os.IsNotExist(err) {
 			return "?"

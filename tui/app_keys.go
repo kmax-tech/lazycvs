@@ -363,8 +363,25 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			return nil
 		case key.Matches(msg, keys.Add) && selectedFile != nil && selectedFile.Status == "?":
 			return m.addFile(selectedPath)
-		case key.Matches(msg, keys.Ignore) && selectedFile != nil && selectedFile.Status == "?":
-			m.dialog.OpenIgnore(selectedPath)
+		case key.Matches(msg, keys.Ignore):
+			// If any marked files are untracked, bulk-ignore them
+			// (write each to its directory's .cvsignore). Otherwise
+			// fall back to the single-file ignore dialog on the
+			// cursor row, but only if it's actually a "?" — ignore
+			// has no meaning for tracked files.
+			marked := m.filelist.MarkedFiles()
+			var untracked []string
+			for _, p := range marked {
+				if m.statusMap[p] == "?" {
+					untracked = append(untracked, p)
+				}
+			}
+			if len(untracked) > 0 {
+				return m.stagedBulkIgnore(untracked)
+			}
+			if selectedPath != "" && m.statusMap[selectedPath] == "?" {
+				m.dialog.OpenIgnore(selectedPath)
+			}
 			return nil
 		}
 	}

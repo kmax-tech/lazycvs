@@ -406,10 +406,10 @@ func (m App) renderKeybar() string {
 	var actions string
 	switch m.activeTab {
 	case TabTree:
-		actions = keyHelp(keys.ViewMode, keys.Diff, keys.Commit, keys.MarkAll, keys.Edit, keys.Status, keys.Update) +
+		actions = keyHelp(keys.ViewMode, keys.Diff, keys.Commit, keys.MarkAll, keys.Ignore, keys.Edit, keys.Status, keys.Update) +
 			"  " + keyStyle.Render("f") + ":view  " + keyStyle.Render("t") + ":tree" + mergeHint
 	case TabFavorites:
-		actions = keyHelp(keys.Diff, keys.Commit, keys.MarkAll, keys.Edit, keys.Status, keys.Update) +
+		actions = keyHelp(keys.Diff, keys.Commit, keys.MarkAll, keys.Ignore, keys.Edit, keys.Status, keys.Update) +
 			"  " + keyStyle.Render("f") + ":view  " + keyStyle.Render("t") + ":tree" + mergeHint
 	case TabStaged:
 		// `c` covers both add+commit (for ?-files) and plain commit, so a:add

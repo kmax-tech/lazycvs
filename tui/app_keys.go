@@ -302,7 +302,22 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			m.dialog.OpenRevert(selectedPath)
 			return nil
 		case key.Matches(msg, keys.Remove) && selectedPath != "":
-			m.dialog.OpenRemove(selectedPath, m.statusMap[selectedPath])
+			// If files are marked, treat D as a bulk remove and surface
+			// every path in the dialog so the user can review before
+			// confirming. Otherwise fall back to the single-file flow on
+			// the cursor row.
+			if marked := m.filelist.MarkedFiles(); len(marked) > 0 {
+				statuses := make(map[string]string, len(marked))
+				for _, p := range marked {
+					statuses[p] = m.statusMap[p]
+				}
+				m.dialog.OpenRemove(marked, statuses)
+			} else {
+				m.dialog.OpenRemove(
+					[]string{selectedPath},
+					map[string]string{selectedPath: m.statusMap[selectedPath]},
+				)
+			}
 			return nil
 		case key.Matches(msg, keys.Space) && m.focus == PanelLeft && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 			node := m.tree.SelectedNode()

@@ -459,7 +459,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// removeDoneMsg handler clean up after success, mirroring the
 		// commit path. A failed remove leaves the staging selection
 		// intact so the user can retry.
-		return m, doRemove(m.exec, msg.path, msg.status)
+		return m, doRemove(m.exec, msg.paths, msg.statuses)
 
 	case updateDoneMsg:
 		if msg.err != nil {
@@ -477,21 +477,30 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths))
 
 	case removeDoneMsg:
-		paths := []string{msg.path}
 		if msg.err != nil {
-			m.notification = fmt.Sprintf("✗ Remove failed for %s — see Console", filepath.Base(msg.path))
+			label := fmt.Sprintf("%d files", len(msg.paths))
+			if len(msg.paths) == 1 {
+				label = filepath.Base(msg.paths[0])
+			}
+			m.notification = fmt.Sprintf("✗ Remove failed for %s — see Console", label)
 			m.notificationOK = false
 			m.notificationExpiry = time.Now().Add(notifyDuration)
 			m.updateSizes()
-			return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(paths))
+			return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths))
 		}
-		delete(m.filelist.marked, msg.path)
+		for _, p := range msg.paths {
+			delete(m.filelist.marked, p)
+		}
 		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
-		m.notification = fmt.Sprintf("✓ Removed %s", filepath.Base(msg.path))
+		if len(msg.paths) == 1 {
+			m.notification = fmt.Sprintf("✓ Removed %s", filepath.Base(msg.paths[0]))
+		} else {
+			m.notification = fmt.Sprintf("✓ Removed %d file(s)", len(msg.paths))
+		}
 		m.notificationOK = true
 		m.notificationExpiry = time.Now().Add(notifyDuration)
 		m.updateSizes()
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(paths))
+		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths))
 
 	case editorClosedMsg:
 		return m, m.refreshStatusForPaths([]string{msg.path})

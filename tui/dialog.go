@@ -59,15 +59,19 @@ func (m *DialogModel) OpenCommit(files []string, statuses map[string]string) {
 	m.input.SetValue("")
 }
 
-// OpenRemove opens a confirmation dialog for `cvs remove` on path. status is
-// the file's current status code (M, A, ?, C, R, "") — used to phrase the
-// dialog wording and decide the actual command in doRemove.
-func (m *DialogModel) OpenRemove(path, status string) {
+// OpenRemove opens a confirmation dialog for `cvs remove` on the given
+// paths. statuses maps each path to its current CVS status code (M, A,
+// ?, C, R, "") — used to phrase the dialog wording and decide the
+// actual command in doRemove. Single-file and bulk-remove flows share
+// this dialog: len(paths) == 1 renders the original per-file detail;
+// len(paths) > 1 renders a checklist with status counts.
+func (m *DialogModel) OpenRemove(paths []string, statuses map[string]string) {
 	m.kind = DialogRemove
-	m.path = path
-	// Stash status in files[0] — we don't have a cleaner slot and adding a
-	// dedicated field for this single dialog isn't worth it.
-	m.files = []string{status}
+	m.files = paths
+	m.commitStatuses = statuses
+	if len(paths) > 0 {
+		m.path = paths[0]
+	}
 }
 
 func (m *DialogModel) OpenRevert(path string) {
@@ -138,17 +142,23 @@ type commitMsg struct {
 	files []string
 }
 type revertMsg struct{ path string }
-type removeMsg struct{ path, status string }
+
+// removeMsg carries the user's confirmation from the Remove dialog. paths
+// is non-empty (single or bulk); statuses[path] is the CVS status code
+// each file had at dialog-open time so doRemove can pick the right cvs
+// command per file.
+type removeMsg struct {
+	paths    []string
+	statuses map[string]string
+}
 
 // removeDoneMsg reports the outcome of doRemove. The handler in App.Update
-// turns this into a banner notification, drops the path from marked on
-// success, and applies an optimistic status update so other tabs see the
-// new state immediately. oldStatus is the file's status before the remove
-// (used to decide the optimistic next status).
+// turns this into a banner notification, drops the paths from marked on
+// success, and dispatches a follow-up status refresh. err is the first
+// error encountered, or nil on success.
 type removeDoneMsg struct {
-	path      string
-	oldStatus string
-	err       error
+	paths []string
+	err   error
 }
 type ignoreMsg struct {
 	path   string
@@ -229,8 +239,9 @@ func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
 	}
 }
 
-// doRemove deletes a file from the working copy and (when applicable) tells
-// CVS to schedule it for removal at the next commit. Behavior by status:
+// doRemove deletes each path from the working copy and (when applicable)
+// tells CVS to schedule it for removal at the next commit. Behavior per
+// path is decided from the status passed in `statuses`:
 //   - "?"            : just delete from disk (CVS doesn't know about it)
 //   - "A"            : `cvs remove -f` un-schedules the add
 //   - "" / M / C / U : `cvs remove -f` deletes the file AND schedules removal,
@@ -239,26 +250,33 @@ func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
 //
 // Returns removeDoneMsg with the first error encountered (or nil on success).
 // The handler in App.Update is responsible for the banner, the marked-set
-// cleanup, and the follow-up status refresh.
-func doRemove(executor *cvs.CVSExecutor, path, status string) tea.Cmd {
+// cleanup, and the follow-up status refresh. Single-file removal is just
+// the len(paths)==1 case.
+func doRemove(executor *cvs.CVSExecutor, paths []string, statuses map[string]string) tea.Cmd {
 	return func() tea.Msg {
-		var err error
-		switch status {
-		case "R":
-			// already removed — nothing to do
-		case "?":
-			// untracked — just delete the file
-			abs := filepath.Join(executor.WorkDir, path)
-			err = os.Remove(abs)
-		default:
-			// `cvs remove -f` deletes the working file AND schedules removal
-			// (or un-adds if the file was in `A` status).
-			r, runErr := executor.Run("remove", "-f", path)
-			if runErr != nil && (r == nil || !r.Success) {
-				err = runErr
+		var firstErr error
+		for _, path := range paths {
+			var err error
+			switch statuses[path] {
+			case "R":
+				// already removed — nothing to do
+			case "?":
+				// untracked — just delete the file
+				abs := filepath.Join(executor.WorkDir, path)
+				err = os.Remove(abs)
+			default:
+				// `cvs remove -f` deletes the working file AND schedules
+				// removal (or un-adds if the file was in `A` status).
+				r, runErr := executor.Run("remove", "-f", path)
+				if runErr != nil && (r == nil || !r.Success) {
+					err = runErr
+				}
+			}
+			if err != nil && firstErr == nil {
+				firstErr = err
 			}
 		}
-		return removeDoneMsg{path: path, oldStatus: status, err: err}
+		return removeDoneMsg{paths: paths, err: firstErr}
 	}
 }
 
@@ -371,14 +389,11 @@ func (m DialogModel) updateRevert(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 func (m DialogModel) updateRemove(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.Yes):
-		path := m.path
-		status := ""
-		if len(m.files) > 0 {
-			status = m.files[0]
-		}
+		paths := m.files
+		statuses := m.commitStatuses
 		m.Close()
 		return m, func() tea.Msg {
-			return removeMsg{path: path, status: status}
+			return removeMsg{paths: paths, statuses: statuses}
 		}
 	case key.Matches(msg, keys.No), key.Matches(msg, keys.Escape):
 		m.Close()
@@ -533,25 +548,49 @@ func (m DialogModel) viewRevert() string {
 }
 
 func (m DialogModel) viewRemove() string {
-	status := ""
-	if len(m.files) > 0 {
-		status = m.files[0]
-	}
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Remove") + "\n\n")
-	fmt.Fprintf(&b, "Remove %s?\n\n", m.path)
-	switch status {
-	case "?":
-		b.WriteString("Untracked file — will be deleted from disk only.\n\n")
-	case "A":
-		b.WriteString("Added but not committed — un-schedules the add\n")
-		b.WriteString("and deletes the file from disk.\n\n")
-	case "R":
-		b.WriteString("Already scheduled for removal — nothing to do.\n\n")
-	default:
-		b.WriteString("File will be deleted from disk and scheduled\n")
-		b.WriteString("for removal in CVS (status → R until next commit).\n\n")
+
+	// Single-file detail view: keep the existing wording so the most
+	// common case stays unchanged.
+	if len(m.files) <= 1 {
+		path := m.path
+		status := ""
+		if len(m.files) == 1 {
+			status = m.commitStatuses[path]
+		}
+		fmt.Fprintf(&b, "Remove %s?\n\n", path)
+		switch status {
+		case "?":
+			b.WriteString("Untracked file — will be deleted from disk only.\n\n")
+		case "A":
+			b.WriteString("Added but not committed — un-schedules the add\n")
+			b.WriteString("and deletes the file from disk.\n\n")
+		case "R":
+			b.WriteString("Already scheduled for removal — nothing to do.\n\n")
+		default:
+			b.WriteString("File will be deleted from disk and scheduled\n")
+			b.WriteString("for removal in CVS (status → R until next commit).\n\n")
+		}
+		b.WriteString(helpStyle.Render("y:remove  n:cancel"))
+		return b.String()
 	}
+
+	// Bulk view: list each file with its status code so the user can
+	// review exactly what will happen before confirming.
+	fmt.Fprintf(&b, "Remove %d files?\n\n", len(m.files))
+	for _, p := range m.files {
+		st := m.commitStatuses[p]
+		marker := " "
+		if st != "" {
+			marker = st
+		}
+		fmt.Fprintf(&b, "  %s  %s\n", marker, p)
+	}
+	b.WriteString("\nUntracked (?) → deleted from disk only.\n")
+	b.WriteString("Added (A)     → un-scheduled, deleted from disk.\n")
+	b.WriteString("Tracked / M / C / U → deleted, scheduled for removal\n")
+	b.WriteString("                      (status → R until next commit).\n\n")
 	b.WriteString(helpStyle.Render("y:remove  n:cancel"))
 	return b.String()
 }

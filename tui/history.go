@@ -182,9 +182,9 @@ func loadBlame(exec *cvs.CVSExecutor, path string) tea.Cmd {
 	return func() tea.Msg {
 		result, err := exec.RunReadOnly("annotate", path)
 		if err != nil && result == nil {
-			return historyContentMsg{path: path, rev: "@blame", content: "Error loading blame"}
+			return historyContentMsg{path: path, rev: blameRev, content: "Error loading blame"}
 		}
-		return historyContentMsg{path: path, rev: "@blame", content: cvs.EnsureUTF8(result.Stdout)}
+		return historyContentMsg{path: path, rev: blameRev, content: cvs.EnsureUTF8(result.Stdout)}
 	}
 }
 

@@ -15,6 +15,35 @@ import (
 // and are populated by handlers in app_core.go; everything in this file
 // reads or writes those caches.
 
+// --- cache & pending-set key builders -------------------------------------
+//
+// histPending is keyed by strings; concentrating the format in helpers
+// prevents the construct-here / delete-there pair from drifting if a
+// prefix or separator ever changes. histDiffs entries are keyed by the
+// (fromRev, toRev) pair without a prefix — that's what diffCacheKey
+// builds.
+
+func pendingLog(path string) string {
+	return "log:" + path
+}
+
+func pendingContent(path, rev string) string {
+	return "content:" + path + ":" + rev
+}
+
+func pendingDiff(path, fromRev, toRev string) string {
+	return "diff:" + path + ":" + fromRev + ":" + toRev
+}
+
+func diffCacheKey(fromRev, toRev string) string {
+	return fromRev + ":" + toRev
+}
+
+// blameRev is the sentinel "revision" used as the rev field for blame
+// results in the content cache. Not a real CVS revision — it's just a
+// stable cache key so blame and revision content can share histContents.
+const blameRev = "@blame"
+
 // autoLoadHistory is called when the user opens the History tab. If the
 // currently-selected file in tree/filelist differs from what History is
 // showing, switch the History view to that file.
@@ -53,7 +82,7 @@ func (m *App) openHistoryFor(path string) tea.Cmd {
 	}
 
 	// Cache miss: dispatch async. Guard against duplicate dispatch.
-	pendKey := "log:" + path
+	pendKey := pendingLog(path)
 	if m.histPending[pendKey] {
 		return nil
 	}
@@ -74,7 +103,7 @@ func (m *App) currentContentKey() string {
 	case HistoryContent:
 		return rev.Number
 	case HistoryBlame:
-		return "@blame"
+		return blameRev
 	case HistoryDiff:
 		// Diff mode falls back to content for the initial revision (no parent).
 		if rev.PrevNumber == "" {
@@ -162,7 +191,7 @@ func (m *App) serveContent(path, rev string) tea.Cmd {
 		m.history.ApplyContent(rev, cached)
 		return nil
 	}
-	pendKey := "content:" + path + ":" + rev
+	pendKey := pendingContent(path, rev)
 	if m.histPending[pendKey] {
 		return nil
 	}
@@ -172,7 +201,7 @@ func (m *App) serveContent(path, rev string) tea.Cmd {
 
 func (m *App) serveDiff(path, fromRev, toRev string) tea.Cmd {
 	m.history.SetPendingLabels(fromRev, toRev)
-	cacheKey := fromRev + ":" + toRev
+	cacheKey := diffCacheKey(fromRev, toRev)
 	if cached, ok := m.histDiffs[path][cacheKey]; ok {
 		m.history.ApplyDiff(fromRev, toRev, cached)
 		// Prefetch only makes sense for the default parent-diff case;
@@ -183,7 +212,7 @@ func (m *App) serveDiff(path, fromRev, toRev string) tea.Cmd {
 		}
 		return nil
 	}
-	pendKey := "diff:" + path + ":" + cacheKey
+	pendKey := pendingDiff(path, fromRev, toRev)
 	if m.histPending[pendKey] {
 		return nil
 	}
@@ -222,12 +251,12 @@ func (m *App) parentDiff(fromRev, toRev string) bool {
 }
 
 func (m *App) serveBlame(path string) tea.Cmd {
-	m.history.SetPendingLabels("", "@blame")
-	if cached, ok := m.histContents[path]["@blame"]; ok {
-		m.history.ApplyContent("@blame", cached)
+	m.history.SetPendingLabels("", blameRev)
+	if cached, ok := m.histContents[path][blameRev]; ok {
+		m.history.ApplyContent(blameRev, cached)
 		return nil
 	}
-	pendKey := "content:" + path + ":@blame"
+	pendKey := pendingContent(path, blameRev)
 	if m.histPending[pendKey] {
 		return nil
 	}
@@ -253,11 +282,11 @@ func (m *App) prefetchAdjacentDiffs(path string) tea.Cmd {
 		if adj.PrevNumber == "" {
 			continue
 		}
-		key := adj.PrevNumber + ":" + adj.Number
+		key := diffCacheKey(adj.PrevNumber, adj.Number)
 		if _, ok := m.histDiffs[path][key]; ok {
 			continue
 		}
-		pendKey := "diff:" + path + ":" + key
+		pendKey := pendingDiff(path, adj.PrevNumber, adj.Number)
 		if m.histPending[pendKey] {
 			continue
 		}

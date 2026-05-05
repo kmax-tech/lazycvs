@@ -177,7 +177,7 @@ type App struct {
 	// histPending tracks (path, key) load requests already dispatched, so
 	// fast cursor movement doesn't queue duplicate cvs commands for the
 	// same revision pair.
-	histPending map[string]bool // "diff:path:from:to" or "content:path:rev"
+	histPending map[string]bool // keys built via pendingLog/pendingContent/pendingDiff
 }
 
 func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.ConfigManager, initialPath string) App {
@@ -327,7 +327,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// is currently viewing. If they switched files mid-load, we still
 		// want the data ready for next time.
 		m.histRevisions[msg.path] = msg.history
-		delete(m.histPending, "log:"+msg.path)
+		delete(m.histPending, pendingLog(msg.path))
 		// Only push into the model + auto-load content if the user is
 		// actually viewing this file right now.
 		if m.history.Path() == msg.path {
@@ -345,19 +345,18 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.histContents[msg.path] = make(map[string]string)
 		}
 		m.histContents[msg.path][msg.rev] = msg.content
-		delete(m.histPending, "content:"+msg.path+":"+msg.rev)
+		delete(m.histPending, pendingContent(msg.path, msg.rev))
 		if m.history.Path() == msg.path && m.currentContentKey() == msg.rev {
 			m.history.ApplyContent(msg.rev, msg.content)
 		}
 		return m, nil
 
 	case historyDiffMsg:
-		key := msg.fromRev + ":" + msg.toRev
 		if m.histDiffs[msg.path] == nil {
 			m.histDiffs[msg.path] = make(map[string]*cvs.DiffResult)
 		}
-		m.histDiffs[msg.path][key] = msg.diff
-		delete(m.histPending, "diff:"+msg.path+":"+key)
+		m.histDiffs[msg.path][diffCacheKey(msg.fromRev, msg.toRev)] = msg.diff
+		delete(m.histPending, pendingDiff(msg.path, msg.fromRev, msg.toRev))
 		if m.history.Path() == msg.path {
 			fromRev, toRev := m.currentDiffKey()
 			if fromRev == msg.fromRev && toRev == msg.toRev {

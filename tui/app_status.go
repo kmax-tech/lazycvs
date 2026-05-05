@@ -17,18 +17,29 @@ import (
 //     m.statusMap via m.applyStatuses
 
 // resolveFileStatus returns the CVS status code for path. If statusMap
-// has no entry (empty string), checks whether the parent directory is
-// unknown to CVS (no CVS/ subdir) — if so the file is untracked ("?").
+// has no entry (empty string), checks whether any of the closest three
+// parent directories has a CVS/ subdirectory — if none do, the file is
+// considered untracked ("?"). Walking up several levels (instead of
+// just the immediate parent) handles the case where a user creates a
+// new subdirectory inside a CVS-managed tree without running `cvs add`
+// on that subdirectory yet: its files are still in a CVS workspace
+// even though the immediate dir lacks its own CVS/ marker.
 func (m *App) resolveFileStatus(path string) string {
 	if s := m.statusMap[path]; s != "" {
 		return s
 	}
 	dir := filepath.Dir(path)
-	cvsDir := filepath.Join(m.exec.WorkDir, dir, "CVS")
-	if _, err := os.Stat(cvsDir); os.IsNotExist(err) {
-		return "?"
+	for i := 0; i < 3; i++ {
+		cvsDir := filepath.Join(m.exec.WorkDir, dir, "CVS")
+		if _, err := os.Stat(cvsDir); err == nil {
+			return ""
+		}
+		if dir == "." || dir == "/" || dir == "" {
+			break
+		}
+		dir = filepath.Dir(dir)
 	}
-	return ""
+	return "?"
 }
 
 // refreshStagedFiles runs `cvs status` for the given file paths. CVS

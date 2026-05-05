@@ -158,6 +158,9 @@ func (m FileListModel) MarkedFiles() []string {
 	return result
 }
 
+// ViewModeName returns a short label for the current view mode, used as
+// a parenthetical badge in the file-list header so the user can tell at
+// a glance which layout `f` cycled to.
 func (m FileListModel) ViewModeName() string {
 	switch m.viewMode {
 	case FileViewSub:
@@ -165,7 +168,7 @@ func (m FileListModel) ViewModeName() string {
 	case FileViewTree:
 		return "tree"
 	default:
-		return ""
+		return "flat"
 	}
 }
 

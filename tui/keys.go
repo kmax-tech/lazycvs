@@ -38,6 +38,7 @@ type keyMap struct {
 	Merge    key.Binding
 	Open    key.Binding
 	Add     key.Binding
+	MarkAll key.Binding
 	Ignore  key.Binding
 	Search  key.Binding
 	Filter key.Binding
@@ -93,6 +94,7 @@ var keys = keyMap{
 	Merge:   key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "merge tool")),
 	Open:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open")),
 	Add:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+	MarkAll: key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "mark all")),
 	Ignore:  key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "ignore")),
 	Search:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
 	Filter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "filter")),

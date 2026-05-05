@@ -333,6 +333,22 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				}
 			}
 			return nil
+		case key.Matches(msg, keys.MarkAll) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+			// Mark every changed file in the directory subtree the user
+			// is currently looking at. Resolution order:
+			//  - cursor on a directory tree node → that subtree
+			//  - otherwise → the directory shown in the right-pane file
+			//    list (works from either panel and from the Favorites tab)
+			target := ""
+			if node := m.tree.SelectedNode(); node != nil && node.IsDir {
+				target = node.Path
+			} else if m.filelist.dir != "" {
+				target = m.filelist.dir
+			}
+			if target != "" {
+				m.toggleDirFiles(target)
+			}
+			return nil
 		case msg.String() == "p" && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			data, err := os.ReadFile(fullPath)

@@ -422,7 +422,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case actionDoneMsg:
 		m.console.refreshContent()
-		return m, m.refreshStatusForPaths(msg.paths)
+		// actionDoneMsg covers add / revert. Add doesn't touch history
+		// (no new revision until commit), but revert can change the
+		// working-copy diff cache for the path; safest to drop the
+		// per-path History cache so the next view re-fetches.
+		invalidateCmd := m.invalidateHistoryCache(msg.paths)
+		return m, tea.Batch(m.refreshStatusForPaths(msg.paths), invalidateCmd)
 
 	case commitDoneMsg:
 		if msg.err == nil {
@@ -438,7 +443,14 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.notificationExpiry = time.Now().Add(notifyDuration)
 		m.updateSizes() // banner reduces contentHeight by 1 — relayout sub-panels
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.files))
+		// A successful commit creates a new revision: drop the cached
+		// revisions / diffs / contents for every committed path so the
+		// History tab reflects the new state immediately.
+		var invalidateCmd tea.Cmd
+		if msg.err == nil {
+			invalidateCmd = m.invalidateHistoryCache(msg.files)
+		}
+		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.files), invalidateCmd)
 
 	case notificationExpiredMsg:
 		// Only clear if we're actually past the displayed expiry. Multiple
@@ -474,7 +486,13 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.notificationExpiry = time.Now().Add(notifyDuration)
 		m.updateSizes()
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths))
+		// `cvs update` may pull new server revisions for these paths;
+		// drop the History cache so the next view sees them.
+		var invalidateCmd tea.Cmd
+		if msg.err == nil {
+			invalidateCmd = m.invalidateHistoryCache(msg.paths)
+		}
+		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths), invalidateCmd)
 
 	case removeDoneMsg:
 		if msg.err != nil {
@@ -500,7 +518,13 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notificationOK = true
 		m.notificationExpiry = time.Now().Add(notifyDuration)
 		m.updateSizes()
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths))
+		// Removed files: their on-disk state changed (R-status / gone)
+		// so any cached working-copy diff is now stale. Tracked files
+		// will get a new revision once the removal is committed; drop
+		// the cache now so that future commit auto-refreshes the
+		// History view.
+		invalidateCmd := m.invalidateHistoryCache(msg.paths)
+		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths), invalidateCmd)
 
 	case editorClosedMsg:
 		return m, m.refreshStatusForPaths([]string{msg.path})

@@ -4,6 +4,7 @@ import (
 	"lazycvs/cvs"
 	"lazycvs/fs"
 	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -43,6 +44,53 @@ func diffCacheKey(fromRev, toRev string) string {
 // results in the content cache. Not a real CVS revision — it's just a
 // stable cache key so blame and revision content can share histContents.
 const blameRev = "@blame"
+
+// invalidateHistoryCache drops every per-file History cache slot for
+// each path in `paths`, so the next time the user opens History on
+// any of them the latest revisions / diffs / contents are fetched
+// fresh from cvs. Action handlers (commit, update, remove, revert)
+// call this after a successful cvs operation.
+//
+// If the user is currently viewing one of the affected files, also
+// dispatches loadHistory immediately so the right pane refreshes
+// without waiting for them to navigate away and back.
+func (m *App) invalidateHistoryCache(paths []string) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, p := range paths {
+		delete(m.histRevisions, p)
+		delete(m.histDiffs, p)
+		delete(m.histContents, p)
+
+		// Pending guards for this path's loads. A fresh load can't
+		// race a stale "in flight" marker if we drop them now.
+		delete(m.histPending, pendingLog(p))
+		diffPrefix := "diff:" + p + ":"
+		contentPrefix := "content:" + p + ":"
+		for k := range m.histPending {
+			if strings.HasPrefix(k, diffPrefix) || strings.HasPrefix(k, contentPrefix) {
+				delete(m.histPending, k)
+			}
+		}
+
+		// Currently displayed? Reload the revision list immediately;
+		// the historyLoadedMsg handler will re-fetch right-pane content
+		// from the freshly populated cache.
+		if m.history.Path() == p {
+			m.history.revisions = nil
+			m.history.diffData = nil
+			m.history.content = ""
+			m.history.diffFromRev = ""
+			m.history.diffToRev = ""
+			m.history.rawView = ""
+			m.histPending[pendingLog(p)] = true
+			cmds = append(cmds, loadHistory(m.exec, p))
+		}
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
+}
 
 // autoLoadHistory is called when the user opens the History tab. If the
 // currently-selected file in tree/filelist differs from what History is

@@ -79,6 +79,19 @@ custom template using `$LEFT`/`$RIGHT` (diff) or `$BASE`/`$LOCAL`/`$REMOTE`/`$ME
 The keybar at the bottom always shows what's available in the current
 context. `?` opens the help overlay with the full keymap.
 
+## Documentation
+
+- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — full user guide:
+  every key, every tab, the History compare semantics, common
+  workflows, and troubleshooting.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — technical guide
+  for contributors: module layout, async caching pattern, status
+  refresh flow, design choices, and a "where things live" cheat
+  sheet.
+- [`issues/`](issues/) — post-mortems for non-trivial bugs.
+  Especially worth reading: 010 (History refactor) and 011
+  (Latin-1 encoding glitches).
+
 ## Project layout
 
 - `main.go` — entry point + CLI args + working-copy resolution
@@ -86,6 +99,8 @@ context. `?` opens the help overlay with the full keymap.
 - `tui/` — Bubble Tea TUI (lazygit-style panels)
 - `config/`, `fs/` — supporting packages
 - `scripts/demo.py` — standalone CVS demo generator
+- `docs/` — user and architecture guides
+- `issues/` — bug post-mortems
 
 ## Build
 

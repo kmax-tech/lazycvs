@@ -298,6 +298,21 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 	case key.Matches(keyMsg, keys.Bottom):
 		m.cursor = max(0, len(m.revisions)-1)
 		m.ensureVisible()
+	case key.Matches(keyMsg, keys.PageDown):
+		// Each revision row spans 2 visual lines; a page is height/2 rows.
+		page := m.height / 2
+		if page < 1 {
+			page = 1
+		}
+		m.cursor = clamp(m.cursor+page, 0, max(0, len(m.revisions)-1))
+		m.ensureVisible()
+	case key.Matches(keyMsg, keys.PageUp):
+		page := m.height / 2
+		if page < 1 {
+			page = 1
+		}
+		m.cursor = clamp(m.cursor-page, 0, max(0, len(m.revisions)-1))
+		m.ensureVisible()
 	case key.Matches(keyMsg, keys.Diff):
 		m.mode = HistoryDiff
 	case key.Matches(keyMsg, keys.Blame):

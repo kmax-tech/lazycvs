@@ -193,6 +193,12 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 		case key.Matches(msg, keys.Bottom):
 			m.cursor = max(0, len(rows)-1)
 			m.ensureVisible()
+		case key.Matches(msg, keys.PageDown):
+			m.cursor = clamp(m.cursor+m.height, 0, max(0, len(rows)-1))
+			m.ensureVisible()
+		case key.Matches(msg, keys.PageUp):
+			m.cursor = clamp(m.cursor-m.height, 0, max(0, len(rows)-1))
+			m.ensureVisible()
 		case key.Matches(msg, keys.Space):
 			if f := m.SelectedFile(); f != nil {
 				// Toggle individual file

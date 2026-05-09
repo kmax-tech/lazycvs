@@ -48,6 +48,10 @@ func (m FavoritesModel) Update(msg tea.Msg) (FavoritesModel, tea.Cmd) {
 			m.cursor = 0
 		case key.Matches(msg, keys.Bottom):
 			m.cursor = max(0, len(m.favorites)-1)
+		case key.Matches(msg, keys.PageDown):
+			m.cursor = clamp(m.cursor+m.height, 0, max(0, len(m.favorites)-1))
+		case key.Matches(msg, keys.PageUp):
+			m.cursor = clamp(m.cursor-m.height, 0, max(0, len(m.favorites)-1))
 		}
 	}
 	return m, nil

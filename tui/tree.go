@@ -122,6 +122,12 @@ func (m TreeModel) Update(msg tea.Msg) (TreeModel, tea.Cmd) {
 		case key.Matches(msg, keys.Bottom):
 			m.cursor = max(0, len(m.flat)-1)
 			m.ensureVisible()
+		case key.Matches(msg, keys.PageDown):
+			m.cursor = clamp(m.cursor+m.height, 0, max(0, len(m.flat)-1))
+			m.ensureVisible()
+		case key.Matches(msg, keys.PageUp):
+			m.cursor = clamp(m.cursor-m.height, 0, max(0, len(m.flat)-1))
+			m.ensureVisible()
 		case key.Matches(msg, keys.Enter), key.Matches(msg, keys.Right):
 			return m, m.expandOrSelect()
 		case key.Matches(msg, keys.Left):

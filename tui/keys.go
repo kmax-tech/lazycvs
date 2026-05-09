@@ -25,6 +25,8 @@ type keyMap struct {
 	Right   key.Binding
 	Top     key.Binding
 	Bottom  key.Binding
+	PageUp  key.Binding
+	PageDown key.Binding
 	Enter   key.Binding
 	Space   key.Binding
 
@@ -82,6 +84,12 @@ var keys = keyMap{
 	Right:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "expand")),
 	Top:    key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "top")),
 	Bottom: key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "bottom")),
+	PageUp: key.NewBinding(
+		key.WithKeys("pgup", "ctrl+u", "ctrl+b"),
+		key.WithHelp("pgup", "page up")),
+	PageDown: key.NewBinding(
+		key.WithKeys("pgdown", "ctrl+d", "ctrl+f"),
+		key.WithHelp("pgdn", "page down")),
 	Enter:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
 	Space:  key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "mark")),
 

@@ -466,21 +466,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		case TabHistory:
-			prevCursor := m.history.cursor
-			prevMode := m.history.mode
-			prevAnchor := m.history.compareAnchor
-			prevWorking := m.history.vsWorking
-			var cmd tea.Cmd
-			m.history, cmd = m.history.Update(msg)
-			if m.history.cursor != prevCursor ||
-				m.history.mode != prevMode ||
-				m.history.compareAnchor != prevAnchor ||
-				m.history.vsWorking != prevWorking ||
-				key.Matches(msg, keys.Enter) {
-				contentCmd := m.loadHistoryContent()
-				return tea.Batch(cmd, contentCmd)
-			}
-			return cmd
+			return m.delegateHistoryKey(msg)
 		}
 	case PanelRight:
 		switch m.activeTab {
@@ -508,7 +494,15 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		case TabHistory:
-			// Right panel: scroll the diff/content viewport only.
+			// Mode-toggle keys (p side-by-side, d diff, b blame, w
+			// vs-working, space anchor, Enter content) work from
+			// either panel — they change *what* is shown, which is a
+			// cross-panel concern. Everything else scrolls the
+			// right-pane viewport.
+			switch msg.String() {
+			case "p", "d", "b", "w", " ", "enter":
+				return m.delegateHistoryKey(msg)
+			}
 			var cmd tea.Cmd
 			m.history.viewport, cmd = m.history.viewport.Update(msg)
 			return cmd
@@ -532,4 +526,28 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 	}
 
 	return nil
+}
+
+// delegateHistoryKey runs a key through HistoryModel.Update and, if the
+// observable state changed (cursor, mode, anchor, vs-working) or the
+// key was Enter, also dispatches loadHistoryContent so the right pane
+// reflects the new selection. Shared by both panels because the
+// History tab's mode-toggle keys (p/d/b/w/space/Enter) are valid no
+// matter which side has focus.
+func (m *App) delegateHistoryKey(msg tea.KeyMsg) tea.Cmd {
+	prevCursor := m.history.cursor
+	prevMode := m.history.mode
+	prevAnchor := m.history.compareAnchor
+	prevWorking := m.history.vsWorking
+	var cmd tea.Cmd
+	m.history, cmd = m.history.Update(msg)
+	if m.history.cursor != prevCursor ||
+		m.history.mode != prevMode ||
+		m.history.compareAnchor != prevAnchor ||
+		m.history.vsWorking != prevWorking ||
+		key.Matches(msg, keys.Enter) {
+		contentCmd := m.loadHistoryContent()
+		return tea.Batch(cmd, contentCmd)
+	}
+	return cmd
 }

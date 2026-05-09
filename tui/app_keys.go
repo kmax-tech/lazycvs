@@ -420,6 +420,12 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 					m.staged.cursor--
 					m.staged.ensureVisible()
 				}
+			case key.Matches(msg, keys.Top):
+				m.staged.cursor = 0
+				m.staged.ensureVisible()
+			case key.Matches(msg, keys.Bottom):
+				m.staged.cursor = max(0, len(m.staged.files)-1)
+				m.staged.ensureVisible()
 			case key.Matches(msg, keys.Space), msg.String() == "x":
 				if path := m.staged.SelectedPath(); path != "" {
 					delete(m.filelist.marked, path)

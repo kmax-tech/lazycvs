@@ -292,6 +292,12 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 			m.cursor--
 			m.ensureVisible()
 		}
+	case key.Matches(keyMsg, keys.Top):
+		m.cursor = 0
+		m.offset = 0
+	case key.Matches(keyMsg, keys.Bottom):
+		m.cursor = max(0, len(m.revisions)-1)
+		m.ensureVisible()
 	case key.Matches(keyMsg, keys.Diff):
 		m.mode = HistoryDiff
 	case key.Matches(keyMsg, keys.Blame):

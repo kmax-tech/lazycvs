@@ -244,7 +244,7 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if m.activeTab == TabHistory {
 			// In a comparison? Clear the comparison first; only leave
 			// the tab on a second Escape.
-			if m.history.compareAnchor >= 0 || m.history.vsWorking {
+			if m.history.HasCompare() || m.history.vsWorking {
 				m.history.compareAnchor = -1
 				m.history.vsWorking = false
 				return m.loadHistoryContent(), true
@@ -306,18 +306,11 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			// every path in the dialog so the user can review before
 			// confirming. Otherwise fall back to the single-file flow on
 			// the cursor row.
-			if marked := m.filelist.MarkedFiles(); len(marked) > 0 {
-				statuses := make(map[string]string, len(marked))
-				for _, p := range marked {
-					statuses[p] = m.statusMap[p]
-				}
-				m.dialog.OpenRemove(marked, statuses)
-			} else {
-				m.dialog.OpenRemove(
-					[]string{selectedPath},
-					map[string]string{selectedPath: m.statusMap[selectedPath]},
-				)
+			paths := m.filelist.MarkedFiles()
+			if len(paths) == 0 {
+				paths = []string{selectedPath}
 			}
+			m.dialog.OpenRemove(paths, m.statusesFor(paths))
 			return nil
 		case key.Matches(msg, keys.Space) && m.focus == PanelLeft && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 			node := m.tree.SelectedNode()

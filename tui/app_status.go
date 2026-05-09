@@ -47,6 +47,19 @@ func (m *App) resolveFileStatus(path string) string {
 	return ""
 }
 
+// statusesFor returns a path → status code map for the given paths,
+// using resolveFileStatus per entry (so untracked files in
+// CVS-less subdirs get "?" rather than ""). Used by the commit /
+// remove dialogs and any other multi-path action that needs to
+// display or branch on status per file.
+func (m *App) statusesFor(paths []string) map[string]string {
+	out := make(map[string]string, len(paths))
+	for _, p := range paths {
+		out[p] = m.resolveFileStatus(p)
+	}
+	return out
+}
+
 // refreshStagedFiles runs `cvs status` for the given file paths. CVS
 // reports basenames only when status is invoked on individual files,
 // so this remaps basenames back to the caller's full paths before

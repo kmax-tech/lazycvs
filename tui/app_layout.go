@@ -334,7 +334,7 @@ func (m App) renderMainContent() string {
 			from := m.history.diffFromRev
 			to := prettyRev(m.history.diffToRev)
 			verb := "Diff"
-			if m.history.compareAnchor >= 0 {
+			if m.history.HasCompare() {
 				verb = "Compare"
 			}
 			switch {
@@ -420,7 +420,7 @@ func (m App) renderKeybar() string {
 	case TabHistory:
 		hScroll := keyStyle.Render("</>") + ":scroll"
 		spAnchor := keyStyle.Render("space") + ":anchor"
-		if m.history.compareAnchor >= 0 || m.history.vsWorking {
+		if m.history.HasCompare() || m.history.vsWorking {
 			// In a comparison: surface Esc as the way out, and keep
 			// the toggle for working-copy on the keybar.
 			actions = keyHelp(keys.SideBySide, keys.Blame, keys.CompareWorking, keys.Escape) +

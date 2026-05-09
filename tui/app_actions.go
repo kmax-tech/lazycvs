@@ -19,11 +19,7 @@ import (
 func (m *App) openCommitDialog() tea.Cmd {
 	marked := m.filelist.MarkedFiles()
 	if len(marked) > 0 {
-		statuses := make(map[string]string, len(marked))
-		for _, p := range marked {
-			statuses[p] = m.resolveFileStatus(p)
-		}
-		m.dialog.OpenCommit(marked, statuses)
+		m.dialog.OpenCommit(marked, m.statusesFor(marked))
 		return nil
 	}
 	// If nothing marked, commit the selected modified file

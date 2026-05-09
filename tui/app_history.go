@@ -88,12 +88,7 @@ func (m *App) invalidateHistoryCache(paths []string) tea.Cmd {
 		// the historyLoadedMsg handler will re-fetch right-pane content
 		// from the freshly populated cache.
 		if m.history.Path() == p {
-			m.history.revisions = nil
-			m.history.diffData = nil
-			m.history.content = ""
-			m.history.diffFromRev = ""
-			m.history.diffToRev = ""
-			m.history.rawView = ""
+			m.history.ClearProjection()
 			m.histPending[pendingLog(p)] = true
 			cmds = append(cmds, loadHistory(m.exec, p))
 		}
@@ -360,7 +355,7 @@ func (m *App) serveDiff(path, fromRev, toRev string) tea.Cmd {
 // excluded — they don't follow the linear adjacency that prefetching
 // exploits.
 func (m *App) parentDiff(fromRev, toRev string) bool {
-	if m.history.compareAnchor >= 0 || m.history.vsWorking {
+	if m.history.HasCompare() || m.history.vsWorking {
 		return false
 	}
 	rev := m.history.SelectedRevision()

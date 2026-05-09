@@ -302,6 +302,12 @@ func (m HistoryModel) CompareAnchorIsWorking() bool {
 	return m.hasWorkingRow && m.compareAnchor == 0
 }
 
+// HasCompare reports whether any compare anchor is currently set
+// (either on a real revision or on the working pseudo-row).
+func (m HistoryModel) HasCompare() bool {
+	return m.compareAnchor >= 0
+}
+
 // CompareAnchorRev returns the revision pinned as compare anchor, or
 // nil if no anchor is set or the anchor is the working pseudo-row.
 func (m HistoryModel) CompareAnchorRev() *cvs.Revision {
@@ -353,6 +359,22 @@ func (m *HistoryModel) ApplyContent(rev, content string) {
 func (m *HistoryModel) SetPendingLabels(fromRev, toRev string) {
 	m.diffFromRev = fromRev
 	m.diffToRev = toRev
+}
+
+// ClearProjection drops every right-pane and revisions-list field on
+// the model, leaving only the path and per-file UI state. Called by
+// invalidateHistoryCache when the file's CVS state changed under us
+// and the cached projection is stale; the caller is expected to
+// re-dispatch loadHistory so the model gets repopulated.
+func (m *HistoryModel) ClearProjection() {
+	m.revisions = nil
+	m.diffData = nil
+	m.content = ""
+	m.diffFromRev = ""
+	m.diffToRev = ""
+	m.rawView = ""
+	m.hasWorkingRow = false
+	m.workingMatchesHead = false
 }
 
 // --- update / view ---------------------------------------------------------

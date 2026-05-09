@@ -45,6 +45,18 @@ func diffCacheKey(fromRev, toRev string) string {
 // stable cache key so blame and revision content can share histContents.
 const blameRev = "@blame"
 
+// workingCopyIsDirty reports whether the file at path has uncommitted
+// local changes (CVS status M, C, or A) — those are the cases where
+// the on-disk content diverges from any committed revision and the
+// History view should expose a synthetic working-copy row.
+func (m *App) workingCopyIsDirty(path string) bool {
+	switch m.statusMap[path] {
+	case "M", "C", "A":
+		return true
+	}
+	return false
+}
+
 // invalidateHistoryCache drops every per-file History cache slot for
 // each path in `paths`, so the next time the user opens History on
 // any of them the latest revisions / diffs / contents are fetched
@@ -122,7 +134,7 @@ func (m *App) openHistoryFor(path string) tea.Cmd {
 
 	// Cache hit: push revisions in synchronously and load content.
 	if hist, ok := m.histRevisions[path]; ok {
-		m.history.ApplyRevisions(hist)
+		m.history.ApplyRevisions(hist, m.workingCopyIsDirty(path))
 		if m.history.NumRevisions() > 0 {
 			return m.loadHistoryContent()
 		}
@@ -143,6 +155,9 @@ func (m *App) openHistoryFor(path string) tea.Cmd {
 // content (e.g. it's asking for a diff). Used by msg handlers to decide
 // whether an arriving result should update the display.
 func (m *App) currentContentKey() string {
+	if m.history.IsWorkingCopyRow() {
+		return ""
+	}
 	rev := m.history.SelectedRevision()
 	if rev == nil {
 		return ""
@@ -162,33 +177,74 @@ func (m *App) currentContentKey() string {
 }
 
 // currentDiffKey returns the (from, to) pair the cursor is asking for, or
-// ("", "") when not in a diff scenario. The "from" side defaults to the
-// cursor revision's parent but is overridden by an active compare anchor.
-// The "to" side defaults to the cursor revision but is replaced by the
-// workingRev sentinel when vs-working is toggled.
+// ("", "") when not in a diff scenario.
+//
+// The pair is normalized so the working-copy sentinel is always on the
+// "to" side — that's the only direction `cvs diff` reports, and keeping
+// it canonical means the cache key and the title labels never disagree.
+//
+// Resolution (Diff mode only):
+//   - Cursor on the pseudo working-copy row → to = working. From = anchor
+//     (if a real revision) or HEAD.
+//   - Anchor on the pseudo working-copy row, cursor on a real revision →
+//     to = working. From = cursor.rev. (Title reads "rev ↔ working".)
+//   - Otherwise → to = cursor.rev (or working if vsWorking is on).
+//     From = anchor.rev or cursor.rev.PrevNumber.
+//
+// Returns ("", "") when there's nothing to diff: initial revision with
+// no anchor, from == to, or working pinned on both sides.
 func (m *App) currentDiffKey() (string, string) {
 	if m.history.mode != HistoryDiff {
 		return "", ""
 	}
+	cursorIsWorking := m.history.IsWorkingCopyRow()
+	anchorIsWorking := m.history.CompareAnchorIsWorking()
+	if cursorIsWorking && anchorIsWorking {
+		return "", ""
+	}
 	rev := m.history.SelectedRevision()
-	if rev == nil {
+	anchor := m.history.CompareAnchorRev()
+	if !cursorIsWorking && rev == nil {
 		return "", ""
 	}
 
-	fromRev := rev.PrevNumber
-	if a := m.history.compareAnchor; a >= 0 && a < len(m.history.revisions) {
-		fromRev = m.history.revisions[a].Number
-	}
-	toRev := rev.Number
-	if m.history.vsWorking {
+	var fromRev, toRev string
+	switch {
+	case cursorIsWorking:
 		toRev = workingRev
+		switch {
+		case anchor != nil:
+			fromRev = anchor.Number
+		default:
+			if h := m.history.HeadRevision(); h != nil {
+				fromRev = h.Number
+			}
+		}
+	case anchorIsWorking:
+		// User pinned working as anchor; cursor on a real rev. CVS
+		// only reports "rev ↔ working", so the canonical pair is
+		// (rev, working).
+		fromRev = rev.Number
+		toRev = workingRev
+	case m.history.vsWorking:
+		toRev = workingRev
+		if anchor != nil {
+			fromRev = anchor.Number
+		} else {
+			fromRev = rev.Number
+		}
+	default:
+		toRev = rev.Number
+		if anchor != nil {
+			fromRev = anchor.Number
+		} else {
+			fromRev = rev.PrevNumber
+		}
 	}
 
-	// Initial revision with no parent and no anchor — nothing to diff.
-	if fromRev == "" {
+	if fromRev == "" || toRev == "" {
 		return "", ""
 	}
-	// Anchor on the cursor row with no working-copy override is a no-op.
 	if fromRev == toRev {
 		return "", ""
 	}
@@ -210,13 +266,21 @@ func (m *App) loadHistoryContent() tea.Cmd {
 		return nil
 	}
 
+	cursorIsWorking := m.history.IsWorkingCopyRow()
 	rev := m.history.SelectedRevision()
-	if rev == nil {
+	if !cursorIsWorking && rev == nil {
 		return nil
 	}
 
 	switch m.history.mode {
 	case HistoryContent:
+		// Working-copy pseudo-row in Content mode: nothing to fetch via
+		// cvs cat — the on-disk content is already there. Show a hint.
+		if cursorIsWorking {
+			m.history.SetPendingLabels("", "working")
+			m.history.ApplyContent("working", "Working copy on disk — pick a revision to view its content.")
+			return nil
+		}
 		return m.serveContent(path, rev.Number)
 	case HistoryBlame:
 		return m.serveBlame(path)
@@ -225,7 +289,13 @@ func (m *App) loadHistoryContent() tea.Cmd {
 		if fromRev == "" {
 			// No diff to compute — initial revision with no parent or
 			// the anchor coincides with the cursor row. Fall back to
-			// the revision's content.
+			// content for real revisions; the working pseudo-row has
+			// already been handled above.
+			if cursorIsWorking {
+				m.history.SetPendingLabels("", "working")
+				m.history.ApplyContent("working", "No history to compare against.")
+				return nil
+			}
 			return m.serveContent(path, rev.Number)
 		}
 		return m.serveDiff(path, fromRev, toRev)
@@ -266,6 +336,8 @@ func (m *App) serveDiff(path, fromRev, toRev string) tea.Cmd {
 	}
 	m.histPending[pendKey] = true
 
+	// currentDiffKey normalizes so the working sentinel is always the
+	// "to" side; we never see fromRev == workingRev here.
 	var loader tea.Cmd
 	if toRev == workingRev {
 		loader = loadWorkingDiff(m.exec, path, fromRev)
@@ -319,10 +391,15 @@ func (m *App) prefetchAdjacentDiffs(path string) tea.Cmd {
 	if revs == nil {
 		return nil
 	}
-	cursor := m.history.cursor
+	// Translate row index → real revision index. Pseudo-row has no
+	// adjacency to prefetch.
+	cursorRevIdx := m.history.revisionIndex(m.history.cursor)
+	if cursorRevIdx < 0 {
+		return nil
+	}
 	var cmds []tea.Cmd
 	for _, delta := range []int{-1, 1} {
-		idx := cursor + delta
+		idx := cursorRevIdx + delta
 		if idx < 0 || idx >= len(revs.Revisions) {
 			continue
 		}

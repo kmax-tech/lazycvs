@@ -331,7 +331,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only push into the model + auto-load content if the user is
 		// actually viewing this file right now.
 		if m.history.Path() == msg.path {
-			m.history.ApplyRevisions(msg.history)
+			m.history.ApplyRevisions(msg.history, m.workingCopyIsDirty(msg.path))
 			if m.history.NumRevisions() > 0 {
 				return m, m.loadHistoryContent()
 			}

@@ -76,6 +76,17 @@ type HistoryModel struct {
 	// on-disk working copy. Toggled with the w key.
 	vsWorking bool
 
+	// Working-copy state vs the revision history. Set by ApplyRevisions
+	// from the file's CVS status; mutually exclusive.
+	//
+	// hasWorkingRow      → file is modified locally (status M/C/A); a
+	//                      pseudo "working copy local" row is exposed at
+	//                      virtual cursor index 0.
+	// workingMatchesHead → file is clean; HEAD revision gets a "(working)"
+	//                      annotation in the left pane.
+	hasWorkingRow      bool
+	workingMatchesHead bool
+
 	viewport viewport.Model
 	hOffset  int
 	rawView  string
@@ -230,16 +241,87 @@ func (m *HistoryModel) SwitchTo(path string) {
 
 // ApplyRevisions pushes a freshly loaded revisions list. Called by the
 // App handler when historyLoadedMsg arrives for the current path.
-func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory) {
+// ApplyRevisions pushes a freshly loaded revisions list and the file's
+// working-copy state. dirty == true when the file has uncommitted local
+// changes (M/C/A) — in that case a pseudo "working copy local" row is
+// exposed at virtual cursor index 0 and the working copy can be picked
+// for compare like any other row. dirty == false means the working copy
+// matches the head revision; ViewLeft annotates HEAD with "(working)".
+func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory, dirty bool) {
 	if history != nil {
 		m.revisions = history.Revisions
 	} else {
 		m.revisions = nil
 	}
-	if m.cursor >= len(m.revisions) {
+	hasRevisions := len(m.revisions) > 0
+	m.hasWorkingRow = dirty && hasRevisions
+	m.workingMatchesHead = !dirty && hasRevisions
+	rows := m.numRows()
+	if m.cursor >= rows {
 		m.cursor = 0
 		m.offset = 0
 	}
+	// A previously-saved compare anchor may be stale if the file's
+	// dirty state changed (working pseudo-row appeared or disappeared).
+	// Drop it rather than referencing a non-existent row.
+	if m.compareAnchor >= rows {
+		m.compareAnchor = -1
+	}
+}
+
+// numRows returns the count of selectable rows in the left pane,
+// including the pseudo working-copy row when present.
+func (m HistoryModel) numRows() int {
+	if m.hasWorkingRow {
+		return len(m.revisions) + 1
+	}
+	return len(m.revisions)
+}
+
+// revisionIndex maps a left-pane row index to the m.revisions slice
+// index. Returns -1 for the pseudo working-copy row (when present).
+func (m HistoryModel) revisionIndex(row int) int {
+	if m.hasWorkingRow {
+		if row == 0 {
+			return -1
+		}
+		return row - 1
+	}
+	return row
+}
+
+// IsWorkingCopyRow reports whether the cursor is on the pseudo
+// working-copy row.
+func (m HistoryModel) IsWorkingCopyRow() bool {
+	return m.hasWorkingRow && m.cursor == 0
+}
+
+// CompareAnchorIsWorking reports whether the user pinned the working
+// copy as the comparison "from" via space on the pseudo-row.
+func (m HistoryModel) CompareAnchorIsWorking() bool {
+	return m.hasWorkingRow && m.compareAnchor == 0
+}
+
+// CompareAnchorRev returns the revision pinned as compare anchor, or
+// nil if no anchor is set or the anchor is the working pseudo-row.
+func (m HistoryModel) CompareAnchorRev() *cvs.Revision {
+	if m.compareAnchor < 0 {
+		return nil
+	}
+	idx := m.revisionIndex(m.compareAnchor)
+	if idx < 0 || idx >= len(m.revisions) {
+		return nil
+	}
+	return &m.revisions[idx]
+}
+
+// HeadRevision returns the most recent real revision (skipping the
+// pseudo working-copy row), or nil when the file has no revisions yet.
+func (m HistoryModel) HeadRevision() *cvs.Revision {
+	if len(m.revisions) == 0 {
+		return nil
+	}
+	return &m.revisions[0]
 }
 
 // ApplyDiff pushes a parsed diff into the right pane. The labels are kept
@@ -281,9 +363,10 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 		return m, nil
 	}
 
+	rows := m.numRows()
 	switch {
 	case key.Matches(keyMsg, keys.Down):
-		if m.cursor < len(m.revisions)-1 {
+		if m.cursor < rows-1 {
 			m.cursor++
 			m.ensureVisible()
 		}
@@ -296,7 +379,7 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 		m.cursor = 0
 		m.offset = 0
 	case key.Matches(keyMsg, keys.Bottom):
-		m.cursor = max(0, len(m.revisions)-1)
+		m.cursor = max(0, rows-1)
 		m.ensureVisible()
 	case key.Matches(keyMsg, keys.PageDown):
 		// Each revision row spans 2 visual lines; a page is height/2 rows.
@@ -304,14 +387,14 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 		if page < 1 {
 			page = 1
 		}
-		m.cursor = clamp(m.cursor+page, 0, max(0, len(m.revisions)-1))
+		m.cursor = clamp(m.cursor+page, 0, max(0, rows-1))
 		m.ensureVisible()
 	case key.Matches(keyMsg, keys.PageUp):
 		page := m.height / 2
 		if page < 1 {
 			page = 1
 		}
-		m.cursor = clamp(m.cursor-page, 0, max(0, len(m.revisions)-1))
+		m.cursor = clamp(m.cursor-page, 0, max(0, rows-1))
 		m.ensureVisible()
 	case key.Matches(keyMsg, keys.Diff):
 		m.mode = HistoryDiff
@@ -427,19 +510,23 @@ func (m HistoryModel) renderDiffView() string {
 	return renderUnifiedDiff(m.diffData.Hunks)
 }
 
-// SelectedRevision returns the revision under the cursor, or nil.
+// SelectedRevision returns the revision under the cursor, or nil if the
+// cursor is on the pseudo working-copy row.
 func (m HistoryModel) SelectedRevision() *cvs.Revision {
-	if m.cursor < 0 || m.cursor >= len(m.revisions) {
+	idx := m.revisionIndex(m.cursor)
+	if idx < 0 || idx >= len(m.revisions) {
 		return nil
 	}
-	return &m.revisions[m.cursor]
+	return &m.revisions[idx]
 }
 
 // Path returns the currently displayed file path (may be "").
 func (m HistoryModel) Path() string { return m.path }
 
-// NumRevisions returns the count of revisions for the current file.
-func (m HistoryModel) NumRevisions() int { return len(m.revisions) }
+// NumRevisions returns the count of selectable rows in the left pane,
+// including the pseudo working-copy row when the file is dirty. Used
+// by callers to decide whether there's anything to auto-load.
+func (m HistoryModel) NumRevisions() int { return m.numRows() }
 
 // ViewLeft renders the revision list. The header (file name) is rendered
 // by the panel frame in app_layout.go — this returns rows only.
@@ -447,7 +534,8 @@ func (m HistoryModel) ViewLeft() string {
 	if m.path == "" {
 		return mutedStyle.Render("  No file selected")
 	}
-	if len(m.revisions) == 0 {
+	rows := m.numRows()
+	if rows == 0 {
 		return mutedStyle.Render("  Loading revisions...")
 	}
 
@@ -455,28 +543,20 @@ func (m HistoryModel) ViewLeft() string {
 	if visibleCount < 1 {
 		visibleCount = 1
 	}
-	end := min(m.offset+visibleCount, len(m.revisions))
+	end := min(m.offset+visibleCount, rows)
 
 	// Use a guaranteed-distinct prefix character per row: "▌" for the cursor
 	// row, " " otherwise. This forces the differential renderer to repaint
 	// the prefix cell when the cursor moves, which in turn flushes any
 	// stale reverse-video styling on the row left over from a previous
-	// frame. Without this, a terminal that diff-skips identical content
-	// can leave the previous cursor row visually highlighted.
+	// frame.
 	var lines []string
 	for i := m.offset; i < end; i++ {
-		rev := m.revisions[i]
-		date := rev.Date.Format("Jan 02 06")
-
 		isCursor := i == m.cursor
 		isAnchor := i == m.compareAnchor
-		// Marker glyph at column 0:
-		//   "▌" — cursor row (also reverse-video styled below)
-		//   "▸" — comparison anchor row (when not also the cursor)
-		//   " " — neither
-		// The cursor case wins when both are true; the reverse-video on
-		// the whole row makes the anchor's identity unambiguous from the
-		// title bar instead.
+		// Marker glyph at column 0: cursor wins over anchor on the same
+		// row (reverse-video makes the anchor's identity clear via the
+		// "Compare —" label in the right pane title).
 		marker := " "
 		switch {
 		case isCursor:
@@ -484,10 +564,6 @@ func (m HistoryModel) ViewLeft() string {
 		case isAnchor:
 			marker = "▸"
 		}
-
-		// Render the marker with the active color when it's the anchor
-		// glyph; the cursor glyph picks up reverse-video below and
-		// doesn't need a foreground tint.
 		var renderedMarker string
 		if isAnchor && !isCursor {
 			renderedMarker = lipgloss.NewStyle().Foreground(colorActive).Render(marker)
@@ -495,20 +571,40 @@ func (m HistoryModel) ViewLeft() string {
 			renderedMarker = marker
 		}
 
-		line1 := fmt.Sprintf("%s%-6s %-8s %s", renderedMarker, rev.Number, truncate(rev.Author, 8), date)
-		if len(rev.Tags) > 0 {
-			line1 += " " + lipgloss.NewStyle().Foreground(colorStale).Render(truncate(rev.Tags[0], 12))
-		}
+		var line1, line2 string
+		if m.hasWorkingRow && i == 0 {
+			// Pseudo working-copy row.
+			line1 = fmt.Sprintf("%s%-6s %-8s %s",
+				renderedMarker,
+				lipgloss.NewStyle().Foreground(colorActive).Render("WORK"),
+				"you",
+				"now")
+			line2 = renderedMarker + "  " + mutedStyle.Render("(working copy local)")
+		} else {
+			rev := m.revisions[m.revisionIndex(i)]
+			date := rev.Date.Format("Jan 02 06")
 
-		msg := strings.SplitN(rev.Message, "\n", 2)[0]
-		msg = truncate(msg, m.leftWidth-4)
-		delta := ""
-		if rev.LinesAdded > 0 || rev.LinesRemoved > 0 {
-			delta = fmt.Sprintf(" %s%s",
-				lipgloss.NewStyle().Foreground(colorUpdated).Render(fmt.Sprintf("+%d", rev.LinesAdded)),
-				lipgloss.NewStyle().Foreground(colorConflict).Render(fmt.Sprintf("-%d", rev.LinesRemoved)))
+			line1 = fmt.Sprintf("%s%-6s %-8s %s", renderedMarker, rev.Number, truncate(rev.Author, 8), date)
+			if len(rev.Tags) > 0 {
+				line1 += " " + lipgloss.NewStyle().Foreground(colorStale).Render(truncate(rev.Tags[0], 12))
+			}
+			// HEAD badge: when the file is clean, the first real revision
+			// in the list IS the working copy. Append "(working)" to
+			// signal that the on-disk content matches it.
+			if m.workingMatchesHead && m.revisionIndex(i) == 0 {
+				line1 += " " + lipgloss.NewStyle().Foreground(colorActive).Render("(working)")
+			}
+
+			msg := strings.SplitN(rev.Message, "\n", 2)[0]
+			msg = truncate(msg, m.leftWidth-4)
+			delta := ""
+			if rev.LinesAdded > 0 || rev.LinesRemoved > 0 {
+				delta = fmt.Sprintf(" %s%s",
+					lipgloss.NewStyle().Foreground(colorUpdated).Render(fmt.Sprintf("+%d", rev.LinesAdded)),
+					lipgloss.NewStyle().Foreground(colorConflict).Render(fmt.Sprintf("-%d", rev.LinesRemoved)))
+			}
+			line2 = renderedMarker + "  " + mutedStyle.Render(msg) + delta
 		}
-		line2 := renderedMarker + "  " + mutedStyle.Render(msg) + delta
 
 		if isCursor {
 			sel := lipgloss.NewStyle().Reverse(true)

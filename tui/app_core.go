@@ -146,6 +146,13 @@ type App struct {
 	// a read-only parameter when they need to render or compute over it.
 	statusMap map[string]string
 
+	// baseRevMap holds the working revision (sticky-tag aware) for each
+	// known path, parsed from `cvs status` output. This is the revision
+	// the on-disk file is actually checked out to — not necessarily the
+	// repo HEAD. The History tab uses it to badge the "matches working"
+	// row correctly when the working copy is on a sticky tag or branch.
+	baseRevMap map[string]string
+
 	// Epoch-based staleness tracking: each status command dispatch
 	// increments statusEpoch. dirEpoch records the epoch of the most
 	// recently applied update per directory. A result is only applied if
@@ -199,6 +206,7 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		consoleHeight: 6,
 		initialPath:   initialPath,
 		statusMap:     make(map[string]string),
+		baseRevMap:    make(map[string]string),
 		statusEpoch:   1,
 		dirEpoch:      make(map[string]uint64),
 		histRevisions: make(map[string]*cvs.FileHistory),
@@ -213,13 +221,21 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 // staged panel. Used by both dirStatusMsg (clears a whole directory)
 // and stagedStatusMsg (clears specific paths) so the
 // clear-then-merge-then-refresh sequence stays in one place.
+//
+// Also threads each file's working revision (the rev the on-disk
+// content is actually checked out to — sticky-tag aware) into
+// baseRevMap so the History tab can badge the right row.
 func (m *App) applyStatuses(toClear []string, statuses []cvs.FileStatus) {
 	for _, p := range toClear {
 		delete(m.statusMap, p)
+		delete(m.baseRevMap, p)
 	}
 	for _, fs := range statuses {
 		if code := cvsStatusCode(fs.Status); code != "" {
 			m.statusMap[fs.Path] = code
+		}
+		if fs.WorkingRev != "" {
+			m.baseRevMap[fs.Path] = fs.WorkingRev
 		}
 	}
 	m.tree.RefreshStatus(m.statusMap)
@@ -331,7 +347,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Only push into the model + auto-load content if the user is
 		// actually viewing this file right now.
 		if m.history.Path() == msg.path {
-			m.history.ApplyRevisions(msg.history, m.workingCopyIsDirty(msg.path))
+			m.history.ApplyRevisions(msg.history, m.workingCopyIsDirty(msg.path), m.baseRevMap[msg.path])
 			if m.history.NumRevisions() > 0 {
 				return m, m.loadHistoryContent()
 			}

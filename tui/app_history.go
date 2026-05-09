@@ -45,13 +45,21 @@ func diffCacheKey(fromRev, toRev string) string {
 // stable cache key so blame and revision content can share histContents.
 const blameRev = "@blame"
 
-// workingCopyIsDirty reports whether the file at path has uncommitted
-// local changes (CVS status M, C, or A) — those are the cases where
-// the on-disk content diverges from any committed revision and the
-// History view should expose a synthetic working-copy row.
+// workingCopyIsDirty reports whether the file's working-tree state
+// diverges from its base revision. The principle is "show a working
+// row when the on-disk state differs from what CVS thinks is the
+// committed content":
+//
+//   M — locally modified
+//   C — has merge conflicts
+//   A — added but not yet committed (no base revision exists)
+//   R — scheduled for removal (file gone or marked deleted)
+//
+// All other states (clean, ?, U, P) leave the working copy matching
+// the base revision, so no pseudo-row is shown.
 func (m *App) workingCopyIsDirty(path string) bool {
 	switch m.statusMap[path] {
-	case "M", "C", "A":
+	case "M", "C", "A", "R":
 		return true
 	}
 	return false
@@ -129,7 +137,7 @@ func (m *App) openHistoryFor(path string) tea.Cmd {
 
 	// Cache hit: push revisions in synchronously and load content.
 	if hist, ok := m.histRevisions[path]; ok {
-		m.history.ApplyRevisions(hist, m.workingCopyIsDirty(path))
+		m.history.ApplyRevisions(hist, m.workingCopyIsDirty(path), m.baseRevMap[path])
 		if m.history.NumRevisions() > 0 {
 			return m.loadHistoryContent()
 		}
@@ -211,8 +219,8 @@ func (m *App) currentDiffKey() (string, string) {
 		case anchor != nil:
 			fromRev = anchor.Number
 		default:
-			if h := m.history.HeadRevision(); h != nil {
-				fromRev = h.Number
+			if b := m.history.BaseRevision(); b != nil {
+				fromRev = b.Number
 			}
 		}
 	case anchorIsWorking:

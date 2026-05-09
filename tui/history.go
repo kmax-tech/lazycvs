@@ -79,13 +79,19 @@ type HistoryModel struct {
 	// Working-copy state vs the revision history. Set by ApplyRevisions
 	// from the file's CVS status; mutually exclusive.
 	//
-	// hasWorkingRow      → file is modified locally (status M/C/A); a
-	//                      pseudo "working copy local" row is exposed at
-	//                      virtual cursor index 0.
-	// workingMatchesHead → file is clean; HEAD revision gets a "(working)"
-	//                      annotation in the left pane.
+	// hasWorkingRow      → working tree diverges from base (M/C/A/R); a
+	//                      pseudo "working" row is exposed at virtual
+	//                      cursor index 0.
+	// workingMatchesBase → working tree matches the base revision; the
+	//                      base row gets a "(working)" annotation.
 	hasWorkingRow      bool
-	workingMatchesHead bool
+	workingMatchesBase bool
+
+	// baseRev is the revision number the on-disk file is checked out to
+	// — populated from `cvs status` "Working revision:". Sticky-tag and
+	// branch aware: not necessarily the most recent revision in the log.
+	// Empty when unknown (no status loaded yet).
+	baseRev string
 
 	viewport viewport.Model
 	hOffset  int
@@ -242,12 +248,18 @@ func (m *HistoryModel) SwitchTo(path string) {
 // ApplyRevisions pushes a freshly loaded revisions list. Called by the
 // App handler when historyLoadedMsg arrives for the current path.
 // ApplyRevisions pushes a freshly loaded revisions list and the file's
-// working-copy state. dirty == true when the file has uncommitted local
-// changes (M/C/A) — in that case a pseudo "working copy local" row is
-// exposed at virtual cursor index 0 and the working copy can be picked
-// for compare like any other row. dirty == false means the working copy
-// matches the head revision; ViewLeft annotates HEAD with "(working)".
-func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory, dirty bool) {
+// working-copy state.
+//
+//   dirty   — the working tree diverges from the base revision
+//             (M / C / A / R). When true, a pseudo "working" row is
+//             exposed at virtual cursor index 0 and the working copy
+//             can be picked for compare like any other row.
+//   baseRev — the revision the on-disk file is checked out to (sticky-
+//             tag aware). When dirty is false and baseRev matches a
+//             revision in the list, that row gets a "(working)" badge.
+//             Note: this is NOT necessarily the repo HEAD — a working
+//             copy can sit on a sticky tag or a branch.
+func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory, dirty bool, baseRev string) {
 	if history != nil {
 		m.revisions = history.Revisions
 	} else {
@@ -255,7 +267,8 @@ func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory, dirty bool) {
 	}
 	hasRevisions := len(m.revisions) > 0
 	m.hasWorkingRow = dirty && hasRevisions
-	m.workingMatchesHead = !dirty && hasRevisions
+	m.workingMatchesBase = !dirty && hasRevisions
+	m.baseRev = baseRev
 	rows := m.numRows()
 	if m.cursor >= rows {
 		m.cursor = 0
@@ -321,11 +334,25 @@ func (m HistoryModel) CompareAnchorRev() *cvs.Revision {
 	return &m.revisions[idx]
 }
 
-// HeadRevision returns the most recent real revision (skipping the
-// pseudo working-copy row), or nil when the file has no revisions yet.
-func (m HistoryModel) HeadRevision() *cvs.Revision {
+// BaseRevision returns the revision the on-disk file is checked out to
+// (the "Working revision" from cvs status). Falls back to the most
+// recent revision in the list if the working revision is unknown or
+// not present in the log — the common case for a clean file on trunk
+// where these coincide.
+//
+// This is the revision the working copy is BASED on, not necessarily
+// repo HEAD: a sticky-tag or branch checkout can have a base far below
+// the latest revision.
+func (m HistoryModel) BaseRevision() *cvs.Revision {
 	if len(m.revisions) == 0 {
 		return nil
+	}
+	if m.baseRev != "" {
+		for i := range m.revisions {
+			if m.revisions[i].Number == m.baseRev {
+				return &m.revisions[i]
+			}
+		}
 	}
 	return &m.revisions[0]
 }
@@ -374,7 +401,8 @@ func (m *HistoryModel) ClearProjection() {
 	m.diffToRev = ""
 	m.rawView = ""
 	m.hasWorkingRow = false
-	m.workingMatchesHead = false
+	m.workingMatchesBase = false
+	m.baseRev = ""
 }
 
 // --- update / view ---------------------------------------------------------
@@ -595,13 +623,14 @@ func (m HistoryModel) ViewLeft() string {
 
 		var line1, line2 string
 		if m.hasWorkingRow && i == 0 {
-			// Pseudo working-copy row.
+			// Pseudo "working" row. Label is consistent with how the
+			// title and the badge spell it elsewhere.
 			line1 = fmt.Sprintf("%s%-6s %-8s %s",
 				renderedMarker,
-				lipgloss.NewStyle().Foreground(colorActive).Render("WORK"),
+				lipgloss.NewStyle().Foreground(colorActive).Render("working"),
 				"you",
 				"now")
-			line2 = renderedMarker + "  " + mutedStyle.Render("(working copy local)")
+			line2 = renderedMarker + "  " + mutedStyle.Render("local changes")
 		} else {
 			rev := m.revisions[m.revisionIndex(i)]
 			date := rev.Date.Format("Jan 02 06")
@@ -610,10 +639,12 @@ func (m HistoryModel) ViewLeft() string {
 			if len(rev.Tags) > 0 {
 				line1 += " " + lipgloss.NewStyle().Foreground(colorStale).Render(truncate(rev.Tags[0], 12))
 			}
-			// HEAD badge: when the file is clean, the first real revision
-			// in the list IS the working copy. Append "(working)" to
-			// signal that the on-disk content matches it.
-			if m.workingMatchesHead && m.revisionIndex(i) == 0 {
+			// Base-revision badge: when the file is clean, badge the
+			// row whose Number matches the working revision. This is
+			// sticky-tag / branch aware — for a checkout pinned to a
+			// non-HEAD revision, the badge lands on the actual base,
+			// not on the most recent log entry.
+			if m.workingMatchesBase && m.baseRev != "" && rev.Number == m.baseRev {
 				line1 += " " + lipgloss.NewStyle().Foreground(colorActive).Render("(working)")
 			}
 

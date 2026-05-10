@@ -68,6 +68,21 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.staged.input.Blur()
 		m.staged.mode = StagedActions
 		return nil, true
+	case msg.Type == tea.KeyCtrlE:
+		// Ctrl+E: open $EDITOR with the current message + a comment
+		// block listing the files. Lets the user write a multi-line
+		// commit message that wouldn't fit in the single-line input.
+		// On editor close, commitMessageEditedMsg lands and either
+		// commits (non-empty message) or aborts (empty).
+		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")
+		if len(commitFiles) == 0 {
+			return nil, true
+		}
+		return openCommitEditor(
+			m.staged.input.Value(),
+			commitFiles,
+			m.statusesFor(commitFiles),
+		), true
 	case key.Matches(msg, keys.Enter):
 		// Universal commit: include ? (cvs-add first), A (initial commit),
 		// M and C (content commit), R (commit the deletion). The commitMsg

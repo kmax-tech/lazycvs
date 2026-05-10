@@ -610,6 +610,40 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorClosedMsg:
 		return m, m.refreshStatusForPaths([]string{msg.path})
 
+	case commitMessageEditedMsg:
+		// User came back from $EDITOR. Empty message → abort; otherwise
+		// dispatch the universal commitMsg so the conflict-marker check
+		// and doCommit run via the same path as the inline-input flow.
+		if msg.err != nil {
+			m.notification = "✗ Editor invocation failed — see Console"
+			m.notificationOK = false
+			m.notificationExpiry = time.Now().Add(notifyDuration)
+			m.updateSizes()
+			return m, notifyAfter(notifyDuration)
+		}
+		message := strings.TrimSpace(msg.message)
+		if message == "" {
+			m.notification = "Commit aborted (empty message)"
+			m.notificationOK = false
+			m.notificationExpiry = time.Now().Add(notifyDuration)
+			m.updateSizes()
+			return m, notifyAfter(notifyDuration)
+		}
+		untracked := m.staged.PathsByStatus("?")
+		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")
+		if len(commitFiles) == 0 {
+			return m, nil
+		}
+		// Reset the inline input + mode so the post-commit state matches
+		// what an Enter-based commit would leave behind.
+		m.staged.input.SetValue("")
+		m.staged.input.Blur()
+		m.staged.mode = StagedActions
+		m.focus = PanelLeft
+		return m, func() tea.Msg {
+			return commitMsg{message: message, untracked: untracked, files: commitFiles}
+		}
+
 	case searchSelectedMsg:
 		// Navigate to the selected path
 		m.activeTab = TabTree

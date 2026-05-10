@@ -208,6 +208,15 @@ type editorClosedMsg struct {
 	err  error
 }
 
+// commitMessageEditedMsg is dispatched by openCommitEditor after $EDITOR
+// closes. message is the user's text with comment lines stripped (empty
+// means "abort the commit"); err is non-nil if the editor invocation
+// itself failed.
+type commitMessageEditedMsg struct {
+	message string
+	err     error
+}
+
 // ensureParentDirs adds any ancestor directories of relPath that are not yet
 // known to CVS (i.e. missing a CVS/ subdirectory). Directories are added
 // top-down so that `cvs add <file>` inside a new directory tree succeeds.
@@ -321,6 +330,71 @@ func openEditor(path string) tea.Cmd {
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorClosedMsg{path: path, err: err}
 	})
+}
+
+// openCommitEditor creates a temp file pre-filled with currentMsg plus
+// a comment header listing the files to commit, suspends to $EDITOR
+// so the user can write a multi-line message, then reads the file
+// back and emits commitMessageEditedMsg with the comment lines stripped.
+//
+// The dispatch happens in tea.ExecProcess's callback so the TUI is
+// suspended during the edit and restored cleanly afterward — same
+// pattern the e key uses for editing files.
+func openCommitEditor(currentMsg string, files []string, statuses map[string]string) tea.Cmd {
+	tmp, err := os.CreateTemp("", "lazycvs-commit-*.txt")
+	if err != nil {
+		return func() tea.Msg { return commitMessageEditedMsg{err: err} }
+	}
+	if currentMsg != "" {
+		fmt.Fprintln(tmp, currentMsg)
+	} else {
+		fmt.Fprintln(tmp, "")
+	}
+	fmt.Fprintln(tmp, "")
+	fmt.Fprintln(tmp, "# Commit message for lazycvs")
+	fmt.Fprintln(tmp, "# Lines starting with # are ignored.")
+	fmt.Fprintln(tmp, "# Save and quit to commit; leave empty to abort.")
+	fmt.Fprintln(tmp, "#")
+	fmt.Fprintln(tmp, "# Files:")
+	for _, f := range files {
+		st := statuses[f]
+		if st == "" {
+			st = " "
+		}
+		fmt.Fprintf(tmp, "#   %s  %s\n", st, f)
+	}
+	path := tmp.Name()
+	tmp.Close()
+
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		editor = "vim"
+	}
+	c := exec.Command(editor, path)
+	return tea.ExecProcess(c, func(err error) tea.Msg {
+		defer os.Remove(path)
+		if err != nil {
+			return commitMessageEditedMsg{err: err}
+		}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return commitMessageEditedMsg{err: readErr}
+		}
+		return commitMessageEditedMsg{message: stripCommentLines(string(data))}
+	})
+}
+
+// stripCommentLines removes lines starting with '#' from s and trims
+// surrounding whitespace, matching the convention used by git commit
+// messages.
+func stripCommentLines(s string) string {
+	var keep []string
+	for _, line := range strings.Split(s, "\n") {
+		if !strings.HasPrefix(line, "#") {
+			keep = append(keep, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(keep, "\n"))
 }
 
 func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {

@@ -102,6 +102,12 @@ cvs invocation. `?` files get `cvs add`-ed automatically before commit.
 `r` reverts marked `M` files; `i` adds marked `?` files to `.cvsignore`;
 `u` runs `cvs update` on the selection.
 
+**Multi-line commit messages**: while the commit input is focused,
+press `Ctrl+E` to open `$EDITOR` with the current message + a comment
+block listing every file (with status). Save+quit commits; quit empty
+aborts. Lines starting with `#` are stripped — same convention as
+`git commit`.
+
 ### 4 — History
 
 Per-file revision history with a side-by-side or unified diff viewer.

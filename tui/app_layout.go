@@ -412,6 +412,14 @@ func (m App) renderKeybar() string {
 		actions = keyHelp(keys.Diff, keys.Commit, keys.MarkAll, keys.Ignore, keys.Edit, keys.Status, keys.Update) +
 			"  " + keyStyle.Render("f") + ":view  " + keyStyle.Render("t") + ":tree" + mergeHint
 	case TabStaged:
+		// In commit mode (input focused) surface Ctrl+E for a multi-line
+		// editor message; otherwise show the action set.
+		if m.staged.mode == StagedCommit && m.staged.input.Focused() {
+			actions = keyStyle.Render("enter") + ":commit  " +
+				keyStyle.Render("C-e") + ":editor  " +
+				keyStyle.Render("esc") + ":back"
+			break
+		}
 		// `c` covers both add+commit (for ?-files) and plain commit, so a:add
 		// is no longer offered separately in the staged tab.
 		actions = keyHelp(keys.Commit, keys.Revert, keys.Ignore, keys.Update) + "  " +

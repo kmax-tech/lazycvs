@@ -21,6 +21,7 @@ type TreeNode struct {
 	Status   string // "M", "C", "U", "?", ""
 	Size     int64
 	Counts   StatusCounts
+	IsStale  bool // true when CVS reports this directory as gone from the server
 }
 
 type StatusCounts struct {
@@ -253,17 +254,20 @@ func (m *TreeModel) SetSize(d PanelDims) {
 // applyStatusToNodes annotates each TreeNode with its status and aggregate
 // counts, using the App-owned statusMap as the read-only source of truth.
 // Directory counts are computed bottom-up: sum children's counts, then add
-// statusMap entries not covered by any loaded child node.
-func (m *TreeModel) applyStatusToNodes(nodes []*TreeNode, statusMap map[string]string) {
+// statusMap entries not covered by any loaded child node. staleDirs is
+// the App-owned set of directories CVS reports as gone from the server;
+// matching nodes get IsStale set so the renderer can mark them yellow.
+func (m *TreeModel) applyStatusToNodes(nodes []*TreeNode, statusMap map[string]string, staleDirs map[string]bool) {
 	for _, n := range nodes {
 		if s, ok := statusMap[n.Path]; ok {
 			n.Status = s
 		} else {
 			n.Status = ""
 		}
+		n.IsStale = staleDirs[n.Path]
 		n.Counts = StatusCounts{}
 		if n.IsDir {
-			m.applyStatusToNodes(n.Children, statusMap)
+			m.applyStatusToNodes(n.Children, statusMap, staleDirs)
 			// Sum loaded children (their counts already include their subtrees).
 			coveredPrefixes := make([]string, 0, len(n.Children))
 			for _, child := range n.Children {
@@ -328,14 +332,14 @@ func (m *TreeModel) rebuildFlat() {
 	}
 }
 
-// RefreshStatus annotates every node with the new statusMap and rebuilds
-// the flattened display list. Callers used to do these two steps in
-// sequence everywhere; bundling them keeps the order correct (nodes must
-// be annotated before flattening, so aggregate counts on directories are
-// up to date) and prevents the silent-display-bug class where one of the
-// two calls is forgotten.
-func (m *TreeModel) RefreshStatus(statusMap map[string]string) {
-	m.applyStatusToNodes(m.root, statusMap)
+// RefreshStatus annotates every node with the new statusMap + stale-dir
+// set and rebuilds the flattened display list. Callers used to do these
+// two steps in sequence everywhere; bundling them keeps the order
+// correct (nodes must be annotated before flattening, so aggregate
+// counts on directories are up to date) and prevents the silent-display-
+// bug class where one of the two calls is forgotten.
+func (m *TreeModel) RefreshStatus(statusMap map[string]string, staleDirs map[string]bool) {
+	m.applyStatusToNodes(m.root, statusMap, staleDirs)
 	m.rebuildFlat()
 }
 
@@ -477,7 +481,15 @@ func (m TreeModel) View() string {
 			statusStr = lipgloss.NewStyle().Foreground(c).Render(f.node.Status) + " "
 		}
 
-		line := indent + icon + statusStr + name + counts
+		// Stale-dir badge: directory exists locally but CVS reports it
+		// gone from the server. Append "! stale" in yellow after the
+		// counts so the user can spot orphaned trees at a glance.
+		staleBadge := ""
+		if f.node.IsStale {
+			staleBadge = "  " + lipgloss.NewStyle().Foreground(colorStale).Render("! stale")
+		}
+
+		line := indent + icon + statusStr + name + counts + staleBadge
 
 		if i == m.cursor {
 			line = lipgloss.NewStyle().Reverse(true).Render(line)

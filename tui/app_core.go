@@ -164,6 +164,15 @@ type App struct {
 	// a read-only parameter when they need to render or compute over it.
 	statusMap map[string]string
 
+	// staleDirs is the set of directory paths CVS reported as gone from
+	// the server (parsed from `cvs update -n` output). Populated on
+	// statusRefreshedMsg and rendered in the tree as a yellow "!" badge.
+	// Only the dry-run-update knows the truth about staleness; per-dir
+	// `cvs status` doesn't report it, so this map is only refreshed by
+	// the explicit `s` action, not the targeted refreshes after commit
+	// or the initial directory scan.
+	staleDirs map[string]bool
+
 	// baseRevMap holds the working revision (sticky-tag aware) for each
 	// known path, parsed from `cvs status` output. This is the revision
 	// the on-disk file is actually checked out to — not necessarily the
@@ -224,6 +233,7 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		consoleHeight: 6,
 		initialPath:   initialPath,
 		statusMap:     make(map[string]string),
+		staleDirs:     make(map[string]bool),
 		baseRevMap:    make(map[string]string),
 		statusEpoch:   1,
 		dirEpoch:      make(map[string]uint64),
@@ -256,14 +266,18 @@ func (m *App) applyStatuses(toClear []string, statuses []cvs.FileStatus) {
 			m.baseRevMap[fs.Path] = fs.WorkingRev
 		}
 	}
-	m.tree.RefreshStatus(m.statusMap)
+	m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 }
 
-// rebuildStatusMap replaces the map with fresh entries derived from a dry-run
-// update result. Called from the statusRefreshedMsg handler.
+// rebuildStatusMap replaces the status / stale-dir maps with fresh
+// entries derived from a dry-run update result. Called from the
+// statusRefreshedMsg handler — it's the only path that knows about
+// stale directories, since per-dir `cvs status -l` doesn't report
+// them.
 func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
 	m.statusMap = make(map[string]string)
+	m.staleDirs = make(map[string]bool)
 	if result == nil {
 		return
 	}
@@ -278,6 +292,9 @@ func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
 	}
 	for _, f := range result.Updated {
 		m.statusMap[f.Path] = "U"
+	}
+	for _, dir := range result.StaleDirs {
+		m.staleDirs[dir] = true
 	}
 }
 
@@ -443,7 +460,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for dir := range m.dirEpoch {
 				m.dirEpoch[dir] = msg.epoch
 			}
-			m.tree.RefreshStatus(m.statusMap)
+			m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 			m.favorites.UpdateCounts(m.statusMap)
 			m.updateFileList()
 			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)

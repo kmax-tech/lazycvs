@@ -5,6 +5,7 @@ import (
 	"lazycvs/cvs"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -38,10 +39,22 @@ type statusRefreshedMsg struct {
 	epoch  uint64
 }
 
+// dirStatusMsg carries the result of a `cvs status` invocation.
+//
+//   recursive == false (default) — `cvs status -l <dir>`, scanning only
+//     the immediate directory. The handler clears statusMap entries
+//     whose immediate parent equals dir, then merges the new statuses.
+//
+//   recursive == true — recursive `cvs status [scope]`. The handler
+//     clears every entry under dir's subtree, then merges. Used for
+//     the initial scan and for whole-tree refreshes; the targeted
+//     refresh path (refreshStatusForPaths) keeps the per-dir form
+//     because it only touches a small set of directories.
 type dirStatusMsg struct {
-	dir      string
-	statuses []cvs.FileStatus
-	epoch    uint64
+	dir       string
+	recursive bool
+	statuses  []cvs.FileStatus
+	epoch     uint64
 }
 
 type previewMsg struct {
@@ -388,9 +401,30 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.dirEpoch[msg.dir] = msg.epoch
 		var toClear []string
-		for path := range m.statusMap {
-			if filepath.Dir(path) == msg.dir {
-				toClear = append(toClear, path)
+		if msg.recursive {
+			// Recursive scan covers msg.dir and every descendant; drop
+			// every existing statusMap entry under that subtree before
+			// merging so removed/cleaned files disappear.
+			prefix := msg.dir + "/"
+			rootScope := msg.dir == "."
+			for path := range m.statusMap {
+				if rootScope || path == msg.dir || strings.HasPrefix(path, prefix) {
+					toClear = append(toClear, path)
+				}
+			}
+			// Bump dirEpoch for every dir under this scope so a later
+			// targeted scan (with a fresher epoch) is the only one
+			// that can override us.
+			for d := range m.dirEpoch {
+				if rootScope || d == msg.dir || strings.HasPrefix(d, prefix) {
+					m.dirEpoch[d] = msg.epoch
+				}
+			}
+		} else {
+			for path := range m.statusMap {
+				if filepath.Dir(path) == msg.dir {
+					toClear = append(toClear, path)
+				}
 			}
 		}
 		m.applyStatuses(toClear, msg.statuses)

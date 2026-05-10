@@ -2,10 +2,8 @@ package tui
 
 import (
 	"lazycvs/cvs"
-	ioFS "io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -103,45 +101,45 @@ func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch uint64) tea.Cmd 
 	}
 }
 
-// backgroundDirScan walks the working directory, collects all CVS-managed
-// directories, and returns a tea.Batch that runs loadDirStatus for each one.
-// Because loadDirStatus uses RunReadOnly (shared lock), all directory scans
-// run concurrently. Results arrive as individual dirStatusMsg messages and
-// render progressively.
+// backgroundDirScan runs a single recursive `cvs status` over the
+// working copy (or the given scope) and reports the result as one
+// dirStatusMsg with the recursive flag set. The handler clears every
+// statusMap entry under the scope before merging the new statuses, so
+// the result is canonical for that subtree.
+//
+// Earlier this function did a filepath.WalkDir of every CVS-managed
+// directory and dispatched one `cvs status -l <dir>` per dir. That
+// worked for small repos but spawned thousands of subprocesses on
+// large ones and triggered a tree refresh per dir (O(tree²)). The
+// recursive single-call avoids both and lets cvs do its own walk
+// once.
+//
+// Targeted refreshes after individual actions still use loadDirStatus
+// directly (via refreshStatusForPaths), which only touches the affected
+// directories — unaffected by repo size.
 func backgroundDirScan(executor *cvs.CVSExecutor, epoch uint64, scope string) tea.Cmd {
-	root := executor.WorkDir
-	if scope != "" {
-		root = filepath.Join(executor.WorkDir, scope)
+	dir := scope
+	if dir == "" {
+		dir = "."
 	}
-	var dirs []string
-	filepath.WalkDir(root, func(path string, d ioFS.DirEntry, err error) error {
-		if err != nil {
-			return filepath.SkipDir
+	return func() tea.Msg {
+		args := []string{"status"}
+		if dir != "." {
+			args = append(args, dir)
 		}
-		if !d.IsDir() {
-			return nil
+		result, _ := executor.RunReadOnly(args...)
+		if result == nil {
+			return dirStatusMsg{dir: dir, recursive: true, epoch: epoch}
 		}
-		name := d.Name()
-		if name == "CVS" || strings.HasPrefix(name, ".") {
-			return filepath.SkipDir
+		return dirStatusMsg{
+			dir:       dir,
+			recursive: true,
+			statuses:  cvs.ParseStatus(result.Stdout),
+			epoch:     epoch,
 		}
-		cvsDir := filepath.Join(path, "CVS")
-		if _, err := os.Stat(cvsDir); err != nil {
-			return filepath.SkipDir
-		}
-		rel, _ := filepath.Rel(executor.WorkDir, path)
-		if rel == "" {
-			rel = "."
-		}
-		dirs = append(dirs, rel)
-		return nil
-	})
-	cmds := make([]tea.Cmd, len(dirs))
-	for i, dir := range dirs {
-		cmds[i] = loadDirStatus(executor, dir, epoch)
 	}
-	return tea.Batch(cmds...)
 }
+
 
 // cvsStatusCode maps the long-form status strings emitted by `cvs status`
 // to the single-letter codes used throughout the UI. Returns "" for

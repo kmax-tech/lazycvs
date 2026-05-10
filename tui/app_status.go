@@ -4,6 +4,8 @@ import (
 	"lazycvs/cvs"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -101,40 +103,195 @@ func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch uint64) tea.Cmd 
 	}
 }
 
-// backgroundDirScan runs a single recursive `cvs status` over the
-// working copy (or the given scope) and reports the result as one
-// dirStatusMsg with the recursive flag set. The handler clears every
-// statusMap entry under the scope before merging the new statuses, so
-// the result is canonical for that subtree.
+// scanTargetFiles is the soft upper bound on how many CVS-managed
+// files one cvs status invocation should cover. The partitioning
+// algorithm splits the directory tree so each scan stays roughly at
+// or below this number — large enough that the per-scan startup cost
+// is amortized, small enough that we get useful parallelism on big
+// working copies.
+const scanTargetFiles = 200
+
+// scanWorkerCount caps how many cvs status invocations run at once.
+// Each one shares the executor's read lock, so they really do execute
+// in parallel; the cap prevents fork-storm on huge repos.
+const scanWorkerCount = 8
+
+// scanSpec is one unit of work for the worker pool: scan dir, either
+// recursively (for subtrees that fit within scanTargetFiles) or just
+// the directory's own files (for nodes too big to scan as one chunk;
+// their children become their own scanSpecs).
+type scanSpec struct {
+	dir       string
+	recursive bool
+}
+
+// dirNode is the in-memory tree the partitioning algorithm walks.
+// It only contains CVS-managed directories — non-CVS subtrees are
+// pruned during the filesystem walk so they don't pollute the counts.
+type dirNode struct {
+	relPath  string // relative to working copy root, "." for root
+	files    int    // direct file count (CVS-relevant; excludes hidden / build artifacts)
+	subtree  int    // direct + descendants
+	children []*dirNode
+}
+
+// buildDirTree walks the working copy under root, descending only into
+// directories that have a CVS/ subdirectory. Returns the tree root or
+// nil if root itself isn't CVS-managed. Cheap — pure filesystem stat,
+// no cvs invocations.
+func buildDirTree(workDir, scope string) *dirNode {
+	rootAbs := workDir
+	rootRel := "."
+	if scope != "" && scope != "." {
+		rootAbs = filepath.Join(workDir, scope)
+		rootRel = scope
+	}
+	if _, err := os.Stat(filepath.Join(rootAbs, "CVS")); err != nil {
+		return nil
+	}
+	return walkDirNode(rootAbs, rootRel)
+}
+
+func walkDirNode(absDir, relDir string) *dirNode {
+	entries, err := os.ReadDir(absDir)
+	if err != nil {
+		return nil
+	}
+	n := &dirNode{relPath: relDir}
+	for _, e := range entries {
+		name := e.Name()
+		if name == "CVS" || strings.HasPrefix(name, ".") {
+			continue
+		}
+		if e.IsDir() {
+			subAbs := filepath.Join(absDir, name)
+			if _, err := os.Stat(filepath.Join(subAbs, "CVS")); err != nil {
+				continue // not part of the CVS working copy
+			}
+			subRel := name
+			if relDir != "." {
+				subRel = relDir + "/" + name
+			}
+			if c := walkDirNode(subAbs, subRel); c != nil {
+				n.children = append(n.children, c)
+				n.subtree += c.subtree
+			}
+		} else if !skipInListing(name) {
+			n.files++
+		}
+	}
+	n.subtree += n.files
+	return n
+}
+
+// partitionTree returns a list of scanSpecs covering every file in
+// the tree exactly once. A subtree fitting within scanTargetFiles
+// becomes one recursive scan; bigger subtrees are split — the parent
+// directory's own files become a non-recursive scan and each child
+// is partitioned independently.
 //
-// Earlier this function did a filepath.WalkDir of every CVS-managed
-// directory and dispatched one `cvs status -l <dir>` per dir. That
-// worked for small repos but spawned thousands of subprocesses on
-// large ones and triggered a tree refresh per dir (O(tree²)). The
-// recursive single-call avoids both and lets cvs do its own walk
-// once.
+// Tiny dirs (e.g. one with 3 files) never get their own scan — they
+// roll up into the nearest ancestor whose subtree fits the target.
+func partitionTree(n *dirNode) []scanSpec {
+	if n == nil {
+		return nil
+	}
+	var specs []scanSpec
+	var visit func(*dirNode)
+	visit = func(d *dirNode) {
+		// A subtree fits as one recursive scan if the file count is
+		// within budget OR there are no children to split into. Leaf
+		// directories with more than scanTargetFiles still scan as
+		// one chunk — there's nothing to break them up further.
+		if d.subtree <= scanTargetFiles || len(d.children) == 0 {
+			specs = append(specs, scanSpec{dir: d.relPath, recursive: true})
+			return
+		}
+		// Too big as one chunk: scan this dir's direct files non-
+		// recursively, then partition each child independently.
+		if d.files > 0 {
+			specs = append(specs, scanSpec{dir: d.relPath, recursive: false})
+		}
+		for _, c := range d.children {
+			visit(c)
+		}
+	}
+	visit(n)
+	return specs
+}
+
+// backgroundDirScan partitions the working copy into balanced scan
+// units (each ~scanTargetFiles files) and runs them concurrently with
+// a bounded worker pool, then merges the results into one
+// dirStatusMsg.
+//
+// Why this shape: a single recursive `cvs status` on a large repo is
+// slow (one process scanning thousands of files); one cvs invocation
+// per directory is the opposite extreme (fork-storm + quadratic tree
+// refresh). Partitioning first by file count gives the right
+// granularity — small dirs roll up into ancestor scans (no per-3-file
+// cvs call), large dirs split into per-subdir scans that parallelize
+// well.
+//
+// The partitioning walk is pure filesystem stat and runs entirely in
+// the goroutine spawned by tea.Cmd, so it doesn't block the main loop.
+// All cvs invocations happen via the executor (so they show up in the
+// console panel) but stay capped at scanWorkerCount in flight.
 //
 // Targeted refreshes after individual actions still use loadDirStatus
-// directly (via refreshStatusForPaths), which only touches the affected
-// directories — unaffected by repo size.
+// directly (via refreshStatusForPaths), which only touches the
+// affected directories — unaffected by repo size.
 func backgroundDirScan(executor *cvs.CVSExecutor, epoch uint64, scope string) tea.Cmd {
-	dir := scope
-	if dir == "" {
-		dir = "."
+	dirLabel := scope
+	if dirLabel == "" {
+		dirLabel = "."
 	}
 	return func() tea.Msg {
-		args := []string{"status"}
-		if dir != "." {
-			args = append(args, dir)
+		root := buildDirTree(executor.WorkDir, scope)
+		specs := partitionTree(root)
+		if len(specs) == 0 {
+			return dirStatusMsg{dir: dirLabel, recursive: true, epoch: epoch}
 		}
-		result, _ := executor.RunReadOnly(args...)
-		if result == nil {
-			return dirStatusMsg{dir: dir, recursive: true, epoch: epoch}
+
+		var (
+			mu       sync.Mutex
+			combined []cvs.FileStatus
+			wg       sync.WaitGroup
+		)
+		sem := make(chan struct{}, scanWorkerCount)
+		for _, spec := range specs {
+			wg.Add(1)
+			go func(s scanSpec) {
+				defer wg.Done()
+				sem <- struct{}{}
+				defer func() { <-sem }()
+
+				args := []string{"status"}
+				if !s.recursive {
+					args = append(args, "-l")
+				}
+				if s.dir != "." {
+					args = append(args, s.dir)
+				}
+				result, _ := executor.RunReadOnly(args...)
+				if result == nil {
+					return
+				}
+				parsed := cvs.ParseStatus(result.Stdout)
+				if len(parsed) == 0 {
+					return
+				}
+				mu.Lock()
+				combined = append(combined, parsed...)
+				mu.Unlock()
+			}(spec)
 		}
+		wg.Wait()
+
 		return dirStatusMsg{
-			dir:       dir,
+			dir:       dirLabel,
 			recursive: true,
-			statuses:  cvs.ParseStatus(result.Stdout),
+			statuses:  combined,
 			epoch:     epoch,
 		}
 	}

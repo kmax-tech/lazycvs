@@ -35,7 +35,12 @@ func catRevisionStdout(executor *cvs.CVSExecutor, path, rev string) (string, err
 	if err != nil {
 		return "", fmt.Errorf("read CVS/Repository: %w", err)
 	}
-	modulePath := strings.TrimSpace(string(rootRepo)) + "/" + path
+	// filepath.Clean normalizes the join when CVS/Repository is "." (a
+	// root-level checkout): ".  /  foo/bar" → "foo/bar". Without this
+	// the leading "./" trips an internal CVS assertion in recurse.c
+	// ("/./" must not appear in the repository path) and `cvs co -p`
+	// aborts with exit 1.
+	modulePath := filepath.Clean(strings.TrimSpace(string(rootRepo)) + "/" + path)
 
 	args := []string{"co", "-p"}
 	if rev == "" {

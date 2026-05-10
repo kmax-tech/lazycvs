@@ -92,13 +92,16 @@ func (m *App) invalidateHistoryCache(paths []string) tea.Cmd {
 			}
 		}
 
-		// Currently displayed? Reload the revision list immediately;
-		// the historyLoadedMsg handler will re-fetch right-pane content
-		// from the freshly populated cache.
+		// Currently displayed? Restart the streaming loader; batches
+		// arrive as historyBatchMsg, the final historyLoadedMsg fills
+		// the cache and triggers loadHistoryContent.
 		if m.history.Path() == p {
 			m.history.ClearProjection()
 			m.histPending[pendingLog(p)] = true
-			cmds = append(cmds, loadHistory(m.exec, p))
+			m.histRequestID++
+			ch, firstCmd := startHistoryStream(m.exec, p, m.histRequestID)
+			m.histStreams[m.histRequestID] = ch
+			cmds = append(cmds, firstCmd)
 		}
 	}
 	if len(cmds) == 0 {
@@ -144,13 +147,20 @@ func (m *App) openHistoryFor(path string) tea.Cmd {
 		return nil
 	}
 
-	// Cache miss: dispatch async. Guard against duplicate dispatch.
+	// Cache miss: start a streaming `cvs log -N` load. The loader
+	// pushes revisions to the model in batches (every 3 entries or
+	// every 100ms) so the History tab paints progressively rather
+	// than waiting for the full log to arrive.
 	pendKey := pendingLog(path)
 	if m.histPending[pendKey] {
 		return nil
 	}
 	m.histPending[pendKey] = true
-	return loadHistory(m.exec, path)
+	m.histRequestID++
+	requestID := m.histRequestID
+	ch, firstCmd := startHistoryStream(m.exec, path, requestID)
+	m.histStreams[requestID] = ch
+	return firstCmd
 }
 
 // currentContentKey returns the cache key for the right-pane content the

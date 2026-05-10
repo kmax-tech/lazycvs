@@ -1,9 +1,14 @@
 package tui
 
 import (
+	"bufio"
 	"fmt"
 	"lazycvs/cvs"
+	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -110,12 +115,38 @@ func NewHistoryModel() HistoryModel {
 
 // --- async messages ---------------------------------------------------------
 
-// historyLoadedMsg carries the parsed `cvs log` output for a path. The path
-// is included so the App handler can store it in the right cache slot even
-// if the user has since switched files.
+// historyLoadedMsg carries the final, complete `cvs log` output for a
+// path — sent once the streaming loader has finished consuming the
+// subprocess pipe. Intermediate progress is delivered via
+// historyBatchMsg.
 type historyLoadedMsg struct {
-	path    string
-	history *cvs.FileHistory
+	path      string
+	requestID uint64
+	history   *cvs.FileHistory
+}
+
+// historyBatchMsg carries a partial slice of revisions that the
+// streaming loader parsed since the last batch. The handler appends
+// the slice to the model so the user sees revisions appear
+// progressively rather than in one block at the end.
+//
+// requestID is the per-load identifier the loader was started with; a
+// later openHistoryFor for a different file (or same file after an
+// invalidation) bumps it, so any in-flight batches from the previous
+// request get dropped at the handler.
+type historyBatchMsg struct {
+	path      string
+	requestID uint64
+	revisions []cvs.Revision
+}
+
+// historyStreamErrMsg reports a streaming load failure. Treated as
+// "loader finished with empty result" by the handler — the cache
+// slot stays empty so the next openHistoryFor retries.
+type historyStreamErrMsg struct {
+	path      string
+	requestID uint64
+	err       error
 }
 
 // historyContentMsg carries the on-disk content of one revision (or a
@@ -135,15 +166,263 @@ type historyDiffMsg struct {
 	diff    *cvs.DiffResult
 }
 
-func loadHistory(exec *cvs.CVSExecutor, path string) tea.Cmd {
+// historyStreamBatchSize is how many revisions accumulate before the
+// streaming loader flushes a batch to the UI. Small enough that the
+// first paint happens within a few hundred ms on slow links; large
+// enough that the channel doesn't get spammed for tiny commits.
+const historyStreamBatchSize = 3
+
+// historyStreamFlushInterval bounds how long a partial batch can sit
+// before being sent. Together with batchSize it gives the UI either
+// "3 revisions" or "everything I have so far after 100ms" — whichever
+// comes first.
+const historyStreamFlushInterval = 100 * time.Millisecond
+
+// startHistoryStream spawns a goroutine that runs `cvs log -N <path>`
+// with a piped stdout, parses revision blocks as they arrive, and
+// pushes batches of up to historyStreamBatchSize revisions (or after
+// historyStreamFlushInterval) to the returned channel as
+// historyBatchMsg. When the cvs process finishes the goroutine sends
+// a final historyLoadedMsg with the full revisions slice (so the App
+// cache slot can be filled atomically) and closes the channel.
+//
+// The first tea.Cmd returned reads the first message from the
+// channel; the App handler returns historyStreamNext to wait for the
+// next, until it receives the historyLoadedMsg sentinel.
+//
+// requestID is the per-load identifier; every emitted msg carries it
+// so the handler can drop batches from a now-stale request after a
+// file switch.
+func startHistoryStream(executor *cvs.CVSExecutor, path string, requestID uint64) (chan tea.Msg, tea.Cmd) {
+	out := make(chan tea.Msg, 8)
+
+	go runHistoryStream(executor, path, requestID, out)
+
+	return out, historyStreamNext(out)
+}
+
+// historyStreamNext is the tea.Cmd helper the handler returns after
+// each batch to keep the channel-pump going. It blocks the cmd
+// goroutine on a single channel receive — bubbletea's cmd loop will
+// just spawn it again when the previous batch is delivered.
+func historyStreamNext(ch chan tea.Msg) tea.Cmd {
 	return func() tea.Msg {
-		result, err := exec.RunReadOnly("log", path)
-		if err != nil && result == nil {
-			return historyLoadedMsg{path: path}
+		msg, ok := <-ch
+		if !ok {
+			// Channel closed without a sentinel — treat as empty done.
+			return nil
 		}
-		return historyLoadedMsg{path: path, history: cvs.ParseLog(result.Stdout)}
+		return msg
 	}
 }
+
+// runHistoryStream is the goroutine body: starts cvs log -N, scans
+// stdout, accumulates revisions into batches, flushes on size or
+// timer, and emits the final historyLoadedMsg with the full list.
+//
+// Implementation notes:
+//   - PrevNumber is set on each revision when the *next* one is
+//     parsed (cvs log lists newest-first, so revision N's predecessor
+//     is whatever arrives next). The most recent revision in any
+//     batch therefore has its PrevNumber filled in only when the
+//     subsequent revision is parsed — we hold one revision back as
+//     "pending" and emit it once we've seen its successor.
+//   - The flush timer is implemented via a select on a time.Timer
+//     channel so we don't block waiting for the next line if the
+//     subprocess goes quiet.
+func runHistoryStream(executor *cvs.CVSExecutor, path string, requestID uint64, out chan<- tea.Msg) {
+	defer close(out)
+
+	cmd := exec.Command(executor.CVSBin, "-Q", "log", "-N", path)
+	cmd.Dir = executor.WorkDir
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		out <- historyStreamErrMsg{path: path, requestID: requestID, err: err}
+		return
+	}
+	if err := cmd.Start(); err != nil {
+		out <- historyStreamErrMsg{path: path, requestID: requestID, err: err}
+		return
+	}
+
+	// Read lines into a channel so we can select on them alongside
+	// the flush timer.
+	lines := make(chan string, 32)
+	go func() {
+		defer close(lines)
+		s := bufio.NewScanner(stdoutPipe)
+		s.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+		for s.Scan() {
+			lines <- s.Text()
+		}
+	}()
+
+	parser := newRevisionParser()
+	var pending []cvs.Revision  // accumulated since last flush
+	var emitted []cvs.Revision  // everything we've sent for the final cache fill
+
+	flush := func() {
+		if len(pending) == 0 {
+			return
+		}
+		batch := append([]cvs.Revision(nil), pending...)
+		emitted = append(emitted, batch...)
+		out <- historyBatchMsg{path: path, requestID: requestID, revisions: batch}
+		pending = pending[:0]
+	}
+
+	timer := time.NewTimer(historyStreamFlushInterval)
+	defer timer.Stop()
+
+LOOP:
+	for {
+		select {
+		case line, ok := <-lines:
+			if !ok {
+				if rev := parser.finish(); rev != nil {
+					pending = append(pending, *rev)
+				}
+				flush()
+				break LOOP
+			}
+			if rev := parser.feed(line); rev != nil {
+				pending = append(pending, *rev)
+				if len(pending) >= historyStreamBatchSize {
+					flush()
+					if !timer.Stop() {
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timer.Reset(historyStreamFlushInterval)
+				}
+			}
+		case <-timer.C:
+			flush()
+			timer.Reset(historyStreamFlushInterval)
+		}
+	}
+
+	_ = cmd.Wait()
+
+	// Final message: the full list, atomic and cacheable.
+	full := &cvs.FileHistory{Path: path, Revisions: emitted}
+	out <- historyLoadedMsg{path: path, requestID: requestID, history: full}
+}
+
+// revisionParser is a streaming parser for `cvs log -N` output. Each
+// call to feed(line) consumes one line; when the parser detects that
+// it has finished a revision block, it returns the parsed Revision.
+// The PrevNumber field is filled in via the "hold one back" mechanism
+// described in runHistoryStream's doc comment.
+type revisionParser struct {
+	current *cvs.Revision // currently-being-parsed revision
+	pending *cvs.Revision // last completed, awaiting successor for PrevNumber
+	inMsg   bool          // we're inside the multi-line commit-message section
+}
+
+func newRevisionParser() *revisionParser { return &revisionParser{} }
+
+// feed consumes one line. Returns a Revision when one was just
+// completed (and its PrevNumber filled in by the next-arriving
+// block); returns nil when more lines are needed before emitting.
+func (p *revisionParser) feed(line string) *cvs.Revision {
+	const sep = "----------------------------"
+	const end = "============================================================================="
+
+	if line == sep || line == end {
+		// Block boundary: finalize current, possibly emit pending.
+		var emit *cvs.Revision
+		if p.current != nil {
+			p.current.Message = strings.TrimSpace(p.current.Message)
+			if p.pending != nil {
+				p.pending.PrevNumber = p.current.Number
+				cp := *p.pending
+				emit = &cp
+			}
+			p.pending = p.current
+			p.current = nil
+		}
+		p.inMsg = false
+		return emit
+	}
+
+	if m := revisionRe.FindStringSubmatch(line); m != nil {
+		p.current = &cvs.Revision{Number: m[1]}
+		p.inMsg = false
+		return nil
+	}
+
+	if p.current != nil && !p.inMsg {
+		if m := dateLineRe.FindStringSubmatch(line); m != nil {
+			p.current.Date = parseStreamCVSDate(strings.TrimSpace(m[1]))
+			p.current.Author = m[2]
+			if m[4] != "" {
+				p.current.LinesAdded, _ = strconv.Atoi(m[4])
+			}
+			if m[5] != "" {
+				p.current.LinesRemoved, _ = strconv.Atoi(m[5])
+			}
+			p.inMsg = true
+			return nil
+		}
+	}
+
+	if p.inMsg && p.current != nil {
+		if p.current.Message != "" {
+			p.current.Message += "\n"
+		}
+		p.current.Message += line
+	}
+	return nil
+}
+
+// finish flushes any remaining pending revision when the input ends.
+// PrevNumber stays empty for the very last revision (it has no
+// predecessor in the log — it's the oldest commit).
+func (p *revisionParser) finish() *cvs.Revision {
+	if p.pending == nil {
+		return nil
+	}
+	cp := *p.pending
+	p.pending = nil
+	return &cp
+}
+
+// CVS log uses several date formats; reuse the same fallback chain
+// the batched parser does.
+func parseStreamCVSDate(s string) time.Time {
+	for _, f := range []string{
+		"2006/01/02 15:04:05",
+		"2006-01-02 15:04:05 -0700",
+		"2006/01/02 15:04:05 -0700",
+		"2006-01-02 15:04:05",
+	} {
+		if t, err := time.Parse(f, s); err == nil {
+			return t
+		}
+	}
+	if len(s) > 19 {
+		for _, f := range []string{
+			"2006/01/02 15:04:05",
+			"2006-01-02 15:04:05 -0700",
+		} {
+			if t, err := time.Parse(f, s[:19]); err == nil {
+				return t
+			}
+		}
+	}
+	return time.Time{}
+}
+
+// Reuse the regexes from cvs/log.go via package-level vars in cvs.
+// (revisionRe and dateLineRe are unexported there, so we duplicate
+// them here. They're stable enough that drift is unlikely.)
+var (
+	revisionRe = regexp.MustCompile(`^revision\s+(\S+)`)
+	dateLineRe = regexp.MustCompile(`^date:\s+(.+?);\s+author:\s+(.+?);\s+state:\s+(.+?);(?:\s+lines:\s+\+(\d+)\s+-(\d+))?`)
+)
 
 func loadRevisionContent(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
 	return func() tea.Msg {
@@ -274,6 +553,23 @@ func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory, dirty bool, base
 func (m *HistoryModel) RefreshWorkingState(dirty bool, baseRev string) {
 	m.applyWorkingState(dirty, baseRev)
 }
+
+// AppendRevisions appends a batch of revisions to the existing list
+// and re-derives the working-state flags. Used by the streaming
+// loader to grow the displayed list incrementally; the final
+// historyLoadedMsg replaces the model's list with the canonical
+// version once the loader finishes.
+func (m *HistoryModel) AppendRevisions(revs []cvs.Revision, dirty bool, baseRev string) {
+	m.revisions = append(m.revisions, revs...)
+	m.applyWorkingState(dirty, baseRev)
+}
+
+// HasRevisions reports whether the model already has at least one
+// revision in its list. The streaming loader uses this to decide
+// whether the just-arrived batch is the *first* batch — in which
+// case it kicks off the diff load now that PrevNumber on the
+// cursor row is known.
+func (m HistoryModel) HasRevisions() bool { return len(m.revisions) > 0 }
 
 // applyWorkingState centralizes the bookkeeping that ApplyRevisions and
 // RefreshWorkingState both need: derived flags, cursor/offset clamp,

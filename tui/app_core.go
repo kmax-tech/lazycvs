@@ -212,6 +212,15 @@ type App struct {
 	// fast cursor movement doesn't queue duplicate cvs commands for the
 	// same revision pair.
 	histPending map[string]bool // keys built via pendingLog/pendingContent/pendingDiff
+
+	// histRequestID + histStreams support streaming cvs log loads.
+	// Each openHistoryFor that misses the cache bumps histRequestID
+	// and stashes the stream's channel in histStreams. The handler
+	// drops batches whose requestID isn't current (e.g., user opened
+	// a different file mid-stream), so a slow loader from the
+	// previous file can't poison the new view.
+	histRequestID uint64
+	histStreams   map[uint64]chan tea.Msg
 }
 
 func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.ConfigManager, initialPath string) App {
@@ -241,6 +250,7 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		histDiffs:     make(map[string]map[string]*cvs.DiffResult),
 		histContents:  make(map[string]map[string]string),
 		histPending:   make(map[string]bool),
+		histStreams:   make(map[uint64]chan tea.Msg),
 	}
 }
 
@@ -387,15 +397,56 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		statusCmd := backgroundDirScan(m.exec, m.statusEpoch, msg.path)
 		return m, tea.Batch(cmd, statusCmd)
 
-	case historyLoadedMsg:
-		// Cache the result by its source path, regardless of what the user
-		// is currently viewing. If they switched files mid-load, we still
-		// want the data ready for next time.
-		m.histRevisions[msg.path] = msg.history
-		delete(m.histPending, pendingLog(msg.path))
-		// Only push into the model + auto-load content if the user is
-		// actually viewing this file right now.
+	case historyBatchMsg:
+		// Stale batch from a previous request? Drop it. The
+		// goroutine will keep pushing until it finishes or its
+		// channel goes unread; the historyLoadedMsg sentinel for
+		// that request is what eventually closes the loop.
+		if msg.requestID != m.histRequestID {
+			return m, historyStreamNext(m.histStreams[msg.requestID])
+		}
+		// Append batch to the model if the user is on this file. The
+		// first batch also kicks off the diff load now that we know
+		// the cursor's revision (and thus PrevNumber).
+		needsDiff := false
 		if m.history.Path() == msg.path {
+			needsDiff = !m.history.HasRevisions()
+			m.history.AppendRevisions(msg.revisions, m.workingCopyIsDirty(msg.path), m.baseRevMap[msg.path])
+		}
+		next := historyStreamNext(m.histStreams[msg.requestID])
+		if needsDiff && m.history.NumRevisions() > 0 {
+			return m, tea.Batch(next, m.loadHistoryContent())
+		}
+		return m, next
+
+	case historyStreamErrMsg:
+		// Treat as "loader finished, no data". The pending guard
+		// clears so the user can retry by reopening the file.
+		if msg.requestID == m.histRequestID {
+			delete(m.histPending, pendingLog(msg.path))
+		}
+		delete(m.histStreams, msg.requestID)
+		return m, nil
+
+	case historyLoadedMsg:
+		// Final sentinel from the streaming loader: full revisions
+		// list arrives so we can fill the cache atomically. If a
+		// newer request started while we were streaming, the cache
+		// is still authoritative for this path — store it — but
+		// don't touch the model (newer request owns the display).
+		m.histRevisions[msg.path] = msg.history
+		delete(m.histStreams, msg.requestID)
+		if msg.requestID != m.histRequestID {
+			return m, nil
+		}
+		delete(m.histPending, pendingLog(msg.path))
+		// Re-apply with the canonical revisions list to re-derive
+		// PrevNumber on the most-recent rev (the streaming parser
+		// can't fill PrevNumber for the last revision it emits in a
+		// batch — only the next batch can). The batched revisions
+		// already in the model and the canonical list match
+		// element-for-element, so we just rebuild from the cache.
+		if m.history.Path() == msg.path && msg.history != nil {
 			m.history.ApplyRevisions(msg.history, m.workingCopyIsDirty(msg.path), m.baseRevMap[msg.path])
 			if m.history.NumRevisions() > 0 {
 				return m, m.loadHistoryContent()

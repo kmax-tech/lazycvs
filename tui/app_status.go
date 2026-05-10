@@ -247,54 +247,61 @@ func backgroundDirScan(executor *cvs.CVSExecutor, epoch uint64, scope string) te
 		dirLabel = "."
 	}
 	return func() tea.Msg {
-		root := buildDirTree(executor.WorkDir, scope)
-		specs := partitionTree(root)
-		if len(specs) == 0 {
-			return dirStatusMsg{dir: dirLabel, recursive: true, epoch: epoch}
-		}
-
-		var (
-			mu       sync.Mutex
-			combined []cvs.FileStatus
-			wg       sync.WaitGroup
-		)
-		sem := make(chan struct{}, scanWorkerCount)
-		for _, spec := range specs {
-			wg.Add(1)
-			go func(s scanSpec) {
-				defer wg.Done()
-				sem <- struct{}{}
-				defer func() { <-sem }()
-
-				args := []string{"status"}
-				if !s.recursive {
-					args = append(args, "-l")
-				}
-				if s.dir != "." {
-					args = append(args, s.dir)
-				}
-				result, _ := executor.RunReadOnly(args...)
-				if result == nil {
-					return
-				}
-				parsed := cvs.ParseStatus(result.Stdout)
-				if len(parsed) == 0 {
-					return
-				}
-				mu.Lock()
-				combined = append(combined, parsed...)
-				mu.Unlock()
-			}(spec)
-		}
-		wg.Wait()
-
 		return dirStatusMsg{
 			dir:       dirLabel,
 			recursive: true,
-			statuses:  combined,
+			statuses:  runPartitionScan(executor, scope),
 			epoch:     epoch,
 		}
 	}
+}
+
+// runPartitionScan executes the per-partition `cvs status` worker pool
+// synchronously and returns the combined result. Shared between the
+// background-scan Cmd and the parallel branch of refreshStatusUser, so
+// both paths get identical partitioning + concurrency behavior.
+func runPartitionScan(executor *cvs.CVSExecutor, scope string) []cvs.FileStatus {
+	root := buildDirTree(executor.WorkDir, scope)
+	specs := partitionTree(root)
+	if len(specs) == 0 {
+		return nil
+	}
+
+	var (
+		mu       sync.Mutex
+		combined []cvs.FileStatus
+		wg       sync.WaitGroup
+	)
+	sem := make(chan struct{}, scanWorkerCount)
+	for _, spec := range specs {
+		wg.Add(1)
+		go func(s scanSpec) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			args := []string{"status"}
+			if !s.recursive {
+				args = append(args, "-l")
+			}
+			if s.dir != "." {
+				args = append(args, s.dir)
+			}
+			result, _ := executor.RunReadOnly(args...)
+			if result == nil {
+				return
+			}
+			parsed := cvs.ParseStatus(result.Stdout)
+			if len(parsed) == 0 {
+				return
+			}
+			mu.Lock()
+			combined = append(combined, parsed...)
+			mu.Unlock()
+		}(spec)
+	}
+	wg.Wait()
+	return combined
 }
 
 

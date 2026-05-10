@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/viewport"
@@ -35,9 +36,24 @@ const (
 	TreeViewDetails                     // Variant B: full tree left, diff preview right
 )
 
+// statusRefreshedMsg carries the merged result of the user-triggered
+// refresh (`s` key). It bundles two complementary CVS calls so both
+// land in the same handler tick — one View() render, atomic state:
+//
+//   result   — `cvs -n update`: server-side U-status, conflicts
+//              that update would surface, and StaleDirs (only this
+//              call sees dirs removed on the server).
+//   statuses — per-partition `cvs status`: per-file WorkingRev
+//              (sticky-tag aware), the only source for baseRevMap.
+//
+// Running them sequentially produced two frames; the layout shift
+// between them caused terminal-diff glitches (doubled headers,
+// stray ANSI escapes). Parallel-then-merge gives the same data in
+// one frame.
 type statusRefreshedMsg struct {
-	result *cvs.UpdateResult
-	epoch  uint64
+	result   *cvs.UpdateResult
+	statuses []cvs.FileStatus
+	epoch    uint64
 }
 
 // dirStatusMsg carries the result of a `cvs status` invocation.
@@ -331,13 +347,32 @@ func (m App) Init() tea.Cmd {
 	)
 }
 
+// refreshStatusUser fans out the two refresh sources in parallel
+// (dry-run update + per-partition `cvs status`) and returns a single
+// statusRefreshedMsg. Total wait equals the slower of the two; both
+// share the same statusEpoch so a stale targeted scan can't override
+// the merged result.
 func (m *App) refreshStatusUser() tea.Cmd {
 	m.statusEpoch++
 	epoch := m.statusEpoch
 	exec := m.exec
 	return func() tea.Msg {
-		result, _ := exec.DryRunUpdate()
-		return statusRefreshedMsg{result: result, epoch: epoch}
+		var (
+			wg       sync.WaitGroup
+			result   *cvs.UpdateResult
+			statuses []cvs.FileStatus
+		)
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			result, _ = exec.DryRunUpdate()
+		}()
+		go func() {
+			defer wg.Done()
+			statuses = runPartitionScan(exec, "")
+		}()
+		wg.Wait()
+		return statusRefreshedMsg{result: result, statuses: statuses, epoch: epoch}
 	}
 }
 
@@ -522,7 +557,24 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case statusRefreshedMsg:
 		m.console.refreshContent()
 		if msg.result != nil {
+			// Dry-run gives the canonical statusMap (incl. server-side
+			// U-status the partition scan can't see) and StaleDirs.
 			m.rebuildStatusMap(msg.result)
+			// Overlay partition-scan results: per-file WorkingRev
+			// (the only source for baseRevMap, needed for the History
+			// (working) badge), and any sticky-tag-aware status the
+			// scan reports more accurately than the dry-run summary.
+			m.baseRevMap = make(map[string]string, len(msg.statuses))
+			for _, fs := range msg.statuses {
+				if fs.WorkingRev != "" {
+					m.baseRevMap[fs.Path] = fs.WorkingRev
+				}
+				if code := cvsStatusCode(fs.Status); code != "" {
+					if _, ok := m.statusMap[fs.Path]; !ok {
+						m.statusMap[fs.Path] = code
+					}
+				}
+			}
 			for dir := range m.dirEpoch {
 				m.dirEpoch[dir] = msg.epoch
 			}

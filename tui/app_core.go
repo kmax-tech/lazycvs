@@ -713,20 +713,31 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case searchSelectedMsg:
 		// Navigate to the path the user picked from the fuzzy finder.
-		// Expand the tree down to it, populate the right-pane file
-		// list, and place the cursor sensibly:
-		//   - file selected → tree cursor on its parent dir, file list
-		//                     cursor on the file, focus = right panel
-		//                     so file actions (e/E/d/c/D/...) just work
-		//   - dir selected  → tree cursor on the dir, focus = left
-		//                     panel; the file list shows the dir's
-		//                     contents with no specific selection
+		// Behavior depends on which left-panel variant is active:
+		//
+		//   TreeViewFiles (default — left=dirs, right=files):
+		//     Expand the tree down to the file's parent directory and
+		//     populate the right-pane file list. For a file pick the
+		//     filelist cursor lands on the file and focus shifts to
+		//     the right panel so e/E/c/D/d/... work immediately. For
+		//     a dir pick the tree cursor lands on the dir itself; the
+		//     right pane shows that dir's contents.
+		//
+		//   TreeViewDetails (variant B — left=full tree+files, right=preview):
+		//     Tree shows everything, so the cursor goes directly on
+		//     the picked path (file or directory). Focus stays on the
+		//     left panel; the diff preview refreshes for the new
+		//     selection on the next event tick.
 		m.activeTab = TabTree
-		m.treeMode = TreeViewFiles
 		target := msg.path
 		isDir := false
 		if info, err := os.Stat(filepath.Join(m.exec.WorkDir, target)); err == nil {
 			isDir = info.IsDir()
+		}
+		if m.treeMode == TreeViewDetails {
+			m.tree.ExpandToPath(target)
+			m.focus = PanelLeft
+			return m, m.autoLoadPreview()
 		}
 		dir := target
 		if !isDir {

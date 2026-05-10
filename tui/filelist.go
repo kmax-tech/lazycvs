@@ -150,6 +150,23 @@ func (m FileListModel) SelectedFile() *cvs.FileEntry {
 	return rows[m.cursor].file // nil for dir headers
 }
 
+// FocusOnFile positions the cursor on the row for the given path (a
+// path relative to the working copy). Returns true on success; false
+// if the file isn't in the current view (e.g. wrong mode, filtered
+// out, or not in the directory currently shown). On success the
+// caller should also expand-and-scroll: ensureVisible is called here.
+func (m *FileListModel) FocusOnFile(path string) bool {
+	rows := m.rows()
+	for i, r := range rows {
+		if r.file != nil && r.file.Path == path {
+			m.cursor = i
+			m.ensureVisible()
+			return true
+		}
+	}
+	return false
+}
+
 func (m FileListModel) MarkedFiles() []string {
 	var result []string
 	for path := range m.marked {

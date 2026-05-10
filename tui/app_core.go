@@ -4,6 +4,7 @@ import (
 	"lazycvs/config"
 	"lazycvs/cvs"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -711,8 +712,36 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case searchSelectedMsg:
-		// Navigate to the selected path
+		// Navigate to the path the user picked from the fuzzy finder.
+		// Expand the tree down to it, populate the right-pane file
+		// list, and place the cursor sensibly:
+		//   - file selected → tree cursor on its parent dir, file list
+		//                     cursor on the file, focus = right panel
+		//                     so file actions (e/E/d/c/D/...) just work
+		//   - dir selected  → tree cursor on the dir, focus = left
+		//                     panel; the file list shows the dir's
+		//                     contents with no specific selection
 		m.activeTab = TabTree
+		m.treeMode = TreeViewFiles
+		target := msg.path
+		isDir := false
+		if info, err := os.Stat(filepath.Join(m.exec.WorkDir, target)); err == nil {
+			isDir = info.IsDir()
+		}
+		dir := target
+		if !isDir {
+			dir = filepath.Dir(target)
+			if dir == "" {
+				dir = "."
+			}
+		}
+		m.tree.ExpandToPath(dir)
+		m.updateFileListForDir(dir)
+		if !isDir && m.filelist.FocusOnFile(target) {
+			m.focus = PanelRight
+		} else {
+			m.focus = PanelLeft
+		}
 		return m, nil
 
 	case ignoreMsg:

@@ -51,7 +51,7 @@ focusing the console with `Ctrl-J` clears it.
 | `Tab` / `Shift-Tab` | Cycle focus: left panel → right panel → console |
 | `[` `]` `Ctrl-J`    | Jump focus directly to left / right / console   |
 | `?`                 | Help overlay                                    |
-| `/`                 | Fuzzy search                                    |
+| `/`                 | Fuzzy search (jump to file or directory)        |
 | `q`                 | Quit                                            |
 | `Esc`               | Context-aware back / cancel                     |
 
@@ -141,6 +141,27 @@ are marked with `space` — the entire marked set.
 After every action, lazycvs runs `cvs status -l` on the affected
 directories so the file list and status counts update without a manual
 refresh.
+
+## Fuzzy search (`/`)
+
+Press `/` from any tab. A textbox opens; type a few characters of a
+file or directory name and pick from the matches with `↑`/`↓`,
+confirm with `Enter`, cancel with `Esc`.
+
+Behavior on selection:
+
+- **File picked** → Tree expands down to the file's parent directory,
+  the tree cursor lands on that parent, the right-pane file list
+  shows the directory's contents with the cursor on the picked file,
+  and focus switches to the right panel so file actions
+  (`d` / `e` / `c` / `D` / ...) just work.
+- **Directory picked** → Tree expands down to the directory, cursor
+  lands on it, focus stays on the left panel, the right pane shows
+  the directory's contents.
+
+Search uses the [`sahilm/fuzzy`](https://github.com/sahilm/fuzzy)
+library against the working-copy file index that's built once on
+first invocation; subsequent searches are instant.
 
 ## Marking workflow
 

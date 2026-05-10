@@ -16,6 +16,53 @@ make build          # builds ./lazycvs
 `lazycvs` looks at your current directory first; if it isn't a CVS working
 copy and you set `[cvs] default_path` in your config, it falls back there.
 
+## Shell function for spontaneous use
+
+If you want to drop into lazycvs from any terminal without typing the
+full path, add this to `~/.zshrc` or `~/.bashrc`:
+
+```bash
+export LAZYCVS_REPO="$HOME/projects/lazycvs"   # adjust to your clone
+
+lcvs() {
+    local bin="$LAZYCVS_REPO/lazycvs"
+
+    # `lcvs build` rebuilds from source.
+    if [ "$1" = "build" ]; then
+        ( cd "$LAZYCVS_REPO" && go build -o lazycvs . ) \
+            && echo "lcvs: built $bin"
+        return $?
+    fi
+
+    if [ ! -x "$bin" ]; then
+        echo "lcvs: not built yet — run: lcvs build" >&2
+        return 1
+    fi
+
+    # Run from the caller's cwd so [path] arg + working-copy detection work.
+    "$bin" "$@"
+}
+```
+
+Behavior:
+
+| Invocation                       | What happens                              |
+|----------------------------------|-------------------------------------------|
+| `lcvs build`                     | `go build` in the repo, binary lands at `$LAZYCVS_REPO/lazycvs` |
+| `lcvs`                           | TUI opens in the current working directory |
+| `lcvs ~/work/repo`               | TUI opens at the explicit path             |
+| `lcvs -cvs /opt/cvs/bin/cvs`     | flags pass through to the binary           |
+| `lcvs -config /tmp/cfg.toml`     | dito                                       |
+
+Build is **explicit** — no surprise compilation when you just want the
+TUI. Daily use is just `cd` into a CVS checkout and type `lcvs`.
+
+For zsh tab-completion on `lcvs build`:
+
+```bash
+compdef '_arguments "1:command:(build)"' lcvs
+```
+
 ## Try it without a real repo
 
 The repo ships a self-contained demo that creates a local CVS repository,

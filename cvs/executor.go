@@ -108,7 +108,7 @@ func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 
 // DryRunUpdate runs cvs update in dry-run mode and parses the result.
 func (e *CVSExecutor) DryRunUpdate() (*UpdateResult, error) {
-	result, err := e.Run("-n", "-q", "update", "-d", "-P")
+	result, err := e.RunReadOnly("-n", "-q", "update", "-d", "-P")
 	if err != nil && result == nil {
 		return nil, err
 	}

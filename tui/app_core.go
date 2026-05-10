@@ -564,14 +564,18 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// (the only source for baseRevMap, needed for the History
 			// (working) badge), and any sticky-tag-aware status the
 			// scan reports more accurately than the dry-run summary.
-			m.baseRevMap = make(map[string]string, len(msg.statuses))
-			for _, fs := range msg.statuses {
-				if fs.WorkingRev != "" {
-					m.baseRevMap[fs.Path] = fs.WorkingRev
-				}
-				if code := cvsStatusCode(fs.Status); code != "" {
-					if _, ok := m.statusMap[fs.Path]; !ok {
-						m.statusMap[fs.Path] = code
+			// Skip the reset on empty statuses — a failed/timed-out
+			// scan must not wipe the prior baseRevMap.
+			if len(msg.statuses) > 0 {
+				m.baseRevMap = make(map[string]string, len(msg.statuses))
+				for _, fs := range msg.statuses {
+					if fs.WorkingRev != "" {
+						m.baseRevMap[fs.Path] = fs.WorkingRev
+					}
+					if code := cvsStatusCode(fs.Status); code != "" {
+						if _, ok := m.statusMap[fs.Path]; !ok {
+							m.statusMap[fs.Path] = code
+						}
 					}
 				}
 			}

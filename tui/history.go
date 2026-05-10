@@ -245,8 +245,6 @@ func (m *HistoryModel) SwitchTo(path string) {
 	}
 }
 
-// ApplyRevisions pushes a freshly loaded revisions list. Called by the
-// App handler when historyLoadedMsg arrives for the current path.
 // ApplyRevisions pushes a freshly loaded revisions list and the file's
 // working-copy state.
 //
@@ -265,6 +263,22 @@ func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory, dirty bool, base
 	} else {
 		m.revisions = nil
 	}
+	m.applyWorkingState(dirty, baseRev)
+}
+
+// RefreshWorkingState updates the dirty / baseRev derived fields
+// without reloading the revisions list. Called by App when statusMap
+// or baseRevMap entries change for the currently-viewed file (e.g. a
+// background dir scan finished after the History tab was opened, or a
+// post-action status refresh updated this path).
+func (m *HistoryModel) RefreshWorkingState(dirty bool, baseRev string) {
+	m.applyWorkingState(dirty, baseRev)
+}
+
+// applyWorkingState centralizes the bookkeeping that ApplyRevisions and
+// RefreshWorkingState both need: derived flags, cursor/offset clamp,
+// stale-anchor drop. Cheap and idempotent.
+func (m *HistoryModel) applyWorkingState(dirty bool, baseRev string) {
 	hasRevisions := len(m.revisions) > 0
 	m.hasWorkingRow = dirty && hasRevisions
 	m.workingMatchesBase = !dirty && hasRevisions

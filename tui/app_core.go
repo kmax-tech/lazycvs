@@ -268,6 +268,20 @@ func (m *App) applyStatuses(toClear []string, statuses []cvs.FileStatus) {
 	}
 	m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+	m.refreshHistoryWorkingState()
+}
+
+// refreshHistoryWorkingState pushes the latest dirty flag and base
+// revision into HistoryModel for the currently-viewed file. Called
+// after every statusMap mutation so a History tab opened before the
+// background dir scan finished still picks up the (working) badge or
+// pseudo-row once the data lands.
+func (m *App) refreshHistoryWorkingState() {
+	path := m.history.Path()
+	if path == "" {
+		return
+	}
+	m.history.RefreshWorkingState(m.workingCopyIsDirty(path), m.baseRevMap[path])
 }
 
 // rebuildStatusMap replaces the status / stale-dir maps with fresh
@@ -464,6 +478,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.favorites.UpdateCounts(m.statusMap)
 			m.updateFileList()
 			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+			m.refreshHistoryWorkingState()
 			changes := len(m.statusMap)
 			m.notification = fmt.Sprintf("Status: %d file(s) with changes (dry-run, nothing pulled)", changes)
 			m.notificationOK = true

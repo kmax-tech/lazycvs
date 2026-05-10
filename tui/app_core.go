@@ -85,9 +85,14 @@ type notificationExpiredMsg struct{}
 // (NOT the silent dry-run that just refreshes the status display). The
 // handler in App.Update shows a banner and triggers a follow-up status
 // refresh — same shape as commitDoneMsg / removeDoneMsg.
+//
+// inTheWay carries any paths CVS reported as "move away" — local files
+// that blocked the server's version from being pulled down. The
+// handler opens DialogInTheWay so the user can resolve them.
 type updateDoneMsg struct {
-	paths []string
-	err   error
+	paths    []string
+	err      error
+	inTheWay []string
 }
 
 // actionDoneMsg is sent by async actions (add, revert) that previously ran a
@@ -527,6 +532,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.notification = "✗ Update failed — see Console"
 			m.notificationOK = false
+		} else if len(msg.inTheWay) > 0 {
+			// CVS held back N files because local files were in the
+			// way; surface that in the banner and open the dialog.
+			m.notification = fmt.Sprintf("⚠ %d file(s) blocked by local copies — choose how to resolve", len(msg.inTheWay))
+			m.notificationOK = false
+			m.dialog.OpenInTheWay(msg.inTheWay)
 		} else if len(msg.paths) == 1 {
 			m.notification = fmt.Sprintf("✓ Updated %s", filepath.Base(msg.paths[0]))
 			m.notificationOK = true
@@ -543,6 +554,9 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			invalidateCmd = m.invalidateHistoryCache(msg.paths)
 		}
 		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths), invalidateCmd)
+
+	case inTheWayResolveMsg:
+		return m, m.handleInTheWayResolve(msg)
 
 	case removeDoneMsg:
 		if msg.err != nil {

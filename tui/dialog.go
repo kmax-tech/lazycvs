@@ -27,6 +27,7 @@ const (
 	DialogHelp
 	DialogForceUpdate
 	DialogPreview
+	DialogInTheWay
 )
 
 type DialogModel struct {
@@ -103,6 +104,18 @@ func (m *DialogModel) OpenForceUpdate(paths []string) {
 	m.files = paths
 }
 
+// OpenInTheWay opens the resolution dialog for paths CVS reported as
+// "move away" — local files that blocked the server's version from
+// being pulled. The user picks one action that applies to all paths
+// (move-aside / delete / keep) or edits the first one in $EDITOR.
+func (m *DialogModel) OpenInTheWay(paths []string) {
+	m.kind = DialogInTheWay
+	m.files = paths
+	if len(paths) > 0 {
+		m.path = paths[0]
+	}
+}
+
 func (m *DialogModel) OpenPreview(path, content string) {
 	m.kind = DialogPreview
 	m.path = path
@@ -171,6 +184,25 @@ type conflictResolveMsg struct {
 type forceUpdateMsg struct {
 	paths []string
 }
+
+// inTheWayChoice is the action the user picked in the "move away"
+// resolution dialog.
+type inTheWayChoice int
+
+const (
+	inTheWayKeep      inTheWayChoice = iota // do nothing — keep local files, server versions stay out
+	inTheWayMoveAside                       // rename each local file to "<name>.moved-by-lazycvs", then re-update
+	inTheWayDelete                          // os.Remove each local file, then re-update
+)
+
+// inTheWayResolveMsg carries the user's chosen action for the
+// blocking paths. The handler in app_core.go performs the disk
+// operations and re-runs cvs update on the now-unblocked paths.
+type inTheWayResolveMsg struct {
+	paths  []string
+	choice inTheWayChoice
+}
+
 type editorClosedMsg struct {
 	path string
 	err  error
@@ -307,6 +339,8 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 			return m.updateConflict(msg)
 		case DialogForceUpdate:
 			return m.updateForceUpdate(msg)
+		case DialogInTheWay:
+			return m.updateInTheWay(msg)
 		case DialogPreview:
 			if key.Matches(msg, keys.Escape) || msg.String() == "q" || msg.String() == "p" {
 				m.Close()
@@ -433,6 +467,40 @@ func (m DialogModel) updateForceUpdate(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 	return m, nil
 }
 
+// updateInTheWay handles the "move away" resolution dialog. The chosen
+// action applies to every blocking path; per-file editing isn't
+// supported (rare enough that the user can drop to the shell).
+func (m DialogModel) updateInTheWay(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
+	switch msg.String() {
+	case "m":
+		paths := m.files
+		m.Close()
+		return m, func() tea.Msg {
+			return inTheWayResolveMsg{paths: paths, choice: inTheWayMoveAside}
+		}
+	case "d":
+		paths := m.files
+		m.Close()
+		return m, func() tea.Msg {
+			return inTheWayResolveMsg{paths: paths, choice: inTheWayDelete}
+		}
+	case "k":
+		paths := m.files
+		m.Close()
+		return m, func() tea.Msg {
+			return inTheWayResolveMsg{paths: paths, choice: inTheWayKeep}
+		}
+	}
+	if key.Matches(msg, keys.Escape) {
+		paths := m.files
+		m.Close()
+		return m, func() tea.Msg {
+			return inTheWayResolveMsg{paths: paths, choice: inTheWayKeep}
+		}
+	}
+	return m, nil
+}
+
 func (m DialogModel) updateConflict(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 	switch msg.String() {
 	case "l":
@@ -484,6 +552,8 @@ func (m DialogModel) View() string {
 		content = m.viewConflict()
 	case DialogForceUpdate:
 		content = m.viewForceUpdate()
+	case DialogInTheWay:
+		content = m.viewInTheWay()
 	case DialogPreview:
 		content = m.viewPreview()
 	case DialogHelp:
@@ -644,6 +714,28 @@ func (m DialogModel) viewForceUpdate() string {
 	}
 	b.WriteString("\n" + lipgloss.NewStyle().Foreground(colorConflict).Render("Local changes will be lost!") + "\n\n")
 	b.WriteString(helpStyle.Render("y:confirm  n:cancel"))
+	return b.String()
+}
+
+func (m DialogModel) viewInTheWay() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Files in the way") + "\n\n")
+	if len(m.files) == 1 {
+		fmt.Fprintf(&b, "%s exists locally and blocks the server version\n", m.files[0])
+		b.WriteString("from being pulled.\n\n")
+	} else {
+		fmt.Fprintf(&b, "%d local files block the server versions:\n\n", len(m.files))
+		for _, f := range m.files {
+			b.WriteString("  " + f + "\n")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("Pick an action — applies to all listed files:\n\n")
+	b.WriteString("  [m] Move aside  → rename to <name>.moved-by-lazycvs,\n")
+	b.WriteString("                    then re-update so the server version comes down\n")
+	b.WriteString("  [d] Delete      → remove the local file, then re-update\n")
+	b.WriteString("  [k] Keep        → leave local files alone, server version stays out\n\n")
+	b.WriteString(helpStyle.Render("m/d/k:choose  esc:keep (cancel)"))
 	return b.String()
 }
 

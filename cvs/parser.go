@@ -74,6 +74,22 @@ func ParseUpdate(stdout, stderr, workDir string) *UpdateResult {
 	return result
 }
 
+// ParseInTheWay extracts the paths CVS reported as "move away" / "in the
+// way" from cvs update stderr. These are local files that block the
+// server's version from being pulled down — typically untracked files
+// whose name collides with one a colleague added on the server. The
+// caller (TUI) uses this to surface a resolution dialog instead of
+// letting the warning silently disappear into the console log.
+func ParseInTheWay(stderr string) []string {
+	var out []string
+	for _, line := range splitLines(stderr) {
+		if m := moveAwayRe.FindStringSubmatch(line); m != nil {
+			out = append(out, m[1])
+		}
+	}
+	return out
+}
+
 func makeFileEntry(path, status, workDir string) FileEntry {
 	entry := FileEntry{
 		Path:   path,

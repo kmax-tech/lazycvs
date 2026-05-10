@@ -91,3 +91,41 @@ func TestParseUpdate(t *testing.T) {
 		})
 	}
 }
+
+func TestParseInTheWay(t *testing.T) {
+	tests := []struct {
+		name string
+		in   string
+		want []string
+	}{
+		{
+			name: "single move away",
+			in:   "cvs update: move away `tests/foo.txt'; it is in the way\n",
+			want: []string{"tests/foo.txt"},
+		},
+		{
+			name: "multiple paths",
+			in: "cvs update: move away `a.txt'; it is in the way\n" +
+				"cvs update: move away `dir/b.txt'; it is in the way\n",
+			want: []string{"a.txt", "dir/b.txt"},
+		},
+		{
+			name: "no move away → nil",
+			in:   "cvs update: Updating .\n",
+			want: nil,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ParseInTheWay(tt.in)
+			if len(got) != len(tt.want) {
+				t.Fatalf("got %d, want %d: %v", len(got), len(tt.want), got)
+			}
+			for i := range tt.want {
+				if got[i] != tt.want[i] {
+					t.Errorf("[%d] = %q, want %q", i, got[i], tt.want[i])
+				}
+			}
+		})
+	}
+}

@@ -103,7 +103,11 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 			if err == nil && r != nil && !r.Success {
 				err = fmt.Errorf("cvs update exited %d", r.ExitCode)
 			}
-			return updateDoneMsg{paths: paths, err: err}
+			var inTheWay []string
+			if r != nil {
+				inTheWay = cvs.ParseInTheWay(r.Stderr)
+			}
+			return updateDoneMsg{paths: paths, err: err, inTheWay: inTheWay}
 		}
 	}
 	return nil
@@ -125,8 +129,9 @@ func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
 }
 
 // doUpdatePaths runs `cvs update -d` on the given paths. Returns
-// updateDoneMsg with success/error; the handler in App.Update shows a
-// banner and dispatches the follow-up status refresh.
+// updateDoneMsg with success/error and any in-the-way paths CVS
+// reported; the handler in App.Update shows a banner, dispatches the
+// follow-up status refresh, and (if needed) opens DialogInTheWay.
 func (m *App) doUpdatePaths(paths []string) tea.Cmd {
 	exec := m.exec
 	return func() tea.Msg {
@@ -135,7 +140,11 @@ func (m *App) doUpdatePaths(paths []string) tea.Cmd {
 		if err == nil && r != nil && !r.Success {
 			err = fmt.Errorf("cvs update exited %d", r.ExitCode)
 		}
-		return updateDoneMsg{paths: paths, err: err}
+		var inTheWay []string
+		if r != nil {
+			inTheWay = cvs.ParseInTheWay(r.Stderr)
+		}
+		return updateDoneMsg{paths: paths, err: err, inTheWay: inTheWay}
 	}
 }
 
@@ -155,7 +164,11 @@ func (m *App) doUpdateSelected() tea.Cmd {
 		if err == nil && r != nil && !r.Success {
 			err = fmt.Errorf("cvs update exited %d", r.ExitCode)
 		}
-		return updateDoneMsg{paths: []string{target}, err: err}
+		var inTheWay []string
+		if r != nil {
+			inTheWay = cvs.ParseInTheWay(r.Stderr)
+		}
+		return updateDoneMsg{paths: []string{target}, err: err, inTheWay: inTheWay}
 	}
 }
 
@@ -230,4 +243,37 @@ func appendToGlobalCvsignore(pattern string) {
 	defer f.Close()
 	// CVS ignore files are space-separated, but one pattern per line is safe
 	f.WriteString(pattern + "\n")
+}
+
+// handleInTheWayResolve performs the user's chosen resolution for paths
+// CVS reported as "move away" / "in the way" — local files that
+// blocked the server's version from being pulled by `cvs update`.
+//
+//	inTheWayMoveAside — rename each local file to "<name>.moved-by-lazycvs"
+//	                    so the server version can come down on the next
+//	                    update; the local content is preserved as a sibling
+//	inTheWayDelete    — os.Remove each local file outright
+//	inTheWayKeep      — no-op; user wants to keep their local files and
+//	                    skip the server-side additions
+//
+// After move-aside or delete, dispatches `cvs update -d` on the freed
+// paths so the previously blocked files actually arrive.
+func (m *App) handleInTheWayResolve(msg inTheWayResolveMsg) tea.Cmd {
+	if len(msg.paths) == 0 || msg.choice == inTheWayKeep {
+		return nil
+	}
+	for _, p := range msg.paths {
+		abs := filepath.Join(m.exec.WorkDir, p)
+		switch msg.choice {
+		case inTheWayMoveAside:
+			os.Rename(abs, abs+".moved-by-lazycvs")
+		case inTheWayDelete:
+			os.Remove(abs)
+		}
+	}
+	// Re-run cvs update on the now-unblocked paths so the server
+	// versions actually land. doUpdatePaths reports back via
+	// updateDoneMsg — if a new "in the way" appears (rare), the
+	// dialog re-opens.
+	return m.doUpdatePaths(msg.paths)
 }

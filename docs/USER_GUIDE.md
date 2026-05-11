@@ -316,6 +316,26 @@ dirs = ["src/main", "docs", "tests/integration"]
 3. `M` to open the configured merge tool, or
 4. `c` then resolve conflict markers in `$EDITOR`, then `c` again
 
+**Move files into a new subfolder** (CVS has no `mv`, so it's a remove + add)
+
+If you reorganized your working copy by copying files from the root
+(or another tracked dir) into a fresh subfolder, you'll see the
+originals still listed at their old location with `M` (because they
+were edited or because the working tree changed) and the new
+subfolder won't show up in CVS at all until added. With identical
+content on both sides the resolution is two commits:
+
+1. `1` → Tree, cursor on the new subfolder → `a` to add the directory
+2. Open the subfolder, `A` (mark all) → `a` to add the files
+3. `c` → commit ("Move foo into subfolder/")
+4. Cursor on the old root copies (the `M` rows) → `D` to remove
+5. `c` → commit ("Remove foo from root after move")
+
+Caveat: CVS resets the revision to `1.1` at the new path; the old
+history stays accessible only at the old path (`cvs log Attic/...,v`
+on the server). Copy the `,v` file server-side if you need history
+at the new location.
+
 ## Troubleshooting
 
 - **No revisions show in History** — file may be untracked (`?`) or

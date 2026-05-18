@@ -25,6 +25,7 @@ type SubDirGroup struct {
 	Files    []cvs.FileEntry
 	Counts   StatusCounts
 	Expanded bool
+	Ignored  bool // matches a .cvsignore pattern in the parent
 }
 
 // fileRow is one navigable row in the file list (either a file or a dir header).
@@ -98,6 +99,9 @@ func (m FileListModel) rows() []fileRow {
 		// Subdirectories
 		for i := range m.subDirs {
 			sd := &m.subDirs[i]
+			if m.hideIgnored && sd.Ignored {
+				continue
+			}
 			if m.filter != "" && !m.subDirHasMatch(sd) {
 				continue
 			}
@@ -379,6 +383,9 @@ func (m FileListModel) View() string {
 					counts = "  " + renderCounts(sd.Counts)
 				}
 				line = fmt.Sprintf(" %s %s%s", icon, name, counts)
+				if sd.Ignored {
+					line = ignoredStyle.Render(line)
+				}
 			}
 		} else {
 			// File row

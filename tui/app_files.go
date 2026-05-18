@@ -152,9 +152,20 @@ func (m *App) updateFileListForDir(dir string) {
 		}
 
 		if e.IsDir() {
+			// A directory is "ignored" when the parent's .cvsignore (or
+			// the global pattern set) matches its name AND it isn't
+			// CVS-tracked. Tracked dirs are never hidden — we always
+			// surface them so a user-edited file inside a tracked dir
+			// stays reachable even if the dirname happens to match a
+			// generic pattern.
+			tracked := false
+			if _, err := os.Stat(filepath.Join(absDir, name, "CVS")); err == nil {
+				tracked = true
+			}
 			sg := SubDirGroup{
-				Name: name,
-				Path: path,
+				Name:    name,
+				Path:    path,
+				Ignored: !tracked && matchesIgnore(name, ignorePatterns),
 			}
 			if node := m.tree.findNode(path); node != nil {
 				sg.Counts = node.Counts

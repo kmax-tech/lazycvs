@@ -174,7 +174,7 @@ func (m *App) updateFileListForDir(dir string) {
 						sz = info.Size()
 					}
 					st := m.resolveFileStatus(sp)
-					ignored := st == "" && matchesIgnore(sn, subIgnore)
+					ignored := (st == "" || st == "?") && matchesIgnore(sn, subIgnore)
 					sg.Files = append(sg.Files, cvs.FileEntry{Path: sp, Status: st, Size: sz, Ignored: ignored})
 				}
 			}
@@ -187,7 +187,12 @@ func (m *App) updateFileListForDir(dir string) {
 			size = info.Size()
 		}
 		status := m.resolveFileStatus(path)
-		ignored := status == "" && matchesIgnore(name, ignorePatterns)
+		// Apply .cvsignore to ? files too: in a fresh dir that isn't
+		// added yet, every file resolves to ? (parent has no CVS/),
+		// and patterns in the dir's own .cvsignore would otherwise
+		// be silently dropped. cvs(1) itself wouldn't list these
+		// files as ?, so honor the same precedence here.
+		ignored := (status == "" || status == "?") && matchesIgnore(name, ignorePatterns)
 		files = append(files, cvs.FileEntry{Path: path, Status: status, Size: size, Ignored: ignored})
 	}
 

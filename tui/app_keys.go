@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"lazycvs/cvs"
 	"lazycvs/fs"
 	"os"
@@ -218,15 +219,21 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.updateFileList()
 		return nil, true
 	case key.Matches(msg, keys.Status):
+		m.setProgress("⟳ Refreshing status…")
 		return m.refreshStatusUser(), true
 	case key.Matches(msg, keys.Update):
 		if m.activeTab == TabTree || m.activeTab == TabFavorites {
 			if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
+				m.setProgress(fmt.Sprintf("⟳ Updating %d file(s)…", len(paths)))
 				return m.doUpdatePaths(paths), true
+			}
+			if target := m.selectedTarget(); target != "" {
+				m.setProgress(fmt.Sprintf("⟳ Updating %s…", target))
 			}
 			return m.doUpdateSelected(), true
 		}
 		m.statusEpoch++
+		m.setProgress("⟳ Scanning working copy…")
 		return backgroundDirScan(m.exec, m.statusEpoch, ""), true
 	case msg.String() == "U" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		if paths := m.filelist.MarkedFiles(); len(paths) > 0 {

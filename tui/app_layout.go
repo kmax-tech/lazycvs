@@ -113,9 +113,16 @@ func (m App) View() string {
 // bar. Green for success, red for failure. Padded to full width so it spans
 // the screen — easier to spot than a short floating message.
 func (m App) renderBanner() string {
-	bg := colorUpdated // green-ish
-	if !m.notificationOK {
-		bg = colorConflict // red-ish
+	// A non-zero expiry means a result handler has already overwritten
+	// the banner with its outcome — render with the OK/error palette
+	// regardless of the lingering inProgress flag.
+	inProgress := m.notificationInProgress && m.notificationExpiry.IsZero()
+	bg := colorUpdated // green-ish: success
+	switch {
+	case inProgress:
+		bg = colorStale // yellow-ish: running
+	case !m.notificationOK:
+		bg = colorConflict // red-ish: failure
 	}
 	style := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("0")). // black text on bright bg

@@ -124,6 +124,18 @@ func notifyAfter(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return notificationExpiredMsg{} })
 }
 
+// setProgress puts the banner into the running state. The renderer
+// treats a non-zero notificationExpiry as the result-set signal, so
+// existing handlers don't need to clear notificationInProgress —
+// they just overwrite the banner text and set an expiry as before.
+func (m *App) setProgress(msg string) {
+	m.notification = msg
+	m.notificationInProgress = true
+	m.notificationOK = false
+	m.notificationExpiry = time.Time{}
+	m.updateSizes()
+}
+
 // refreshStatusForPaths dispatches loadDirStatus for each unique parent
 // directory of the given paths. Much faster than a full DryRunUpdate when
 // only a few directories are affected.
@@ -213,9 +225,13 @@ type App struct {
 
 	// Transient banner shown above the tab bar (e.g. "✓ Committed 2 file(s)").
 	// Cleared automatically via notificationExpiredMsg after a few seconds.
-	notification     string
-	notificationOK   bool // true=success (green), false=error (red)
-	notificationExpiry time.Time
+	// notificationInProgress overrides the OK/error palette with a neutral
+	// "running" color and disables auto-expiry — used to surface dispatched
+	// CVS commands until their *DoneMsg overwrites the banner.
+	notification           string
+	notificationOK         bool // true=success (green), false=error (red)
+	notificationInProgress bool
+	notificationExpiry     time.Time
 
 	// History tab caches — per-file, never wiped on file switch. Async
 	// results carry the path they were loaded for; handlers write into
@@ -613,6 +629,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.updateSizes()
 			return m, notifyAfter(notifyDuration)
 		}
+		m.setProgress(fmt.Sprintf("⟳ Committing %d file(s)…", len(msg.files)))
 		return m, doCommit(m.exec, msg.message, msg.untracked, msg.files)
 
 	case actionDoneMsg:
@@ -659,6 +676,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case revertMsg:
+		m.setProgress(fmt.Sprintf("⟳ Reverting %s…", filepath.Base(msg.path)))
 		return m, doRevert(m.exec, msg.path)
 
 	case removeMsg:
@@ -666,6 +684,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// removeDoneMsg handler clean up after success, mirroring the
 		// commit path. A failed remove leaves the staging selection
 		// intact so the user can retry.
+		m.setProgress(fmt.Sprintf("⟳ Removing %d file(s)…", len(msg.paths)))
 		return m, doRemove(m.exec, msg.paths, msg.statuses)
 
 	case updateDoneMsg:

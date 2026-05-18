@@ -639,41 +639,57 @@ func (m DialogModel) View() string {
 
 func (m DialogModel) viewCommit() string {
 	var b strings.Builder
-	// Count what's actually committable (?, A, M, C, R — same as
-	// staging.isCommittable) vs skipped (clean / U).
-	var committable, skipped int
+	// Split marked files by committability so the dialog body can
+	// focus on what will actually be sent to `cvs commit` and report
+	// the skipped count separately. Same predicate as staging.isCommittable.
+	var committable, skipped []string
 	for _, f := range m.files {
 		if isCommittable(m.commitStatuses[f]) {
-			committable++
+			committable = append(committable, f)
 		} else {
-			skipped++
+			skipped = append(skipped, f)
 		}
 	}
-	if skipped > 0 {
-		fmt.Fprintf(&b, "%s\n\n", titleStyle.Render(fmt.Sprintf("Commit (%d of %d)", committable, len(m.files))))
-	} else {
-		b.WriteString(titleStyle.Render("Commit") + "\n\n")
+
+	fmt.Fprintf(&b, "%s\n\n", titleStyle.Render(fmt.Sprintf("Commit (%d of %d)", len(committable), len(m.files))))
+
+	if len(committable) == 0 {
+		fmt.Fprintf(&b, "No committable files among %d marked.\n", len(m.files))
+		b.WriteString(mutedStyle.Render("All marked files are clean or up-to-date —\nthey may already be committed.\n\n"))
+		b.WriteString(helpStyle.Render("s: refresh status   esc: close"))
+		return b.String()
 	}
+
+	// Reserve space for header (3) + skipped line (2) + message label (2)
+	// + input (1) + blank (1) + help (1) + box border/padding (4). Anything
+	// left over is the file-list budget; cap below that to keep a hint of
+	// the message input visible even on very small terminals.
+	maxFiles := m.height - 14
+	if maxFiles < 4 {
+		maxFiles = 4
+	}
+
 	b.WriteString("Files:\n")
-	for _, f := range m.files {
+	visible := committable
+	truncated := 0
+	if len(committable) > maxFiles {
+		visible = committable[:maxFiles-1]
+		truncated = len(committable) - len(visible)
+	}
+	for _, f := range visible {
 		s := m.commitStatuses[f]
-		label := "  "
-		if s != "" {
-			label = lipgloss.NewStyle().Width(2).Foreground(statusColor(s)).Render(s)
-		}
+		label := lipgloss.NewStyle().Width(2).Foreground(statusColor(s)).Render(s)
 		line := "  " + label + "  " + f
-		if isCommittable(s) {
-			if s == "?" {
-				line += mutedStyle.Render("  (will be added first)")
-			}
-		} else {
-			hint := "(unchanged)"
-			if s == "U" {
-				hint = "(needs update — skip)"
-			}
-			line = mutedStyle.Render(line + "  " + hint)
+		if s == "?" {
+			line += mutedStyle.Render("  (will be added first)")
 		}
 		b.WriteString(line + "\n")
+	}
+	if truncated > 0 {
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("  … %d more committable file(s)\n", truncated)))
+	}
+	if len(skipped) > 0 {
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("\nSkipped: %d file(s) — clean or up-to-date\n", len(skipped))))
 	}
 	b.WriteString("\nMessage:\n")
 	b.WriteString(m.input.View() + "\n\n")

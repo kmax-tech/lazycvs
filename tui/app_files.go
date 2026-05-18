@@ -85,7 +85,10 @@ func matchesIgnore(name string, patterns []string) bool {
 }
 
 func skipInListing(name string) bool {
-	return name == "CVS" || name == ".cvsignore" || name == ".DS_Store" ||
+	// .cvsignore stays in the listing: it's tracked by CVS, users
+	// edit it directly, and hiding the local copy made it appear as
+	// a phantom "(server)" entry whenever cvs status reported it.
+	return name == "CVS" || name == ".DS_Store" ||
 		strings.HasPrefix(name, ".#") || strings.HasSuffix(name, ".~")
 }
 

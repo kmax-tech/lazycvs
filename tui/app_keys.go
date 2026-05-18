@@ -377,6 +377,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		case key.Matches(msg, keys.Add) && selectedFile != nil && selectedFile.Status == "?":
+			m.setProgress(fmt.Sprintf("⟳ Adding %s…", filepath.Base(selectedPath)))
 			return m.addFile(selectedPath)
 		case key.Matches(msg, keys.Ignore):
 			// If any marked files are untracked, bulk-ignore them
@@ -465,6 +466,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			case key.Matches(msg, keys.Revert):
 				// Revert: revert all M files
 				if paths := m.staged.PathsByStatus("M"); len(paths) > 0 {
+					m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(paths)))
 					return m.stagedBulkAction("revert", paths)
 				}
 			case key.Matches(msg, keys.Ignore):
@@ -479,6 +481,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 					for _, f := range m.staged.files {
 						paths = append(paths, f.path)
 					}
+					m.setProgress(fmt.Sprintf("⟳ Updating %d file(s)…", len(paths)))
 					return m.stagedBulkAction("update", paths)
 				}
 			case msg.String() == "U":

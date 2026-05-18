@@ -136,6 +136,20 @@ func (m *App) setProgress(msg string) {
 	m.updateSizes()
 }
 
+// clearProgress removes a running banner without overwriting it with
+// a result message. Used by action handlers (add, revert) whose
+// completion has no useful headline — the banner just disappearing
+// is the "done" signal.
+func (m *App) clearProgress() {
+	if !m.notificationInProgress {
+		return
+	}
+	m.notification = ""
+	m.notificationInProgress = false
+	m.notificationExpiry = time.Time{}
+	m.updateSizes()
+}
+
 // refreshStatusForPaths dispatches loadDirStatus for each unique parent
 // directory of the given paths. Much faster than a full DryRunUpdate when
 // only a few directories are affected.
@@ -638,6 +652,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (no new revision until commit), but revert can change the
 		// working-copy diff cache for the path; safest to drop the
 		// per-path History cache so the next view re-fetches.
+		m.clearProgress()
 		invalidateCmd := m.invalidateHistoryCache(msg.paths)
 		return m, tea.Batch(m.refreshStatusForPaths(msg.paths), invalidateCmd)
 

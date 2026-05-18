@@ -89,6 +89,34 @@ func skipInListing(name string) bool {
 		strings.HasPrefix(name, ".#") || strings.HasSuffix(name, ".~")
 }
 
+// readCVSEntries returns the set of names listed in absDir/CVS/Entries
+// (both file and directory entries). Nil when the file is missing or
+// unreadable — the caller treats that as "no Entries info available"
+// and falls back to the ancestor walk. Used to distinguish a clean,
+// tracked file from an untracked one in a dir that has a CVS/ marker
+// but where Entries is empty or doesn't list the file (typical right
+// after `cvs add <dir>` before the files themselves are added).
+func readCVSEntries(absDir string) map[string]bool {
+	data, err := os.ReadFile(filepath.Join(absDir, "CVS", "Entries"))
+	if err != nil {
+		return nil
+	}
+	tracked := make(map[string]bool)
+	for _, line := range strings.Split(string(data), "\n") {
+		if line == "" || line == "D" {
+			continue
+		}
+		// Format: /name/version/timestamp/options/tag  (files)
+		//        D/name////                            (directories)
+		parts := strings.SplitN(line, "/", 3)
+		if len(parts) < 2 || parts[1] == "" {
+			continue
+		}
+		tracked[parts[1]] = true
+	}
+	return tracked
+}
+
 // updateFileList rebuilds the right-pane file list from the active tab's
 // selected directory. No-op for tabs that don't have a file list (Staged,
 // History).
@@ -139,6 +167,7 @@ func (m *App) updateFileListForDir(dir string) {
 	var files []cvs.FileEntry
 	var subDirs []SubDirGroup
 	ignorePatterns := loadIgnorePatterns(absDir)
+	tracked := readCVSEntries(absDir)
 
 	for _, e := range entries {
 		name := e.Name()
@@ -158,14 +187,14 @@ func (m *App) updateFileListForDir(dir string) {
 			// surface them so a user-edited file inside a tracked dir
 			// stays reachable even if the dirname happens to match a
 			// generic pattern.
-			tracked := false
+			subHasCVS := false
 			if _, err := os.Stat(filepath.Join(absDir, name, "CVS")); err == nil {
-				tracked = true
+				subHasCVS = true
 			}
 			sg := SubDirGroup{
 				Name:    name,
 				Path:    path,
-				Ignored: !tracked && matchesIgnore(name, ignorePatterns),
+				Ignored: !subHasCVS && matchesIgnore(name, ignorePatterns),
 			}
 			if node := m.tree.findNode(path); node != nil {
 				sg.Counts = node.Counts
@@ -173,6 +202,7 @@ func (m *App) updateFileListForDir(dir string) {
 			subAbsDir := filepath.Join(absDir, name)
 			subEntries, err := os.ReadDir(subAbsDir)
 			subIgnore := loadIgnorePatterns(subAbsDir)
+			subTracked := readCVSEntries(subAbsDir)
 			if err == nil {
 				for _, se := range subEntries {
 					sn := se.Name()
@@ -185,6 +215,14 @@ func (m *App) updateFileListForDir(dir string) {
 						sz = info.Size()
 					}
 					st := m.resolveFileStatus(sp)
+					// Promote "clean" to "?" when the file isn't listed
+					// in this dir's Entries — happens right after
+					// `cvs add <dir>` before the files themselves are
+					// added. Without this, the listing shows no badge
+					// and the user can't tell which files still need `a`.
+					if st == "" && subHasCVS && subTracked != nil && !subTracked[sn] {
+						st = "?"
+					}
 					ignored := (st == "" || st == "?") && matchesIgnore(sn, subIgnore)
 					sg.Files = append(sg.Files, cvs.FileEntry{Path: sp, Status: st, Size: sz, Ignored: ignored})
 				}
@@ -198,6 +236,13 @@ func (m *App) updateFileListForDir(dir string) {
 			size = info.Size()
 		}
 		status := m.resolveFileStatus(path)
+		// Promote "clean" to "?" when the file isn't in this dir's
+		// Entries — happens right after `cvs add <dir>` before the
+		// files themselves are added, when CVS/ exists but Entries
+		// doesn't list the file yet.
+		if status == "" && tracked != nil && !tracked[name] {
+			status = "?"
+		}
 		// Apply .cvsignore to ? files too: in a fresh dir that isn't
 		// added yet, every file resolves to ? (parent has no CVS/),
 		// and patterns in the dir's own .cvsignore would otherwise

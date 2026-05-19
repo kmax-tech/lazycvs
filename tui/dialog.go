@@ -220,6 +220,9 @@ type commitMessageEditedMsg struct {
 // ensureParentDirs adds any ancestor directories of relPath that are not yet
 // known to CVS (i.e. missing a CVS/ subdirectory). Directories are added
 // top-down so that `cvs add <file>` inside a new directory tree succeeds.
+// Returns the first cvs failure encountered — non-nil means later file adds
+// under that ancestor will likely fail too, and the caller can short-circuit
+// or surface the error instead of letting the operation silently degrade.
 func ensureParentDirs(exec *cvs.CVSExecutor, relPath string) error {
 	dir := filepath.Dir(relPath)
 	if dir == "." || dir == "" {
@@ -235,7 +238,13 @@ func ensureParentDirs(exec *cvs.CVSExecutor, relPath string) error {
 		missing = append(missing, d)
 	}
 	for i := len(missing) - 1; i >= 0; i-- {
-		exec.Run("add", missing[i])
+		r, err := exec.Run("add", missing[i])
+		if err != nil {
+			return err
+		}
+		if r != nil && !r.Success {
+			return fmt.Errorf("cvs add %s exited %d", missing[i], r.ExitCode)
+		}
 	}
 	return nil
 }
@@ -275,8 +284,11 @@ func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
 		if data != nil {
 			os.WriteFile(path+".lazycvs-backup", data, 0644)
 		}
-		exec.Run("update", "-C", path)
-		return actionDoneMsg{paths: []string{path}}
+		r, err := exec.Run("update", "-C", path)
+		if err == nil && r != nil && !r.Success {
+			err = fmt.Errorf("cvs update -C %s exited %d", path, r.ExitCode)
+		}
+		return actionDoneMsg{paths: []string{path}, err: err}
 	}
 }
 

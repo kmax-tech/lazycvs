@@ -255,6 +255,13 @@ func runHistoryStream(executor *cvs.CVSExecutor, path string, requestID uint64, 
 		for s.Scan() {
 			lines <- s.Text()
 		}
+		// Scanner errors (I/O failure mid-stream, oversized token) would
+		// otherwise be discarded — the consumer would see a truncated
+		// revision list with no explanation. Surface them as a stream
+		// error message so the handler can show "history load failed".
+		if err := s.Err(); err != nil {
+			out <- historyStreamErrMsg{path: path, requestID: requestID, err: err}
+		}
 	}()
 
 	parser := newRevisionParser()

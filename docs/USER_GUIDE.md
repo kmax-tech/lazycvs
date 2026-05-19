@@ -39,6 +39,13 @@ The console at the bottom logs every `cvs` command lazycvs runs, with
 durations. A `⚠ N` indicator in the tab bar shows unread errors;
 focusing the console with `Ctrl-J` clears it.
 
+While a CVS command is in flight a yellow banner appears above the
+tab bar (`⟳ Committing 3 file(s)…`, `⟳ Refreshing status…`, etc.).
+When the command returns it turns green (`✓ Committed …`) or red
+(`✗ Update failed — see Console`) for a couple of seconds, then
+disappears. For silent actions (add, revert) the banner just
+vanishes on success — disappearance is the "done" signal.
+
 ## Navigation — works the same everywhere
 
 | Keys                | Action                                          |
@@ -84,8 +91,17 @@ in the tree. It has three view modes (cycle with `f`):
 - `sub`  — files grouped under each immediate subdirectory
 - `tree` — expandable subdirs (press `Enter` on a subdir header to expand)
 
-`F` filters by status code. `I` toggles whether ignored files are
-visible.
+`F` filters by status code — each press cycles through:
+all → `*` (anything changed: M/C/?/A/R/U) → `M` → `C` → `?` → all.
+The active filter shows up in the file-list header (e.g. `[*]`).
+
+`I` toggles whether ignored files (`.cvsignore`-matched and
+default-ignored) are visible.
+
+`.cvsignore` itself is a regular tracked file in lazycvs: it shows
+up in the listing, you can edit it with `e`, and commits to it are
+shared with the team (that's CVS' design). For personal-only
+ignores, use `~/.cvsignore` via the `i` dialog options [2] / [3].
 
 ### 2 — Favorites
 

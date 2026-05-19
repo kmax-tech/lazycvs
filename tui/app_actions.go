@@ -83,18 +83,34 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 	switch action {
 	case "add":
 		return func() tea.Msg {
+			var firstErr error
 			for _, p := range paths {
-				ensureParentDirs(exec, p)
-				exec.Run("add", p)
+				if err := ensureParentDirs(exec, p); err != nil && firstErr == nil {
+					firstErr = err
+				}
+				if r, err := exec.Run("add", p); err != nil {
+					if firstErr == nil {
+						firstErr = err
+					}
+				} else if r != nil && !r.Success && firstErr == nil {
+					firstErr = fmt.Errorf("cvs add %s exited %d", p, r.ExitCode)
+				}
 			}
-			return actionDoneMsg{paths: paths}
+			return actionDoneMsg{paths: paths, err: firstErr}
 		}
 	case "revert":
 		return func() tea.Msg {
+			var firstErr error
 			for _, p := range paths {
-				exec.Run("update", "-C", p)
+				if r, err := exec.Run("update", "-C", p); err != nil {
+					if firstErr == nil {
+						firstErr = err
+					}
+				} else if r != nil && !r.Success && firstErr == nil {
+					firstErr = fmt.Errorf("cvs update -C %s exited %d", p, r.ExitCode)
+				}
 			}
-			return actionDoneMsg{paths: paths}
+			return actionDoneMsg{paths: paths, err: firstErr}
 		}
 	case "update":
 		return func() tea.Msg {
@@ -175,9 +191,14 @@ func (m *App) doUpdateSelected() tea.Cmd {
 func (m *App) addFile(path string) tea.Cmd {
 	exec := m.exec
 	return func() tea.Msg {
-		ensureParentDirs(exec, path)
-		exec.Run("add", path)
-		return actionDoneMsg{paths: []string{path}}
+		if err := ensureParentDirs(exec, path); err != nil {
+			return actionDoneMsg{paths: []string{path}, err: err}
+		}
+		r, err := exec.Run("add", path)
+		if err == nil && r != nil && !r.Success {
+			err = fmt.Errorf("cvs add %s exited %d", path, r.ExitCode)
+		}
+		return actionDoneMsg{paths: []string{path}, err: err}
 	}
 }
 

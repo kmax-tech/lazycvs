@@ -41,7 +41,9 @@ The app follows a strict **data/rendering separation**: the CVS layer produces G
 
 ### CVS Executor
 
-All CVS commands go through a single `CVSExecutor` with a mutex (one CVS command at a time), configurable timeout (default 60s), and automatic logging to the `CommandLog` ring buffer that feeds the TUI's Console panel.
+All CVS commands go through a single `CVSExecutor` with an RWMutex: write commands (`add`/`commit`/`remove`) take the exclusive `Lock` via `Run`; read-only commands (`status`/`diff`/`log`/`-n update`) take the shared `RLock` via `RunReadOnly` and can run concurrently. Any new read path that wants to parallelize with another (e.g. the dual fan-out in `refreshStatusUser`) must use `RunReadOnly` or the parallelism is silently defeated by the exclusive lock. Configurable timeout (default 60s) and automatic logging to the `CommandLog` ring buffer that feeds the TUI's Console panel.
+
+The user-initiated status refresh (`s`) fans out the dry-run update and the per-partition `cvs status` worker pool in parallel and merges both results into one `statusRefreshedMsg` (see `refreshStatusUser` in `tui/app_core.go` and `runPartitionScan` in `tui/app_status.go`). The two data sources are complementary: dry-run sees stale dirs + server-side `U` pending; partition scan sees per-file `WorkingRev` (sticky-tag aware, needed for the History `(working)` badge).
 
 ## Tech Stack
 

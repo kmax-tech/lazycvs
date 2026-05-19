@@ -114,9 +114,12 @@ type updateDoneMsg struct {
 
 // actionDoneMsg is sent by async actions (add, revert) that previously ran a
 // full DryRunUpdate. It carries the affected paths so the handler can dispatch
-// a fast, targeted directory refresh instead of a full repo scan.
+// a fast, targeted directory refresh instead of a full repo scan. The `err`
+// field carries the first cvs invocation that failed during the action — when
+// non-nil the handler surfaces a banner so add/revert don't fail silently.
 type actionDoneMsg struct {
 	paths []string
+	err   error
 }
 
 // notifyAfter schedules a notificationExpiredMsg after d.
@@ -660,6 +663,19 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// (no new revision until commit), but revert can change the
 		// working-copy diff cache for the path; safest to drop the
 		// per-path History cache so the next view re-fetches.
+		if msg.err != nil {
+			label := fmt.Sprintf("%d path(s)", len(msg.paths))
+			if len(msg.paths) == 1 {
+				label = filepath.Base(msg.paths[0])
+			}
+			m.notification = fmt.Sprintf("✗ Action failed for %s — see Console", label)
+			m.notificationOK = false
+			m.notificationInProgress = false
+			m.notificationExpiry = time.Now().Add(notifyDuration)
+			m.updateSizes()
+			invalidateCmd := m.invalidateHistoryCache(msg.paths)
+			return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths), invalidateCmd)
+		}
 		m.clearProgress()
 		invalidateCmd := m.invalidateHistoryCache(msg.paths)
 		return m, tea.Batch(m.refreshStatusForPaths(msg.paths), invalidateCmd)

@@ -136,6 +136,14 @@ func (m *App) setProgress(msg string) {
 	m.updateSizes()
 }
 
+// bannerInProgress reports whether the banner is in its "running"
+// state — set by setProgress and not yet overwritten by a result
+// handler. A non-zero notificationExpiry signals "result published",
+// so the inProgress palette only applies until that lands.
+func (m App) bannerInProgress() bool {
+	return m.notificationInProgress && m.notificationExpiry.IsZero()
+}
+
 // clearProgress removes a running banner without overwriting it with
 // a result message. Used by action handlers (add, revert) whose
 // completion has no useful headline — the banner just disappearing

@@ -660,11 +660,12 @@ func (m DialogModel) viewCommit() string {
 		return b.String()
 	}
 
-	// Reserve space for header (3) + skipped line (2) + message label (2)
-	// + input (1) + blank (1) + help (1) + box border/padding (4). Anything
-	// left over is the file-list budget; cap below that to keep a hint of
-	// the message input visible even on very small terminals.
-	maxFiles := m.height - 14
+	// header (3) + skipped line (2) + message label (2) + input (1) +
+	// blank (1) + help (1) + box border/padding (4). Anything left
+	// over is the file-list budget; cap below that to keep a hint
+	// of the message input visible even on very small terminals.
+	const commitDialogChromeLines = 14
+	maxFiles := m.height - commitDialogChromeLines
 	if maxFiles < 4 {
 		maxFiles = 4
 	}

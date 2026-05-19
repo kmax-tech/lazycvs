@@ -120,6 +120,22 @@ func readCVSEntries(absDir string) map[string]bool {
 	return tracked
 }
 
+// resolveListingStatus derives the badge code and ignore flag for one
+// entry in the file-list build. Shared between the top-level dir scan
+// and each visible subdir scan so both apply the same precedence:
+// (1) promote a clean status to "?" when the file isn't in the dir's
+// Entries (CVS/ exists but Entries doesn't list it — typical right
+// after `cvs add <dir>` before the files themselves are added);
+// (2) apply `.cvsignore` patterns to clean *and* "?" entries, matching
+// cvs(1)'s precedence (ignore patterns consulted before "?" reporting).
+func resolveListingStatus(name, status string, tracked map[string]bool, ignorePatterns []string) (string, bool) {
+	if status == "" && tracked != nil && !tracked[name] {
+		status = "?"
+	}
+	ignored := (status == "" || status == "?") && matchesIgnore(name, ignorePatterns)
+	return status, ignored
+}
+
 // updateFileList rebuilds the right-pane file list from the active tab's
 // selected directory. No-op for tabs that don't have a file list (Staged,
 // History).
@@ -217,16 +233,7 @@ func (m *App) updateFileListForDir(dir string) {
 					if info, err := se.Info(); err == nil {
 						sz = info.Size()
 					}
-					st := m.resolveFileStatus(sp)
-					// Promote "clean" to "?" when the file isn't listed
-					// in this dir's Entries — happens right after
-					// `cvs add <dir>` before the files themselves are
-					// added. Without this, the listing shows no badge
-					// and the user can't tell which files still need `a`.
-					if st == "" && subHasCVS && subTracked != nil && !subTracked[sn] {
-						st = "?"
-					}
-					ignored := (st == "" || st == "?") && matchesIgnore(sn, subIgnore)
+					st, ignored := resolveListingStatus(sn, m.resolveFileStatus(sp), subTracked, subIgnore)
 					sg.Files = append(sg.Files, cvs.FileEntry{Path: sp, Status: st, Size: sz, Ignored: ignored})
 				}
 			}
@@ -238,20 +245,7 @@ func (m *App) updateFileListForDir(dir string) {
 		if info, err := e.Info(); err == nil {
 			size = info.Size()
 		}
-		status := m.resolveFileStatus(path)
-		// Promote "clean" to "?" when the file isn't in this dir's
-		// Entries — happens right after `cvs add <dir>` before the
-		// files themselves are added, when CVS/ exists but Entries
-		// doesn't list the file yet.
-		if status == "" && tracked != nil && !tracked[name] {
-			status = "?"
-		}
-		// Apply .cvsignore to ? files too: in a fresh dir that isn't
-		// added yet, every file resolves to ? (parent has no CVS/),
-		// and patterns in the dir's own .cvsignore would otherwise
-		// be silently dropped. cvs(1) itself wouldn't list these
-		// files as ?, so honor the same precedence here.
-		ignored := (status == "" || status == "?") && matchesIgnore(name, ignorePatterns)
+		status, ignored := resolveListingStatus(name, m.resolveFileStatus(path), tracked, ignorePatterns)
 		files = append(files, cvs.FileEntry{Path: path, Status: status, Size: size, Ignored: ignored})
 	}
 

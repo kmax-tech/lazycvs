@@ -387,13 +387,16 @@ Status:
     build_long_history(wc, "src/version.go", 30)
 
     # === Latin-1 encoded file → exercises cvs.EnsureUTF8 ===
+    # Keep this string ASCII + Latin-1 supplement only (umlauts, ß, accented
+    # vowels). No em-dashes, arrows, quotes — they're outside Latin-1 and
+    # the .encode("latin-1") below will raise UnicodeEncodeError.
     print("==> writing Latin-1 encoded file (docs/notes-de.txt)")
     latin1_text = (
         "Projekt-Notizen\n"
         "===============\n"
         "\n"
         "Das ist eine Datei mit deutschen Umlauten: ÄÖÜäöüß.\n"
-        "Sie ist in Latin-1 kodiert, nicht UTF-8 — lazycvs sollte\n"
+        "Sie ist in Latin-1 kodiert, nicht UTF-8 -- lazycvs sollte\n"
         "das automatisch erkennen und für die Anzeige transcodieren.\n"
         "\n"
         "Größe: ungefähr 200 Bytes.\n"

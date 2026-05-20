@@ -14,9 +14,14 @@ type FileStatus struct {
 }
 
 var (
-	statusFileRe  = regexp.MustCompile(`^File:\s+(\S+)\s+Status:\s+(.+)$`)
-	workingRevRe  = regexp.MustCompile(`^\s+Working revision:\s+(\S+)`)
-	repoRevRe     = regexp.MustCompile(`^\s+Repository revision:\s+(\S+)`)
+	// `cvs status` for a removed-but-not-yet-committed file emits
+	//   File: no file <name>		Status: Locally Removed
+	// (the literal text "no file" is CVS' way of saying the working
+	// copy is gone). Match it as an optional prefix so the captured
+	// name is the actual filename, not "no".
+	statusFileRe = regexp.MustCompile(`^File:\s+(?:no file\s+)?(\S+)\s+Status:\s+(.+)$`)
+	workingRevRe = regexp.MustCompile(`^\s+Working revision:\s+(\S+)`)
+	repoRevRe    = regexp.MustCompile(`^\s+Repository revision:\s+(\S+)`)
 )
 
 // ParseStatus parses the output of `cvs status -R` into file statuses.

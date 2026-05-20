@@ -22,6 +22,7 @@ type TreeNode struct {
 	Size     int64
 	Counts   StatusCounts
 	IsStale  bool // true when CVS reports this directory as gone from the server
+	Ignored  bool // matches a .cvsignore pattern AND isn't CVS-tracked
 }
 
 type StatusCounts struct {
@@ -58,19 +59,21 @@ type flatNode struct {
 }
 
 type TreeModel struct {
-	root      []*TreeNode
-	flat      []flatNode
-	cursor    int
-	workDir   string
-	width     int
-	height    int
-	offset    int
-	showFiles bool // when false, tree only shows directories (Variant A)
+	root        []*TreeNode
+	flat        []flatNode
+	cursor      int
+	workDir     string
+	width       int
+	height      int
+	offset      int
+	showFiles   bool // when false, tree only shows directories (Variant A)
+	hideIgnored bool // mirror of FileListModel.hideIgnored, kept in sync by App
 }
 
 func NewTreeModel(workDir string) TreeModel {
 	return TreeModel{
-		workDir: workDir,
+		workDir:     workDir,
+		hideIgnored: true, // matches FileListModel default
 	}
 }
 
@@ -348,11 +351,25 @@ func (m *TreeModel) flatten(nodes []*TreeNode, depth int) {
 		if !n.IsDir && !m.showFiles {
 			continue
 		}
+		if m.hideIgnored && n.Ignored {
+			continue
+		}
 		m.flat = append(m.flat, flatNode{node: n, depth: depth})
 		if n.IsDir && n.Expanded {
 			m.flatten(n.Children, depth+1)
 		}
 	}
+}
+
+// SetHideIgnored updates the filter and rebuilds the visible list.
+// Called from App so the I-toggle in FileListModel keeps both panes
+// in sync.
+func (m *TreeModel) SetHideIgnored(hide bool) {
+	if m.hideIgnored == hide {
+		return
+	}
+	m.hideIgnored = hide
+	m.rebuildFlat()
 }
 
 // ExpandToPath expands all directories along the given relative path
@@ -476,7 +493,13 @@ func (m TreeModel) View() string {
 		}
 
 		var statusStr string
-		if f.node.Status != "" {
+		switch {
+		case f.node.Ignored && !f.node.IsDir:
+			// File-only `I` badge — mirrors the filelist's status column.
+			// Dirs don't get a badge (their slot shows aggregate counts),
+			// only the dim/strikethrough styling applied below.
+			statusStr = lipgloss.NewStyle().Foreground(colorIgnored).Render("I") + " "
+		case f.node.Status != "":
 			c := statusColor(f.node.Status)
 			statusStr = lipgloss.NewStyle().Foreground(c).Render(f.node.Status) + " "
 		}
@@ -491,6 +514,9 @@ func (m TreeModel) View() string {
 
 		line := indent + icon + statusStr + name + counts + staleBadge
 
+		if f.node.Ignored {
+			line = ignoredStyle.Render(line)
+		}
 		if i == m.cursor {
 			line = lipgloss.NewStyle().Reverse(true).Render(line)
 		}
@@ -533,6 +559,9 @@ func scanDir(workDir, relPath string) []*TreeNode {
 		return nil
 	}
 
+	ignorePatterns := loadIgnorePatterns(absPath)
+	tracked := readCVSEntries(absPath)
+
 	var dirs, files []*TreeNode
 	for _, e := range entries {
 		name := e.Name()
@@ -545,10 +574,25 @@ func scanDir(workDir, relPath string) []*TreeNode {
 			path = relPath + "/" + name
 		}
 
+		// A node is "ignored" when the parent's pattern set matches AND
+		// it isn't itself CVS-tracked. Files: tracked == listed in
+		// Entries. Dirs: tracked == has its own CVS/ subdir. Matches
+		// updateFileListForDir's precedence so the tree and filelist
+		// agree on what counts as ignored.
+		entryTracked := false
+		if e.IsDir() {
+			if _, err := os.Stat(filepath.Join(absPath, name, "CVS")); err == nil {
+				entryTracked = true
+			}
+		} else if tracked != nil && tracked[name] {
+			entryTracked = true
+		}
+
 		node := &TreeNode{
-			Name:  name,
-			Path:  path,
-			IsDir: e.IsDir(),
+			Name:    name,
+			Path:    path,
+			IsDir:   e.IsDir(),
+			Ignored: !entryTracked && matchesIgnore(name, ignorePatterns),
 		}
 
 		if !e.IsDir() {

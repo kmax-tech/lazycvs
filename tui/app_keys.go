@@ -216,6 +216,7 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.filelist.hideIgnored = !m.filelist.hideIgnored
 		m.filelist.cursor = 0
 		m.filelist.offset = 0
+		m.tree.SetHideIgnored(m.filelist.hideIgnored)
 		m.updateFileList()
 		return nil, true
 	case key.Matches(msg, keys.Status):

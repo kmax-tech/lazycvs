@@ -24,11 +24,24 @@ var (
 	repoRevRe    = regexp.MustCompile(`^\s+Repository revision:\s+(\S+)`)
 )
 
-// ParseStatus parses the output of `cvs status -R` into file statuses.
+// ParseStatus parses the output of `cvs status` into file statuses.
+// Paths are prefixed with the directory CVS reports via "Examining <dir>"
+// lines as it walks the tree.
 func ParseStatus(output string) []FileStatus {
+	return ParseStatusInDir(output, "")
+}
+
+// ParseStatusInDir is ParseStatus with a fallback directory context.
+// Use it when calling `cvs status -l <dir>` on a single directory:
+// some CVS versions skip the "Examining <dir>" line in that case and
+// emit bare basenames, which would otherwise be parsed as top-level
+// paths and surface in the wrong directory in the UI. Passing the
+// scope dir as defaultDir gives the parser a sensible starting context
+// so removed/missing files keep their full relative path.
+func ParseStatusInDir(output, defaultDir string) []FileStatus {
 	var result []FileStatus
 	var current *FileStatus
-	currentDir := ""
+	currentDir := defaultDir
 
 	for _, line := range strings.Split(output, "\n") {
 		// Track directory context

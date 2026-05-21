@@ -99,7 +99,12 @@ func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch uint64) tea.Cmd 
 		if result == nil {
 			return dirStatusMsg{dir: dir, epoch: epoch}
 		}
-		return dirStatusMsg{dir: dir, statuses: cvs.ParseStatus(result.Stdout), epoch: epoch}
+		// Pass `dir` as the parser's default context: some CVS versions
+		// skip the "Examining <dir>" line for a `-l <dir>` invocation
+		// (most notably when the dir only contains Locally Removed
+		// files), which would leave parsed paths as bare basenames and
+		// surface them in the parent dir instead of the scoped subdir.
+		return dirStatusMsg{dir: dir, statuses: cvs.ParseStatusInDir(result.Stdout, dir), epoch: epoch}
 	}
 }
 
@@ -291,7 +296,7 @@ func runPartitionScan(executor *cvs.CVSExecutor, scope string) []cvs.FileStatus 
 			if result == nil {
 				return
 			}
-			parsed := cvs.ParseStatus(result.Stdout)
+			parsed := cvs.ParseStatusInDir(result.Stdout, s.dir)
 			if len(parsed) == 0 {
 				return
 			}

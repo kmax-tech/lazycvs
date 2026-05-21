@@ -41,25 +41,41 @@ func (m *App) toggleDirFiles(dirPath string) {
 	if dirPath == "." {
 		prefix = ""
 	}
-	// Collect all changed files under this directory
-	var changed []string
+	// Collect candidates from two sources:
+	//   1. statusMap entries under the prefix — covers M/C/?/A/R/U files
+	//      that cvs status reported.
+	//   2. Files already marked under the prefix — covers entries that
+	//      live outside statusMap (e.g. ? files in a freshly-added dir
+	//      whose status comes from the Entries-lookup promotion in the
+	//      listing). Without this branch, marks made via Space on the
+	//      filelist's dir header couldn't be cleared with A — A would
+	//      find zero candidates and return.
+	seen := make(map[string]bool)
+	var candidates []string
 	for path, status := range m.statusMap {
-		if strings.HasPrefix(path, prefix) && status != "" {
-			changed = append(changed, path)
+		if strings.HasPrefix(path, prefix) && status != "" && !seen[path] {
+			seen[path] = true
+			candidates = append(candidates, path)
 		}
 	}
-	if len(changed) == 0 {
+	for path := range m.filelist.marked {
+		if strings.HasPrefix(path, prefix) && !seen[path] {
+			seen[path] = true
+			candidates = append(candidates, path)
+		}
+	}
+	if len(candidates) == 0 {
 		return
 	}
 	// Check if all are already marked
 	allMarked := true
-	for _, p := range changed {
+	for _, p := range candidates {
 		if !m.filelist.marked[p] {
 			allMarked = false
 			break
 		}
 	}
-	for _, p := range changed {
+	for _, p := range candidates {
 		if allMarked {
 			delete(m.filelist.marked, p)
 		} else {

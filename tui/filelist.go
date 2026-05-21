@@ -231,10 +231,16 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 			} else if m.cursor < len(rows) && rows[m.cursor].isDirHeader {
 				sd := rows[m.cursor].subDir
 				if sd.Path == m.dir {
-					// Main directory header — toggle ALL visible files
+					// Main directory header — toggle every visible file
+					// that has a non-clean status. Clean files are skipped
+					// (cvs commit would ignore them anyway, and including
+					// them confused users who pressed Space-on-header to
+					// "select all" and ended up with a wall of marks on
+					// untouched files). Mirrors the subdir-header branch
+					// below and the global `A`/toggleDirFiles semantic.
 					var all []string
 					for _, r := range rows {
-						if r.file != nil {
+						if r.file != nil && r.file.Status != "" {
 							all = append(all, r.file.Path)
 						}
 					}

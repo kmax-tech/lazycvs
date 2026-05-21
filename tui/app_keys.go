@@ -21,7 +21,18 @@ var globalBindings = []struct {
 	action  func(*App) tea.Cmd
 }{
 	{keys.Quit, func(*App) tea.Cmd { return tea.Quit }},
-	{keys.Tab1, func(m *App) tea.Cmd { m.activeTab = TabTree; return nil }},
+	{keys.Tab1, func(m *App) tea.Cmd {
+		// Switching to Files always feels like "go check what changed";
+		// kick off a status refresh so the listing the user lands on is
+		// fresh, with the ⟳ banner as proof the refresh ran.
+		previous := m.activeTab
+		m.activeTab = TabTree
+		if previous != TabTree {
+			m.setProgress("⟳ Refreshing status…")
+			return m.refreshStatusUser()
+		}
+		return nil
+	}},
 	{keys.Tab2, func(m *App) tea.Cmd { m.activeTab = TabFavorites; return nil }},
 	{keys.Tab3, func(m *App) tea.Cmd {
 		m.activeTab = TabStaged
@@ -233,9 +244,10 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			}
 			return m.doUpdateSelected(), true
 		}
-		m.statusEpoch++
-		m.setProgress("⟳ Scanning working copy…")
-		return backgroundDirScan(m.exec, m.statusEpoch, ""), true
+		// Other tabs (Staged, History) are read-only with respect to the
+		// working copy. `u` would surprise the user by mutating state
+		// they're trying to inspect, so silently consume it.
+		return nil, true
 	case msg.String() == "U" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
 			m.dialog.OpenForceUpdate(paths)
@@ -319,12 +331,12 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		case key.Matches(msg, keys.Open) && selectedPath != "":
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			return openInOS(fullPath)
-		case key.Matches(msg, keys.Commit):
+		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory:
 			return m.openCommitDialog()
-		case key.Matches(msg, keys.Revert) && selectedPath != "":
+		case key.Matches(msg, keys.Revert) && selectedPath != "" && m.activeTab != TabHistory:
 			m.dialog.OpenRevert(selectedPath)
 			return nil
-		case key.Matches(msg, keys.Remove) && selectedPath != "":
+		case key.Matches(msg, keys.Remove) && selectedPath != "" && m.activeTab != TabHistory:
 			// If files are marked, treat D as a bulk remove and surface
 			// every path in the dialog so the user can review before
 			// confirming. Otherwise fall back to the single-file flow on
@@ -377,10 +389,10 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				m.dialog.OpenPreview(selectedPath, content)
 			}
 			return nil
-		case key.Matches(msg, keys.Add) && selectedFile != nil && selectedFile.Status == "?":
+		case key.Matches(msg, keys.Add) && selectedFile != nil && selectedFile.Status == "?" && m.activeTab != TabHistory:
 			m.setProgress(fmt.Sprintf("⟳ Adding %s…", filepath.Base(selectedPath)))
 			return m.addFile(selectedPath)
-		case key.Matches(msg, keys.Ignore):
+		case key.Matches(msg, keys.Ignore) && m.activeTab != TabHistory:
 			// If any marked files are untracked, bulk-ignore them
 			// (write each to its directory's .cvsignore). Otherwise
 			// fall back to the single-file ignore dialog on the

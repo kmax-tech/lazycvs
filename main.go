@@ -9,18 +9,57 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"runtime/debug"
 	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// Set via -ldflags "-X main.version=..." at build time (see Makefile).
+// Defaults to "dev" for unbranded `go build .` invocations.
 var version = "dev"
+
+func versionString() string {
+	v := version
+	if v == "dev" {
+		// `go build` without ldflags leaves the placeholder — fall back to
+		// the VCS info Go embeds in module builds so plain builds still
+		// produce a useful identifier (commit hash + dirty flag).
+		if info, ok := debug.ReadBuildInfo(); ok {
+			var rev, modified string
+			for _, s := range info.Settings {
+				switch s.Key {
+				case "vcs.revision":
+					rev = s.Value
+				case "vcs.modified":
+					if s.Value == "true" {
+						modified = "-dirty"
+					}
+				}
+			}
+			if rev != "" {
+				if len(rev) > 12 {
+					rev = rev[:12]
+				}
+				v = rev + modified
+			}
+		}
+	}
+	return fmt.Sprintf("lazycvs %s (%s/%s, %s)", v, runtime.GOOS, runtime.GOARCH, runtime.Version())
+}
 
 func main() {
 	cvsBin := flag.String("cvs", "", "path to CVS binary")
 	configPath := flag.String("config", "", "config file path")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(versionString())
+		return
+	}
 
 	// Path argument: first positional arg, or empty if none
 	var targetPath string
@@ -156,6 +195,3 @@ func hasCVSMetadata(dir string) bool {
 	return err == nil
 }
 
-// _ ensures version is referenced even when not yet wired into the TUI's
-// help/banner — keeps `-X main.version=...` ldflags meaningful.
-var _ = version

@@ -73,6 +73,53 @@ File: foo.tex	Status: Locally Modified
 	}
 }
 
+func TestParseStatusInDirRealWorldOutput(t *testing.T) {
+	// Verbatim output from `cvs status ijcai26-fallacy-detection-appendix`
+	// in a real working copy after `cvs remove -f` on every file. Every
+	// row should come back prefixed with the scope dir, not the bare
+	// basename — that's the contract loadDirStatus relies on.
+	output := `
+cvs status: Examining ijcai26-fallacy-detection-appendix
+===================================================================
+File: no file figure-benevolent-person.tex		Status: Locally Removed
+
+   Working revision:	-1.1
+   Repository revision:	1.1	/srv/cvsroot/research-in-progress/argumentation/IJCAI-26/ijcai26-fallacy-detection-paper-submitted/ijcai26-fallacy-detection-appendix/figure-benevolent-person.tex,v
+   Commit Identifier:	100696F843EBFD62125
+   Sticky Tag:		(none)
+
+===================================================================
+File: no file figure-critical-persona.tex		Status: Locally Removed
+
+   Working revision:	-1.1
+   Repository revision:	1.1	/srv/cvsroot/.../figure-critical-persona.tex,v
+   Sticky Tag:		(none)
+
+===================================================================
+File: no file table-example-arguments.tex		Status: Locally Removed
+
+   Working revision:	-1.1
+   Repository revision:	1.1	/srv/cvsroot/.../table-example-arguments.tex,v
+`
+	got := ParseStatusInDir(output, "ijcai26-fallacy-detection-appendix")
+	if len(got) != 3 {
+		t.Fatalf("expected 3 statuses, got %d", len(got))
+	}
+	wantPaths := []string{
+		"ijcai26-fallacy-detection-appendix/figure-benevolent-person.tex",
+		"ijcai26-fallacy-detection-appendix/figure-critical-persona.tex",
+		"ijcai26-fallacy-detection-appendix/table-example-arguments.tex",
+	}
+	for i, want := range wantPaths {
+		if got[i].Path != want {
+			t.Errorf("entry %d: expected Path=%q, got %q", i, want, got[i].Path)
+		}
+		if got[i].Status != "Locally Removed" {
+			t.Errorf("entry %d: expected Status=Locally Removed, got %q", i, got[i].Status)
+		}
+	}
+}
+
 func TestParseStatusNormalFile(t *testing.T) {
 	// Regression guard: without the "no file" prefix the parser must
 	// still capture the filename as the first token.

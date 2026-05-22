@@ -71,7 +71,7 @@ func refreshStagedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
 		if result == nil {
 			return stagedStatusMsg{paths: paths}
 		}
-		statuses := cvs.ParseStatus(result.Stdout)
+		statuses := cvs.ParseStatus(result.Combined)
 		// `cvs status <path>` reports the basename only ("File: notes.txt")
 		// — no "Examining <dir>" prefix to give ParseStatus a directory
 		// context. Remap basenames back to the original input paths so the
@@ -104,7 +104,10 @@ func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch uint64) tea.Cmd 
 		// (most notably when the dir only contains Locally Removed
 		// files), which would leave parsed paths as bare basenames and
 		// surface them in the parent dir instead of the scoped subdir.
-		return dirStatusMsg{dir: dir, statuses: cvs.ParseStatusInDir(result.Stdout, dir), epoch: epoch}
+		// Use Combined: cvs writes "Examining <dir>" to stderr and the
+		// File: blocks to stdout. Only the combined stream preserves the
+		// order needed to attribute each file to the right dir.
+		return dirStatusMsg{dir: dir, statuses: cvs.ParseStatusInDir(result.Combined, dir), epoch: epoch}
 	}
 }
 
@@ -296,7 +299,7 @@ func runPartitionScan(executor *cvs.CVSExecutor, scope string) []cvs.FileStatus 
 			if result == nil {
 				return
 			}
-			parsed := cvs.ParseStatusInDir(result.Stdout, s.dir)
+			parsed := cvs.ParseStatusInDir(result.Combined, s.dir)
 			if len(parsed) == 0 {
 				return
 			}

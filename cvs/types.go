@@ -71,10 +71,16 @@ func (r *UpdateResult) AllFiles() []FileEntry {
 
 // CommandResult holds the result of a single CVS command execution.
 type CommandResult struct {
-	Command   string        `json:"command"`
-	Args      []string      `json:"args"`
-	Stdout    string        `json:"stdout"`
-	Stderr    string        `json:"stderr"`
+	Command string   `json:"command"`
+	Args    []string `json:"args"`
+	Stdout  string   `json:"stdout"`
+	Stderr  string   `json:"stderr"`
+	// Combined preserves the interleaved order of writes to stdout and
+	// stderr exactly as cvs emitted them. Needed by `cvs status`, which
+	// prints "Examining <dir>" lines to stderr but the corresponding
+	// File: blocks to stdout — only the combined stream lets a parser
+	// associate each file with the right directory.
+	Combined  string        `json:"combined"`
 	ExitCode  int           `json:"exit_code"`
 	Duration  time.Duration `json:"duration"`
 	Timestamp time.Time     `json:"timestamp"`

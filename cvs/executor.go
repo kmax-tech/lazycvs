@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -56,9 +57,15 @@ func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 	cmd := exec.CommandContext(ctx, e.CVSBin, args...)
 	cmd.Dir = e.WorkDir
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// Capture stdout/stderr separately AND together. cvs interleaves
+	// progress messages on stderr with data on stdout (most visibly
+	// `cvs status`, where "Examining <dir>" headers are on stderr but
+	// the File: blocks are on stdout). Parsers that need to associate
+	// each File: with the dir it lives in have to see them in the
+	// order cvs wrote them — the combined buffer preserves that order.
+	var stdout, stderr, combined bytes.Buffer
+	cmd.Stdout = io.MultiWriter(&stdout, &combined)
+	cmd.Stderr = io.MultiWriter(&stderr, &combined)
 
 	start := time.Now()
 	err := cmd.Run()
@@ -78,6 +85,7 @@ func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 		Args:      args,
 		Stdout:    stdout.String(),
 		Stderr:    stderr.String(),
+		Combined:  combined.String(),
 		Duration:  duration,
 		Timestamp: start,
 		WorkDir:   e.WorkDir,

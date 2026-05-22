@@ -10,6 +10,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type TreeNode struct {
@@ -520,9 +521,14 @@ func (m TreeModel) View() string {
 		if i == m.cursor {
 			line = lipgloss.NewStyle().Reverse(true).Render(line)
 		}
-		// Truncate to width
+		// Truncate to width. Use ansi.Truncate, not a byte slice — the
+		// rendered line contains escape sequences (status colors,
+		// strikethrough for ignored entries, the reverse-style on the
+		// cursor row). A naive line[:m.width] chops mid-escape, leaving
+		// raw "[38;5;239m" text visible and an unterminated style that
+		// bleeds into the following row's render.
 		if m.width > 0 && lipgloss.Width(line) > m.width {
-			line = line[:m.width]
+			line = ansi.Truncate(line, m.width, "")
 		}
 		lines = append(lines, line)
 	}

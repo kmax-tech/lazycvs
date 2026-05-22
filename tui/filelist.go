@@ -179,6 +179,23 @@ func (m FileListModel) MarkedFiles() []string {
 	return result
 }
 
+// CycleViewMode advances the file-list view through flat → sub → tree
+// → flat. Exposed so the App's global key handler can drive it from any
+// focused panel — users pressing `f` on the tree pane don't need to
+// switch focus first.
+func (m *FileListModel) CycleViewMode() {
+	switch m.viewMode {
+	case FileViewFlat:
+		m.viewMode = FileViewSub
+	case FileViewSub:
+		m.viewMode = FileViewTree
+	default:
+		m.viewMode = FileViewFlat
+	}
+	m.cursor = 0
+	m.offset = 0
+}
+
 // ViewModeName returns a short label for the current view mode, used as
 // a parenthetical badge in the file-list header so the user can tell at
 // a glance which layout `f` cycled to.
@@ -301,16 +318,7 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 			m.offset = 0
 		// View mode switching: f cycles flat→sub→tree, t jumps to tree
 		case msg.String() == "f":
-			switch m.viewMode {
-			case FileViewFlat:
-				m.viewMode = FileViewSub
-			case FileViewSub:
-				m.viewMode = FileViewTree
-			default:
-				m.viewMode = FileViewFlat
-			}
-			m.cursor = 0
-			m.offset = 0
+			m.CycleViewMode()
 		case msg.String() == "t":
 			m.viewMode = FileViewTree
 			m.cursor = 0

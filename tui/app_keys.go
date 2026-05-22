@@ -255,6 +255,13 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			m.dialog.OpenForceUpdate([]string{target})
 		}
 		return nil, true
+	case msg.String() == "f" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+		// Cycle the filelist's flat → sub → tree view mode regardless of
+		// which panel is focused. Previously this only worked when the
+		// right pane was focused; users with the cursor on the tree pane
+		// pressed `f`, saw nothing happen, and had to switch focus first.
+		m.filelist.CycleViewMode()
+		return nil, true
 	case key.Matches(msg, keys.ViewMode):
 		if m.activeTab != TabTree {
 			return nil, false

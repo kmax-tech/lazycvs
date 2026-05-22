@@ -261,7 +261,14 @@ func doCommit(exec *cvs.CVSExecutor, message string, untracked, files []string) 
 	return func() tea.Msg {
 		var firstErr error
 		for _, p := range untracked {
-			ensureParentDirs(exec, p)
+			if err := ensureParentDirs(exec, p); err != nil {
+				if firstErr == nil {
+					firstErr = err
+				}
+				continue // skip the add; cvs would fail with a confusing
+				// "no such directory" error anyway, and the captured
+				// firstErr will surface the actual root cause.
+			}
 			r, err := exec.Run("add", p)
 			if firstErr == nil && err != nil && (r == nil || !r.Success) {
 				firstErr = err
@@ -668,7 +675,9 @@ func (m DialogModel) viewCommit() string {
 	if len(committable) == 0 {
 		fmt.Fprintf(&b, "No committable files among %d marked.\n", len(m.files))
 		b.WriteString(mutedStyle.Render("All marked files are clean or up-to-date —\nthey may already be committed.\n\n"))
-		b.WriteString(helpStyle.Render("s: refresh status   esc: close"))
+		// `s` is the global status-refresh key but the dialog's text
+		// input swallows it; only esc actually works from this state.
+		b.WriteString(helpStyle.Render("esc: close   (then press s to refresh status)"))
 		return b.String()
 	}
 

@@ -110,7 +110,13 @@ func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 			}
 		} else if ctx.Err() == context.DeadlineExceeded {
 			result.ExitCode = -1
-			result.Stderr += "\nTimeout: command exceeded " + e.Timeout.String()
+			// Append to both — Stdout and Stderr share the same combined
+			// stream now (see executor.go::run), so a single-stream
+			// append would break the invariant and hide the timeout from
+			// the Console panel (which renders result.Stdout).
+			msg := "\nTimeout: command exceeded " + e.Timeout.String()
+			result.Stdout += msg
+			result.Stderr += msg
 		}
 	}
 

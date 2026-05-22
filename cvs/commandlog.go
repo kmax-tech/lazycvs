@@ -43,19 +43,19 @@ func NewCommandLog(maxSize int) *CommandLog {
 func (l *CommandLog) Add(result CommandResult) {
 	entry := ConsoleEntry{CommandResult: result}
 
-	// Classify stdout lines
-	if result.Stdout != "" {
-		entry.StdoutLines = splitLines(result.Stdout)
-	}
-
-	// Classify stderr lines into warnings vs errors
-	if result.Stderr != "" {
-		for _, line := range splitLines(result.Stderr) {
-			if isWarnLine(line) {
-				entry.WarnLines = append(entry.WarnLines, line)
-			} else {
-				entry.StderrLines = append(entry.StderrLines, line)
-			}
+	// Stdout and Stderr now share the same combined output (the
+	// executor merges them so the stream order matches cvs's actual
+	// write order — see cvs/executor.go::run). Iterate once and
+	// classify each line by content: cvs's "cvs <cmd>: …" progress /
+	// warning messages count as warnings or stderr, the rest as data.
+	for _, line := range splitLines(result.Stdout) {
+		switch {
+		case isWarnLine(line):
+			entry.WarnLines = append(entry.WarnLines, line)
+		case strings.HasPrefix(line, "cvs ") || strings.HasPrefix(line, "cvs:"):
+			entry.StderrLines = append(entry.StderrLines, line)
+		default:
+			entry.StdoutLines = append(entry.StdoutLines, line)
 		}
 	}
 

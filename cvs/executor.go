@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -57,15 +56,25 @@ func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 	cmd := exec.CommandContext(ctx, e.CVSBin, args...)
 	cmd.Dir = e.WorkDir
 
-	// Capture stdout/stderr separately AND together. cvs interleaves
-	// progress messages on stderr with data on stdout (most visibly
-	// `cvs status`, where "Examining <dir>" headers are on stderr but
-	// the File: blocks are on stdout). Parsers that need to associate
-	// each File: with the dir it lives in have to see them in the
-	// order cvs wrote them — the combined buffer preserves that order.
-	var stdout, stderr, combined bytes.Buffer
-	cmd.Stdout = io.MultiWriter(&stdout, &combined)
-	cmd.Stderr = io.MultiWriter(&stderr, &combined)
+	// cvs interleaves progress messages on stderr with data on stdout
+	// (most visibly `cvs status`, where "Examining <dir>" headers are
+	// on stderr but the File: blocks are on stdout). Parsers that need
+	// to associate each file with the dir it lives in must see them in
+	// the order cvs wrote them.
+	//
+	// Setting cmd.Stdout and cmd.Stderr to the SAME *bytes.Buffer makes
+	// exec.Cmd reuse a single OS pipe for both streams; the kernel then
+	// serializes writes from cvs at the syscall boundary so the
+	// captured byte order matches cvs's actual write order.
+	//
+	// Side effect: result.Stdout and result.Stderr end up identical
+	// (both = combined output). Callers that used stderr for warning
+	// regexes (move-away, stale dirs) keep working because those
+	// regexes are specific enough that running them over the combined
+	// stream doesn't false-match the data lines on stdout.
+	var combined bytes.Buffer
+	cmd.Stdout = &combined
+	cmd.Stderr = &combined
 
 	start := time.Now()
 	err := cmd.Run()
@@ -83,8 +92,8 @@ func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 	result := &CommandResult{
 		Command:   e.CVSBin + " " + strings.Join(quoted, " "),
 		Args:      args,
-		Stdout:    stdout.String(),
-		Stderr:    stderr.String(),
+		Stdout:    combined.String(),
+		Stderr:    combined.String(),
 		Combined:  combined.String(),
 		Duration:  duration,
 		Timestamp: start,

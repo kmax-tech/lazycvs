@@ -130,7 +130,11 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 		}
 	case "update":
 		return func() tea.Msg {
-			args := append([]string{"update"}, paths...)
+			// -d adds dirs the server has and we don't, -P prunes dirs
+			// that become empty after the update. Same combo the dry-run
+			// uses; keeps the working copy clean without a follow-up
+			// stale-dir prompt.
+			args := append([]string{"update", "-d", "-P"}, paths...)
 			r, err := exec.Run(args...)
 			if err == nil && r != nil && !r.Success {
 				err = fmt.Errorf("cvs update exited %d", r.ExitCode)
@@ -167,7 +171,7 @@ func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
 func (m *App) doUpdatePaths(paths []string) tea.Cmd {
 	exec := m.exec
 	return func() tea.Msg {
-		args := append([]string{"update", "-d"}, paths...)
+		args := append([]string{"update", "-d", "-P"}, paths...)
 		r, err := exec.Run(args...)
 		if err == nil && r != nil && !r.Success {
 			err = fmt.Errorf("cvs update exited %d", r.ExitCode)
@@ -192,7 +196,7 @@ func (m *App) doUpdateSelected() tea.Cmd {
 	target := node.Path
 	exec := m.exec
 	return func() tea.Msg {
-		r, err := exec.Run("update", "-d", target)
+		r, err := exec.Run("update", "-d", "-P", target)
 		if err == nil && r != nil && !r.Success {
 			err = fmt.Errorf("cvs update exited %d", r.ExitCode)
 		}

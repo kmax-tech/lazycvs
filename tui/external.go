@@ -54,7 +54,40 @@ func catRevisionStdout(executor *cvs.CVSExecutor, path, rev string) (string, err
 	if err != nil && result == nil {
 		return "", fmt.Errorf("cvs %s: %w", strings.Join(args, " "), err)
 	}
-	return result.Stdout, nil
+	return stripCheckoutHeader(result.Stdout), nil
+}
+
+// stripCheckoutHeader removes the metadata block that `cvs co -p` emits
+// before each file's content:
+//
+//	===================================================================
+//	Checking out <module-path>
+//	RCS:  <repo,v>
+//	VERS: <revision>
+//	***************
+//	<actual file content starts here>
+//
+// The block is identified by the asterisk separator line that ends it;
+// everything up to and including that line is metadata. If no separator
+// is found (e.g. cvs format changes, or this is a continuation), the
+// content is returned unchanged.
+func stripCheckoutHeader(content string) string {
+	lines := strings.SplitN(content, "\n", -1)
+	for i, line := range lines {
+		// Tolerate trailing whitespace and require at least three '*'
+		// so we don't strip a content line that legitimately starts
+		// with one or two asterisks (e.g. Markdown list items).
+		if strings.HasPrefix(strings.TrimSpace(line), "***") &&
+			strings.TrimRight(strings.TrimSpace(line), "*") == "" {
+			return strings.Join(lines[i+1:], "\n")
+		}
+		// Header lines are bounded — bail out if we don't see the
+		// asterisk separator within the first handful of lines.
+		if i >= 6 {
+			break
+		}
+	}
+	return content
 }
 
 // extractRevToTemp checks out a specific revision and writes the result to a

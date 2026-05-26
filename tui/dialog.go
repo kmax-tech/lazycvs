@@ -93,8 +93,8 @@ func (m *DialogModel) OpenConflict(path string, conflict *cvs.ConflictFile) {
 
 func (m *DialogModel) OpenHelp() {
 	m.kind = DialogHelp
-	w := min(m.width-6, 65)
-	h := min(m.height-8, 35)
+	w := min(m.width-6, 78)
+	h := min(m.height-8, 38)
 	m.preview = viewport.New(w, h)
 	m.preview.SetContent(helpContent())
 }
@@ -862,63 +862,106 @@ func (m DialogModel) viewHelp() string {
 	return b.String()
 }
 
+// helpRow formats one keybinding row as "<keys>  <description>" with a
+// fixed-width key column so descriptions line up across rows. Keeps the
+// help screen scannable instead of zig-zagging.
+func helpRow(k, desc string) string {
+	return "  " + keyStyle.Render(fmt.Sprintf("%-10s", k)) + "  " + desc
+}
+
+func helpSection(title string) string {
+	return "\n" + titleStyle.Render(title) + "\n" +
+		mutedStyle.Render(strings.Repeat("─", len(title))) + "\n"
+}
+
 func helpContent() string {
 	var b strings.Builder
 
-	b.WriteString(titleStyle.Render("Global") + "\n")
-	b.WriteString(keyHelp(keys.Tab1, keys.Tab2, keys.Tab3, keys.Tab4) + "\n")
-	b.WriteString("  " + keyStyle.Render("<left>/<right>") + ":switch columns  " +
-		keyHelp(keys.FocusC) + "\n")
-	b.WriteString(keyHelp(keys.Update, keys.Search, keys.Help, keys.Quit) + "\n\n")
+	// ── Convention banner ─────────────────────────────────────────
+	b.WriteString(mutedStyle.Render(
+		"Convention: lowercase acts on the file under the cursor;\n" +
+			"UPPERCASE extends to the dir / every marked file.\n"))
 
-	b.WriteString(titleStyle.Render("File Actions") + "\n")
-	b.WriteString(keyHelp(keys.Diff, keys.Commit, keys.Revert, keys.Remove) + "\n")
-	b.WriteString(keyHelp(keys.Edit, keys.EditDiff, keys.Merge, keys.Open, keys.Add, keys.Ignore) + "\n")
-	b.WriteString("  " + keyStyle.Render("E") + " uses [editor] diff_tool, " +
-		keyStyle.Render("M") + " uses merge_tool (conflict files only)\n")
-	b.WriteString(keyHelp(keys.ViewMode, keys.Space, keys.Filter) + "  " +
-		keyStyle.Render("f") + ":flat  " +
-		keyStyle.Render("s") + ":sub  " +
-		keyStyle.Render("t") + ":tree\n\n")
+	// ── Navigation ────────────────────────────────────────────────
+	b.WriteString(helpSection("Navigation"))
+	b.WriteString(helpRow("j / k", "down / up") + "\n")
+	b.WriteString(helpRow("h / l", "collapse / expand (tree)") + "\n")
+	b.WriteString(helpRow("g / G", "top / bottom") + "\n")
+	b.WriteString(helpRow("PgUp/PgDn", "scroll page (also C-u / C-d)") + "\n")
+	b.WriteString(helpRow("tab", "cycle focused panel") + "\n")
+	b.WriteString(helpRow("[ / ]", "left / right panel") + "\n")
+	b.WriteString(helpRow("C-j", "console panel") + "\n")
+	b.WriteString(helpRow("/", "fuzzy search files") + "\n")
 
-	b.WriteString(titleStyle.Render("Navigation") + "\n")
-	b.WriteString(keyHelp(keys.Up, keys.Down, keys.Left, keys.Right) + "\n")
-	b.WriteString(keyHelp(keys.Top, keys.Bottom, keys.Enter) + "\n\n")
+	// ── Tabs ──────────────────────────────────────────────────────
+	b.WriteString(helpSection("Tabs"))
+	b.WriteString(helpRow("1", "Files — tree+filelist OR tree+diff preview") + "\n")
+	b.WriteString(helpRow("2", "Favorites — pinned directories") + "\n")
+	b.WriteString(helpRow("3", "Staged — files marked for commit") + "\n")
+	b.WriteString(helpRow("4", "History — revisions of the selected file") + "\n")
 
-	b.WriteString(titleStyle.Render("Tabs") + "\n")
-	b.WriteString("  " + keyStyle.Render("[1] Files/Detail") +
-		" — " + keyStyle.Render("v") + " toggles view mode\n")
-	b.WriteString("      Files: dirs left, files right\n")
-	b.WriteString("      Detail: full tree left, diff preview right\n")
-	b.WriteString("  " + keyStyle.Render("[2] Favorites") +
-		" — pinned directories\n")
-	b.WriteString("  " + keyStyle.Render("[3] Staged") +
-		" — files marked for commit\n")
-	b.WriteString("  " + keyStyle.Render("[4] History") +
-		" — revisions + working copy of a file\n")
-	b.WriteString("      Top row is the working copy when modified;\n")
-	b.WriteString("      diff there = local changes vs repository.\n")
-	b.WriteString("      " + keyStyle.Render("enter") + ":content  " +
-		keyStyle.Render("d") + ":diff  " +
-		keyStyle.Render("b") + ":blame\n")
-	b.WriteString("      " + keyStyle.Render("space") + ":compare two rows  " +
-		keyStyle.Render("w") + ":compare vs working\n")
-	b.WriteString("      " + keyStyle.Render("s") + ":side-by-side  " +
-		keyStyle.Render("esc") + ":cancel compare\n\n")
+	// ── File actions ──────────────────────────────────────────────
+	b.WriteString(helpSection("File actions"))
+	b.WriteString(helpRow("d", "diff (working vs base revision)") + "\n")
+	b.WriteString(helpRow("c", "commit cursor file (or marked files)") + "\n")
+	b.WriteString(helpRow("a", "add cursor file (?-status) to CVS") + "\n")
+	b.WriteString(helpRow("r", "revert cursor file") + "\n")
+	b.WriteString(helpRow("D", "remove (single file or marked set)") + "\n")
+	b.WriteString(helpRow("i", "ignore — add pattern to .cvsignore") + "\n")
+	b.WriteString(helpRow("e", "edit in $EDITOR") + "\n")
+	b.WriteString(helpRow("E", "external diff tool (config.diff_tool)") + "\n")
+	b.WriteString(helpRow("M", "external merge tool (C-status only)") + "\n")
+	b.WriteString(helpRow("o", "open in OS default app") + "\n")
+	b.WriteString(helpRow("space", "mark/unmark") + "\n")
+	b.WriteString(helpRow("A", "mark/unmark every changed file in dir") + "\n")
+	b.WriteString(helpRow("+ / -", "add/remove from favorites") + "\n")
 
-	b.WriteString(titleStyle.Render("Console") + "\n")
-	b.WriteString("  Default view is compact (one line per command, errors red).\n")
-	b.WriteString("  " + keyStyle.Render("F") + ":cycle filter (compact → verbose → errors → slow)  " +
-		keyStyle.Render("x") + ":clear\n\n")
+	// ── View modes & filters ──────────────────────────────────────
+	b.WriteString(helpSection("View & filters"))
+	b.WriteString(helpRow("v", "layout: Files (tree+list) ↔ Detail (tree+preview)") + "\n")
+	b.WriteString(helpRow("f", "list mode: flat → sub → tree") + "\n")
+	b.WriteString(helpRow("F", "status filter: all → * → M → C → ? → all") + "\n")
+	b.WriteString(helpRow("I", "toggle hide-ignored on both panes") + "\n")
+	b.WriteString(helpRow("t", "jump list to tree mode") + "\n")
 
-	b.WriteString(titleStyle.Render("Status Codes") + "\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorMod).Render("  M") + "  Locally Modified — you changed this file\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorUpdated).Render("  U") + "  Updated — newer revision on server, pull with " + keyStyle.Render("u") + "\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorConflict).Render("  C") + "  Conflict — both you and server changed it\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorUntracked).Render("  ?") + "  Untracked — not in CVS\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorIgnored).Render("  I") + "  Ignored — matched by .cvsignore (Shift+I to toggle)\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorUpdated).Render("  A") + "  Added — scheduled for commit\n")
-	b.WriteString(lipgloss.NewStyle().Foreground(colorConflict).Render("  R") + "  Removed — scheduled for deletion\n")
+	// ── CVS ───────────────────────────────────────────────────────
+	b.WriteString(helpSection("CVS"))
+	b.WriteString(helpRow("s", "status refresh (dry-run + scan, parallel)") + "\n")
+	b.WriteString(helpRow("u", "update (cvs update -d -P)") + "\n")
+	b.WriteString(helpRow("U", "force update (cvs update -C — overwrite!)") + "\n")
+
+	// ── History ───────────────────────────────────────────────────
+	b.WriteString(helpSection("History tab"))
+	b.WriteString(helpRow("enter", "show revision content") + "\n")
+	b.WriteString(helpRow("d", "show diff vs previous revision") + "\n")
+	b.WriteString(helpRow("p", "toggle side-by-side diff") + "\n")
+	b.WriteString(helpRow("b", "blame view") + "\n")
+	b.WriteString(helpRow("w", "compare vs working copy") + "\n")
+	b.WriteString(helpRow("space", "anchor revision for two-rev comparison") + "\n")
+	b.WriteString(helpRow("< / >", "horizontal scroll in diff content") + "\n")
+	b.WriteString(helpRow("esc", "cancel comparison mode") + "\n")
+	b.WriteString("\n  " + mutedStyle.Render(
+		"Top row is the working copy when modified — diff there shows\n"+
+			"local changes vs repository.") + "\n")
+
+	// ── Console ───────────────────────────────────────────────────
+	b.WriteString(helpSection("Console"))
+	b.WriteString(helpRow("F", "cycle filter: compact → verbose → errors → slow") + "\n")
+	b.WriteString(helpRow("y", "copy selected entry") + "\n")
+	b.WriteString(helpRow("x", "clear log") + "\n")
+
+	// ── Status codes ──────────────────────────────────────────────
+	b.WriteString(helpSection("Status codes"))
+	color := func(c lipgloss.Color, code, desc string) string {
+		return "  " + lipgloss.NewStyle().Foreground(c).Render(code) + "   " + desc + "\n"
+	}
+	b.WriteString(color(colorMod, "M", "Locally Modified — you changed this file"))
+	b.WriteString(color(colorUpdated, "U", "Update available — newer revision on server"))
+	b.WriteString(color(colorConflict, "C", "Conflict — both you and server changed it"))
+	b.WriteString(color(colorUntracked, "?", "Untracked — not in CVS"))
+	b.WriteString(color(colorIgnored, "I", "Ignored — matched by .cvsignore"))
+	b.WriteString(color(colorUpdated, "A", "Added — scheduled for commit"))
+	b.WriteString(color(colorConflict, "R", "Removed — scheduled for deletion"))
 
 	return b.String()
 }

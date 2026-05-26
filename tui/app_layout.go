@@ -52,8 +52,9 @@ func (m App) layout() (leftWidth, rightWidth, contentHeight, consoleHeight int) 
 	}
 	rightWidth = m.width - leftWidth
 	consoleHeight = m.consoleHeight
-	// tabbar(1) + keybar(1) + main borders(2) + main padding(1) + console borders(2) + console padding(1)
-	overhead := 8
+	// tabbar(1) + keybar(2: nav row + context row) + main borders(2) +
+	// main padding(1) + console borders(2) + console padding(1)
+	overhead := 9
 	if m.notification != "" {
 		overhead++ // banner takes one extra line above the tab bar
 	}
@@ -76,7 +77,7 @@ func (m App) View() string {
 	tabBar := m.renderTabBar()
 	mainContent := m.renderMainContent()
 	console := m.renderConsole()
-	keybar := m.renderKeybar()
+	keybar := m.renderKeybar() // two lines
 
 	rows := []string{}
 	if m.notification != "" {
@@ -85,10 +86,11 @@ func (m App) View() string {
 	rows = append(rows, tabBar, mainContent, console)
 
 	// Assemble body (everything except keybar) with explicit join, then
-	// enforce exactly m.height lines with the keybar always last.
+	// enforce exactly m.height lines with the keybar always last. The
+	// keybar itself is now two lines (nav row + context row).
 	body := strings.Join(rows, "\n")
 	lines := strings.Split(body, "\n")
-	target := m.height - 1 // reserve one line for keybar
+	target := m.height - 2 // reserve two lines for keybar
 	if len(lines) > target {
 		lines = lines[:target]
 	}
@@ -395,61 +397,92 @@ func (m App) renderConsole() string {
 	return renderPanel(title, m.console.View(), m.width, consoleH, m.focus == PanelConsole, info)
 }
 
+// renderKeybar returns two lines:
+//
+//   Line 1 — global navigation that's the same on every tab (tabs,
+//   focus switching, help/quit/cancel). Always present so the user
+//   has a stable map of "how do I move around".
+//
+//   Line 2 — context-sensitive actions for the active tab. Grouped
+//   with │ separators into [Action] / [View] / [Toggle] so the eye
+//   can find what it needs without scanning the whole row. A merge
+//   hint surfaces here when the cursor sits on a C-status file.
+//
+// The two-line shape replaces the previous single-line keybar that
+// truncated off the right edge on most terminals — users couldn't
+// see the second half of their own toolbar.
 func (m App) renderKeybar() string {
-	focus := helpStyle.Render("Switch panel: ") + keyStyle.Render("<tab>") +
-		helpStyle.Render("  Keybindings: ") + keyStyle.Render("?") +
-		helpStyle.Render("  Cancel: ") + keyStyle.Render("<esc>")
+	sep := mutedStyle.Render(" │ ")
 
-	// Conflict-only hint: append M:merge when the selected file has C status.
+	// Line 1: navigation. Identical on every tab.
+	nav := keyStyle.Render("j/k") + ":nav" + sep +
+		keyStyle.Render("tab") + ":focus" + sep +
+		keyStyle.Render("1") + ":files" + sep +
+		keyStyle.Render("2") + ":fav" + sep +
+		keyStyle.Render("3") + ":staged" + sep +
+		keyStyle.Render("4") + ":history" + sep +
+		keyStyle.Render("/") + ":search" + sep +
+		keyStyle.Render("?") + ":help" + sep +
+		keyStyle.Render("esc") + ":back" + sep +
+		keyStyle.Render("q") + ":quit"
+
 	mergeHint := ""
 	if path := m.selectedFilePath(); path != "" && m.statusMap[path] == "C" {
-		mergeHint = "  " + keyHelp(keys.Merge)
+		mergeHint = sep + keyHelp(keys.Merge)
 	}
 
+	// Line 2: per-tab action/view groups.
 	var actions string
 	switch m.activeTab {
 	case TabTree:
-		actions = keyHelp(keys.ViewMode, keys.Diff, keys.Commit, keys.MarkAll, keys.Ignore, keys.Edit, keys.Status, keys.Update) +
-			"  " + keyStyle.Render("f") + ":view  " + keyStyle.Render("t") + ":tree" + mergeHint
+		actions = mutedStyle.Render("[Action] ") +
+			keyHelp(keys.Diff, keys.Commit, keys.Add, keys.Remove, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll) + sep +
+			mutedStyle.Render("[View] ") +
+			keyStyle.Render("v") + ":layout  " + keyStyle.Render("f") + ":list  " + keyStyle.Render("F") + ":filter  " + keyStyle.Render("I") + ":hide-ign" + sep +
+			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update) + mergeHint
 	case TabFavorites:
-		actions = keyHelp(keys.Diff, keys.Commit, keys.MarkAll, keys.Ignore, keys.Edit, keys.Status, keys.Update) +
-			"  " + keyStyle.Render("f") + ":view  " + keyStyle.Render("t") + ":tree" + mergeHint
+		actions = mutedStyle.Render("[Action] ") +
+			keyHelp(keys.Diff, keys.Commit, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.FavDel) + sep +
+			mutedStyle.Render("[View] ") +
+			keyStyle.Render("f") + ":list  " + keyStyle.Render("F") + ":filter" + sep +
+			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update) + mergeHint
 	case TabStaged:
-		// In commit mode (input focused) surface Ctrl+E for a multi-line
-		// editor message; otherwise show the action set.
 		if m.staged.mode == StagedCommit && m.staged.input.Focused() {
-			actions = keyStyle.Render("enter") + ":commit  " +
-				keyStyle.Render("C-e") + ":editor  " +
+			actions = keyStyle.Render("enter") + ":commit" + sep +
+				keyStyle.Render("C-e") + ":editor" + sep +
 				keyStyle.Render("esc") + ":back"
 			break
 		}
-		// `c` covers both add+commit (for ?-files) and plain commit, so a:add
-		// is no longer offered separately in the staged tab.
-		actions = keyHelp(keys.Commit, keys.Revert, keys.Ignore, keys.Update) + "  " +
-			keyStyle.Render("space") + ":unstage  " +
-			keyHelp(keys.Diff) + mergeHint
+		actions = mutedStyle.Render("[Action] ") +
+			keyHelp(keys.Commit, keys.Revert, keys.Ignore, keys.Diff) + "  " +
+			keyStyle.Render("space") + ":unstage" + sep +
+			mutedStyle.Render("[CVS] ") + keyHelp(keys.Update) + mergeHint
 	case TabHistory:
-		hScroll := keyStyle.Render("</>") + ":scroll"
 		spAnchor := keyStyle.Render("space") + ":anchor"
-		if m.history.HasCompare() || m.history.vsWorking {
-			// In a comparison: surface Esc as the way out, and keep
-			// the toggle for working-copy on the keybar.
-			actions = keyHelp(keys.SideBySide, keys.Blame, keys.CompareWorking, keys.Escape) +
-				"  " + spAnchor + "  " + hScroll
-		} else if m.history.mode == HistoryDiff {
-			actions = keyHelp(keys.SideBySide, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking) +
-				"  " + spAnchor + "  " + hScroll
-		} else {
-			actions = keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking) +
-				"  " + spAnchor + "  " + hScroll
+		hScroll := keyStyle.Render("</>") + ":scroll"
+		switch {
+		case m.history.HasCompare() || m.history.vsWorking:
+			actions = mutedStyle.Render("[Compare] ") +
+				keyHelp(keys.SideBySide, keys.Blame, keys.CompareWorking, keys.Escape) + sep +
+				spAnchor + sep + hScroll
+		case m.history.mode == HistoryDiff:
+			actions = mutedStyle.Render("[Diff] ") +
+				keyHelp(keys.SideBySide, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking) + sep +
+				spAnchor + sep + hScroll
+		default:
+			actions = mutedStyle.Render("[Action] ") +
+				keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking) + sep +
+				spAnchor + sep + hScroll
 		}
 	}
 
-	gap := m.width - lipgloss.Width(focus) - lipgloss.Width(actions) - 2
-	if gap < 1 {
-		gap = 1
+	// Truncate each row independently so a long action row doesn't
+	// chop the nav row.
+	if m.width > 2 {
+		nav = ansi.Truncate(nav, m.width-1, "…")
+		actions = ansi.Truncate(actions, m.width-1, "…")
 	}
-	return " " + actions + strings.Repeat(" ", gap) + focus
+	return " " + nav + "\n " + actions
 }
 
 func (m App) renderPreview() string {

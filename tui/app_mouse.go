@@ -123,6 +123,12 @@ func (m *App) clickLeft(row int) tea.Cmd {
 			m.favorites.cursor = idx
 			m.updateFileList()
 		}
+	case TabStaged:
+		// One header row at the top, then one row per file.
+		idx := m.staged.offset + row - 1
+		if idx >= 0 && idx < len(m.staged.files) {
+			m.staged.cursor = idx
+		}
 	case TabHistory:
 		prevCursor := m.history.cursor
 		// Each revision row spans 2 visual lines and there's no inline
@@ -166,6 +172,9 @@ func (m *App) scrollLeft(delta int) tea.Cmd {
 		m.updateFileList()
 	case TabFavorites:
 		m.favorites.cursor = clamp(m.favorites.cursor+delta, 0, max(0, len(m.favorites.favorites)-1))
+	case TabStaged:
+		m.staged.cursor = clamp(m.staged.cursor+delta, 0, max(0, len(m.staged.files)-1))
+		m.staged.ensureVisible()
 	case TabHistory:
 		prevCursor := m.history.cursor
 		m.history.cursor = clamp(m.history.cursor+delta, 0, max(0, m.history.NumRevisions()-1))
@@ -197,6 +206,15 @@ func (m *App) scrollRight(delta int) {
 		files := m.filelist.rows()
 		m.filelist.cursor = clamp(m.filelist.cursor+delta, 0, max(0, len(files)-1))
 		m.filelist.ensureVisible()
+	case TabStaged:
+		// Staged is single-panel full-width in StagedActions; clicking
+		// the "right" half should still scroll the staged list. In
+		// StagedCommit the right pane is the single-line input, which
+		// doesn't have anything to scroll.
+		if m.staged.mode == StagedActions {
+			m.staged.cursor = clamp(m.staged.cursor+delta, 0, max(0, len(m.staged.files)-1))
+			m.staged.ensureVisible()
+		}
 	case TabHistory:
 		if delta < 0 {
 			m.history.viewport.LineUp(3)

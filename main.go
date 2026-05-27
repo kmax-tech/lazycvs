@@ -97,14 +97,15 @@ func main() {
 	initialPath := ""
 
 	if !hasCVSMetadata(absTarget) {
-		// Check parent directory before giving up
-		parent := filepath.Dir(absTarget)
-		if parent != absTarget && hasCVSMetadata(parent) {
-			workDir = parent
-			rel, _ := filepath.Rel(parent, absTarget)
+		// Walk every ancestor looking for the first dir with a CVS/Root
+		// marker. Bounded by the user's home directory and the filesystem
+		// root so we don't accidentally land in someone else's working
+		// copy or scan the whole disk.
+		if root, rel, ok := findWorkingCopy(absTarget); ok {
+			workDir = root
 			initialPath = rel
 		} else if pathExplicit {
-			fmt.Fprintf(os.Stderr, "Error: %q has no CVS/Root (not a CVS working copy directory).\n", absTarget)
+			fmt.Fprintf(os.Stderr, "Error: %q is not inside a CVS working copy (no CVS/Root found on any ancestor).\n", absTarget)
 			os.Exit(1)
 		} else {
 			if cfg.CVS.DefaultPath == "" {
@@ -193,5 +194,36 @@ func resolvePath(p string) (string, error) {
 func hasCVSMetadata(dir string) bool {
 	_, err := os.Stat(filepath.Join(dir, "CVS", "Root"))
 	return err == nil
+}
+
+// findWorkingCopy walks from `start` toward the filesystem root looking
+// for the first ancestor with CVS/Root. Returns (root, rel, true) where
+// `root` is that ancestor and `rel` is start's path relative to it, so
+// the TUI can land on the originally-requested subdirectory. Returns
+// ("", "", false) if no working copy is found before hitting the user's
+// home directory or the filesystem root — both stop conditions keep us
+// from silently descending into an unexpected repo or scanning the disk.
+func findWorkingCopy(start string) (string, string, bool) {
+	home, _ := os.UserHomeDir()
+	dir := start
+	for {
+		if hasCVSMetadata(dir) {
+			rel, _ := filepath.Rel(dir, start)
+			if rel == "." {
+				rel = ""
+			}
+			return dir, rel, true
+		}
+		// Stop conditions: we've left the user's home tree, or we've
+		// reached the filesystem root.
+		if home != "" && dir == home {
+			return "", "", false
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", "", false
+		}
+		dir = parent
+	}
 }
 

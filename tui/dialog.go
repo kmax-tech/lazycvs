@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -270,16 +271,21 @@ func doCommit(exec *cvs.CVSExecutor, message string, untracked, files []string) 
 				// firstErr will surface the actual root cause.
 			}
 			r, err := exec.Run("add", p)
-			if firstErr == nil && err != nil && (r == nil || !r.Success) {
-				firstErr = err
+			if firstErr == nil {
+				firstErr = cvs.FirstFailure(r, err)
 			}
+		}
+		// Bail before the commit step if any add failed — cvs commit
+		// would otherwise try to commit files whose add never ran and
+		// the user would see a misleading "commit failed" message
+		// hiding the original ensureParentDirs / add error.
+		if firstErr != nil {
+			return commitDoneMsg{files: files, message: message, err: firstErr}
 		}
 		args := []string{"commit", "-m", message}
 		args = append(args, files...)
 		r, err := exec.Run(args...)
-		if firstErr == nil && err != nil && (r == nil || !r.Success) {
-			firstErr = err
-		}
+		firstErr = cvs.FirstFailure(r, err)
 		return commitDoneMsg{files: files, message: message, err: firstErr}
 	}
 }
@@ -339,9 +345,7 @@ func doRemove(executor *cvs.CVSExecutor, paths []string, statuses map[string]str
 					args = []string{"remove", path}
 				}
 				r, runErr := executor.Run(args...)
-				if runErr != nil && (r == nil || !r.Success) {
-					err = runErr
-				}
+				err = cvs.FirstFailure(r, runErr)
 			}
 			if err != nil && firstErr == nil {
 				firstErr = err
@@ -890,7 +894,22 @@ func helpSection(title string) string {
 		mutedStyle.Render(strings.Repeat("─", len(title))) + "\n"
 }
 
+var (
+	helpContentOnce sync.Once
+	helpContentText string
+)
+
+// helpContent returns the cached help-modal body. The text is static
+// (no per-state branching) so we build it lazily on first use and
+// reuse the result for every subsequent OpenHelp.
 func helpContent() string {
+	helpContentOnce.Do(func() {
+		helpContentText = buildHelpContent()
+	})
+	return helpContentText
+}
+
+func buildHelpContent() string {
 	var b strings.Builder
 
 	// ── Convention banner ─────────────────────────────────────────

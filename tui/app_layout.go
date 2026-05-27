@@ -70,7 +70,12 @@ func (m App) layout() (leftWidth, rightWidth, contentHeight, consoleHeight int) 
 }
 
 func (m App) View() string {
-	if m.width == 0 || m.height == 0 {
+	// At least 3 rows are needed for any meaningful layout (1 row of
+	// content + 2-row keybar). Below that we'd produce a negative
+	// slice index a few lines down and panic — return the placeholder
+	// instead so the initial WindowSizeMsg or a single-line terminal
+	// degrades gracefully.
+	if m.width == 0 || m.height < 3 {
 		return "Loading..."
 	}
 

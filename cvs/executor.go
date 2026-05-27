@@ -129,6 +129,20 @@ func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 	return result, nil
 }
 
+// FirstFailure returns err iff the command genuinely failed — non-nil
+// err combined with either no result at all or result.Success == false.
+// The Success-false check matters because the executor promotes some
+// non-zero exits to Success=true (see isInformationalExit), and those
+// shouldn't bubble up as caller-visible failures. Callers that loop
+// running cvs commands use this to capture only the first real failure
+// without duplicating the condition at every call site.
+func FirstFailure(r *CommandResult, err error) error {
+	if err != nil && (r == nil || !r.Success) {
+		return err
+	}
+	return nil
+}
+
 // DryRunUpdate runs cvs update in dry-run mode and parses the result.
 func (e *CVSExecutor) DryRunUpdate() (*UpdateResult, error) {
 	result, err := e.RunReadOnly("-n", "-q", "update", "-d", "-P")

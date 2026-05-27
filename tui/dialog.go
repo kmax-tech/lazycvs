@@ -301,11 +301,17 @@ func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
 
 // doRemove deletes each path from the working copy and (when applicable)
 // tells CVS to schedule it for removal at the next commit. Behavior per
-// path is decided from the status passed in `statuses`:
+// path is decided from the status passed in `statuses` AND whether the
+// file still exists on disk:
 //   - "?"            : just delete from disk (CVS doesn't know about it)
 //   - "A"            : `cvs remove -f` un-schedules the add
-//   - "" / M / C / U : `cvs remove -f` deletes the file AND schedules removal,
-//                      so the file ends up in R status until next commit
+//   - "" / M / C / U + on-disk : `cvs remove -f` deletes the working
+//                      file AND schedules removal; status becomes R.
+//   - "" / M / C / U + missing : `cvs remove` (no -f) only schedules.
+//                      The user already deleted the file with `rm` and
+//                      sees it as `(server)` in the listing; -f would
+//                      then fail trying to delete a file that isn't
+//                      there.
 //   - "R"            : already scheduled — no-op
 //
 // Returns removeDoneMsg with the first error encountered (or nil on success).
@@ -325,9 +331,14 @@ func doRemove(executor *cvs.CVSExecutor, paths []string, statuses map[string]str
 				abs := filepath.Join(executor.WorkDir, path)
 				err = os.Remove(abs)
 			default:
-				// `cvs remove -f` deletes the working file AND schedules
-				// removal (or un-adds if the file was in `A` status).
-				r, runErr := executor.Run("remove", "-f", path)
+				// Pick -f vs no-flag based on whether the file is still
+				// on disk. cvs remove -f insists on deleting first, so
+				// it bombs when the user already rm'd the file.
+				args := []string{"remove", "-f", path}
+				if _, statErr := os.Stat(filepath.Join(executor.WorkDir, path)); os.IsNotExist(statErr) {
+					args = []string{"remove", path}
+				}
+				r, runErr := executor.Run(args...)
 				if runErr != nil && (r == nil || !r.Success) {
 					err = runErr
 				}
@@ -751,8 +762,13 @@ func (m DialogModel) viewRemove() string {
 		case "R":
 			b.WriteString("Already scheduled for removal — nothing to do.\n\n")
 		default:
-			b.WriteString("File will be deleted from disk and scheduled\n")
-			b.WriteString("for removal in CVS (status → R until next commit).\n\n")
+			// Wording covers both branches in doRemove: file present →
+			// cvs remove -f deletes + schedules; file already gone (the
+			// (server) case after a manual rm) → cvs remove just
+			// schedules. Either way the end state is R + needs commit.
+			b.WriteString("Schedules removal in CVS (and deletes the\n")
+			b.WriteString("working copy if it's still on disk). Status\n")
+			b.WriteString("becomes R until you commit.\n\n")
 		}
 		b.WriteString(helpStyle.Render("y:remove  n:cancel"))
 		return b.String()

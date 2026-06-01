@@ -585,6 +585,12 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 // History tab's mode-toggle keys (p/d/b/w/space/Enter) are valid no
 // matter which side has focus.
 func (m *App) delegateHistoryKey(msg tea.KeyMsg) tea.Cmd {
+	// `R` (Restore) intercepts before HistoryModel.Update so the
+	// confirmation dialog (or direct dispatch on a clean working
+	// copy) lands consistently regardless of focus.
+	if key.Matches(msg, keys.Restore) {
+		return m.openRestoreRevDialog()
+	}
 	prevCursor := m.history.cursor
 	prevMode := m.history.mode
 	prevAnchor := m.history.compareAnchor
@@ -600,4 +606,28 @@ func (m *App) delegateHistoryKey(msg tea.KeyMsg) tea.Cmd {
 		return tea.Batch(cmd, contentCmd)
 	}
 	return cmd
+}
+
+// openRestoreRevDialog gathers the selected revision, the History
+// path, and the current status; on a clean file dispatches the
+// restore directly (no need to interrupt the user), otherwise opens
+// the confirmation dialog so the user can opt in to overwriting M/C/A
+// state. No-op when the cursor is on the working pseudo-row.
+func (m *App) openRestoreRevDialog() tea.Cmd {
+	rev := m.history.SelectedRevision()
+	path := m.history.Path()
+	if rev == nil || path == "" || m.history.IsWorkingCopyRow() {
+		return nil
+	}
+	status := m.statusMap[path]
+	switch status {
+	case "M", "C", "A":
+		m.dialog.OpenRestoreRev(path, rev.Number, status)
+		return nil
+	default:
+		// Clean working copy — just dispatch.
+		return func() tea.Msg {
+			return restoreRevMsg{path: path, rev: rev.Number}
+		}
+	}
 }

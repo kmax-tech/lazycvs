@@ -29,6 +29,7 @@ const (
 	DialogForceUpdate
 	DialogPreview
 	DialogInTheWay
+	DialogRestoreRev
 )
 
 type DialogModel struct {
@@ -44,6 +45,10 @@ type DialogModel struct {
 	preview  viewport.Model
 	width    int
 	height   int
+
+	// Restore-revision dialog state.
+	restoreRev    string // the revision the user wants to check out
+	restoreStatus string // working-copy status of restoreRev's path (M/C/A/…)
 }
 
 func NewDialogModel() DialogModel {
@@ -79,6 +84,18 @@ func (m *DialogModel) OpenRemove(paths []string, statuses map[string]string) {
 func (m *DialogModel) OpenRevert(path string) {
 	m.kind = DialogRevert
 	m.path = path
+}
+
+// OpenRestoreRev opens a confirmation dialog before running
+// `cvs update -C -r <rev> <path>`, which overwrites the working copy
+// with the chosen revision. status is the current working-copy status
+// of path so the dialog can warn about discarded local changes (M/C/A)
+// instead of giving the same wording for a clean file.
+func (m *DialogModel) OpenRestoreRev(path, rev, status string) {
+	m.kind = DialogRestoreRev
+	m.path = path
+	m.restoreRev = rev
+	m.restoreStatus = status
 }
 
 func (m *DialogModel) OpenIgnore(path string) {
@@ -156,6 +173,15 @@ type commitMsg struct {
 	files []string
 }
 type revertMsg struct{ path string }
+
+// restoreRevMsg is dispatched from the DialogRestoreRev confirmation;
+// the handler runs cvs update -C -r <rev> <path>, refreshes status for
+// the path and invalidates the per-file History cache so the working
+// pseudo-row reflects the checkout.
+type restoreRevMsg struct {
+	path string
+	rev  string
+}
 
 // removeMsg carries the user's confirmation from the Remove dialog. paths
 // is non-empty (single or bulk); statuses[path] is the CVS status code
@@ -305,6 +331,28 @@ func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
 	}
 }
 
+// doRestoreRev runs `cvs update -C -r <rev> <path>` to forcibly check
+// out the given revision into the working copy. Any local changes
+// (M/C/A) are discarded; the user already confirmed in the dialog.
+// Reuses actionDoneMsg so the existing handler clears the progress
+// banner, refreshes status for the dir, and invalidates the History
+// cache for the path.
+func doRestoreRev(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
+	return func() tea.Msg {
+		// Backup mirrors doRevert: keep a copy of whatever's on disk in
+		// case the user decides the restore was a mistake.
+		data, _ := os.ReadFile(filepath.Join(exec.WorkDir, path))
+		if data != nil {
+			os.WriteFile(filepath.Join(exec.WorkDir, path+".lazycvs-backup"), data, 0644)
+		}
+		r, err := exec.Run("update", "-C", "-r", rev, path)
+		if err == nil && r != nil && !r.Success {
+			err = fmt.Errorf("cvs update -C -r %s %s exited %d", rev, path, r.ExitCode)
+		}
+		return actionDoneMsg{paths: []string{path}, err: err}
+	}
+}
+
 // doRemove deletes each path from the working copy and (when applicable)
 // tells CVS to schedule it for removal at the next commit. Behavior per
 // path is decided from the status passed in `statuses` AND whether the
@@ -439,6 +487,8 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 			return m.updateCommit(msg)
 		case DialogRevert:
 			return m.updateRevert(msg)
+		case DialogRestoreRev:
+			return m.updateRestoreRev(msg)
 		case DialogRemove:
 			return m.updateRemove(msg)
 		case DialogIgnore:
@@ -520,6 +570,21 @@ func (m DialogModel) updateRevert(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 		m.Close()
 		return m, func() tea.Msg {
 			return revertMsg{path: path}
+		}
+	case key.Matches(msg, keys.No), key.Matches(msg, keys.Escape):
+		m.Close()
+		return m, nil
+	}
+	return m, nil
+}
+
+func (m DialogModel) updateRestoreRev(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
+	switch {
+	case key.Matches(msg, keys.Yes):
+		path, rev := m.path, m.restoreRev
+		m.Close()
+		return m, func() tea.Msg {
+			return restoreRevMsg{path: path, rev: rev}
 		}
 	case key.Matches(msg, keys.No), key.Matches(msg, keys.Escape):
 		m.Close()
@@ -652,6 +717,8 @@ func (m DialogModel) View() string {
 		content = m.viewCommit()
 	case DialogRevert:
 		content = m.viewRevert()
+	case DialogRestoreRev:
+		content = m.viewRestoreRev()
 	case DialogRemove:
 		content = m.viewRemove()
 	case DialogIgnore:
@@ -741,6 +808,32 @@ func (m DialogModel) viewRevert() string {
 	b.WriteString("Local changes will be overwritten.\n")
 	fmt.Fprintf(&b, "Backup: %s.lazycvs-backup\n\n", m.path)
 	b.WriteString(helpStyle.Render("y:revert  n:cancel"))
+	return b.String()
+}
+
+func (m DialogModel) viewRestoreRev() string {
+	var b strings.Builder
+	b.WriteString(titleStyle.Render("Restore revision") + "\n\n")
+	fmt.Fprintf(&b, "Check out %s at %s into the working copy?\n\n",
+		m.path, keyStyle.Render(m.restoreRev))
+	switch m.restoreStatus {
+	case "M":
+		b.WriteString("⚠ Working copy has local modifications.\n")
+		b.WriteString("  They will be discarded.\n\n")
+	case "C":
+		b.WriteString("⚠ Working copy is in conflict (C).\n")
+		b.WriteString("  Conflict markers + your local changes will be discarded.\n\n")
+	case "A":
+		b.WriteString("⚠ File is scheduled as Added (A) but not committed.\n")
+		b.WriteString("  The schedule and your local content will be discarded.\n\n")
+	default:
+		b.WriteString(mutedStyle.Render(
+			"Working copy is clean — the file will simply be\n"+
+				"replaced with the chosen revision.\n\n"))
+	}
+	b.WriteString(mutedStyle.Render(
+		"Runs `cvs update -C -r " + m.restoreRev + " " + m.path + "`.\n\n"))
+	b.WriteString(helpStyle.Render("y:restore  n:cancel"))
 	return b.String()
 }
 
@@ -972,6 +1065,7 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("p", "toggle side-by-side diff") + "\n")
 	b.WriteString(helpRow("b", "blame view") + "\n")
 	b.WriteString(helpRow("w", "compare vs working copy") + "\n")
+	b.WriteString(helpRow("R", "restore selected revision into working copy") + "\n")
 	b.WriteString(helpRow("space", "anchor revision for two-rev comparison") + "\n")
 	b.WriteString(helpRow("< / >", "horizontal scroll in diff content") + "\n")
 	b.WriteString(helpRow("esc", "cancel comparison mode") + "\n")

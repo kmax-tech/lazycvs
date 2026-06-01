@@ -476,7 +476,7 @@ func (m App) renderKeybar() string {
 				spAnchor + sep + hScroll
 		default:
 			actions = mutedStyle.Render("[Action] ") +
-				keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking) + sep +
+				keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking, keys.Restore) + sep +
 				spAnchor + sep + hScroll
 		}
 	}

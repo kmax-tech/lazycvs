@@ -718,6 +718,10 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setProgress(fmt.Sprintf("⟳ Reverting %s…", filepath.Base(msg.path)))
 		return m, doRevert(m.exec, msg.path)
 
+	case restoreRevMsg:
+		m.setProgress(fmt.Sprintf("⟳ Restoring %s @ %s…", filepath.Base(msg.path), msg.rev))
+		return m, doRestoreRev(m.exec, msg.path, msg.rev)
+
 	case removeMsg:
 		// Deliberately do NOT touch m.filelist.marked here — let the
 		// removeDoneMsg handler clean up after success, mirroring the

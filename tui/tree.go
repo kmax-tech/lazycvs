@@ -587,9 +587,7 @@ func scanDir(workDir, relPath string) []*TreeNode {
 		// agree on what counts as ignored.
 		entryTracked := false
 		if e.IsDir() {
-			if _, err := os.Stat(filepath.Join(absPath, name, "CVS")); err == nil {
-				entryTracked = true
-			}
+			entryTracked = isCVSDir(filepath.Join(absPath, name))
 		} else if tracked != nil && tracked[name] {
 			entryTracked = true
 		}

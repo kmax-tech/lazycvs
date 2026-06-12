@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
 // File listing, ignore-pattern handling, and per-tab path resolution.
@@ -33,21 +34,39 @@ var cvsDefaultIgnore = strings.Fields(`
 //  3. $CVSIGNORE environment variable
 //
 // A lone "!" entry resets the list.
+//
+// The result is computed once per process (sync.Once): ~/.cvsignore
+// and $CVSIGNORE don't change while lazycvs runs, and loadIgnorePatterns
+// is on the file-listing hot path — it fires for the listed dir plus
+// every visible subdir on each refresh, so re-reading the home file
+// every time added dozens of redundant file reads per render cycle.
 func globalIgnorePatterns() []string {
-	patterns := append([]string{}, cvsDefaultIgnore...)
-	if home, err := os.UserHomeDir(); err == nil {
-		patterns = appendIgnoreFile(patterns, filepath.Join(home, ".cvsignore"))
-	}
-	if env := os.Getenv("CVSIGNORE"); env != "" {
-		patterns = appendPatterns(patterns, strings.Fields(env))
-	}
-	return patterns
+	globalIgnoreOnce.Do(func() {
+		patterns := append([]string{}, cvsDefaultIgnore...)
+		if home, err := os.UserHomeDir(); err == nil {
+			patterns = appendIgnoreFile(patterns, filepath.Join(home, ".cvsignore"))
+		}
+		if env := os.Getenv("CVSIGNORE"); env != "" {
+			patterns = appendPatterns(patterns, strings.Fields(env))
+		}
+		globalIgnoreCache = patterns
+	})
+	return globalIgnoreCache
 }
+
+var (
+	globalIgnoreOnce  sync.Once
+	globalIgnoreCache []string
+)
 
 // loadIgnorePatterns collects all CVS ignore patterns that apply to a directory:
 // built-in defaults + ~/.cvsignore + $CVSIGNORE + per-directory .cvsignore.
+// The returned slice always starts with a fresh copy of the global set, so
+// appending the per-dir patterns can't corrupt the shared cache.
 func loadIgnorePatterns(absDir string) []string {
-	patterns := globalIgnorePatterns()
+	global := globalIgnorePatterns()
+	patterns := make([]string, len(global), len(global)+8)
+	copy(patterns, global)
 	patterns = appendIgnoreFile(patterns, filepath.Join(absDir, ".cvsignore"))
 	return patterns
 }
@@ -206,10 +225,7 @@ func (m *App) updateFileListForDir(dir string) {
 			// surface them so a user-edited file inside a tracked dir
 			// stays reachable even if the dirname happens to match a
 			// generic pattern.
-			subHasCVS := false
-			if _, err := os.Stat(filepath.Join(absDir, name, "CVS")); err == nil {
-				subHasCVS = true
-			}
+			subHasCVS := isCVSDir(filepath.Join(absDir, name))
 			sg := SubDirGroup{
 				Name:    name,
 				Path:    path,

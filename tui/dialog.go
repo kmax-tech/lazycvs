@@ -318,10 +318,14 @@ func doCommit(exec *cvs.CVSExecutor, message string, untracked, files []string) 
 
 func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
 	return func() tea.Msg {
-		// Create backup
-		data, _ := os.ReadFile(path)
+		// Create backup. path is relative to the working copy — join
+		// with WorkDir so the backup works no matter which directory
+		// lazycvs was launched from (cwd and WorkDir often differ when
+		// the user starts from a subdir or via the lcvs shell helper).
+		abs := filepath.Join(exec.WorkDir, path)
+		data, _ := os.ReadFile(abs)
 		if data != nil {
-			os.WriteFile(path+".lazycvs-backup", data, 0644)
+			os.WriteFile(abs+".lazycvs-backup", data, 0644)
 		}
 		r, err := exec.Run("update", "-C", path)
 		if err == nil && r != nil && !r.Success {

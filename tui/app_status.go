@@ -16,6 +16,18 @@ import (
 //   → dirStatusMsg / stagedStatusMsg handlers in app_core.go merge into
 //     m.statusMap via m.applyStatuses
 
+// isCVSDir reports whether absDir is part of a CVS working copy, i.e.
+// carries the CVS/ administrative subdirectory. The single source of
+// truth for the "is this dir tracked" question — the file listing,
+// the tree scanner, and the partition walker all use it so the
+// definition can't drift between callers. (main.go's hasCVSMetadata
+// additionally requires CVS/Root because it validates a *working copy
+// root*, which is a stricter question.)
+func isCVSDir(absDir string) bool {
+	info, err := os.Stat(filepath.Join(absDir, "CVS"))
+	return err == nil && info.IsDir()
+}
+
 // resolveFileStatus returns the CVS status code for path. If statusMap
 // has no entry, walks every ancestor directory from the file's
 // immediate parent up to the working-copy root, looking for a missing
@@ -154,7 +166,7 @@ func buildDirTree(workDir, scope string) *dirNode {
 		rootAbs = filepath.Join(workDir, scope)
 		rootRel = scope
 	}
-	if _, err := os.Stat(filepath.Join(rootAbs, "CVS")); err != nil {
+	if !isCVSDir(rootAbs) {
 		return nil
 	}
 	return walkDirNode(rootAbs, rootRel)
@@ -173,7 +185,7 @@ func walkDirNode(absDir, relDir string) *dirNode {
 		}
 		if e.IsDir() {
 			subAbs := filepath.Join(absDir, name)
-			if _, err := os.Stat(filepath.Join(subAbs, "CVS")); err != nil {
+			if !isCVSDir(subAbs) {
 				continue // not part of the CVS working copy
 			}
 			subRel := name

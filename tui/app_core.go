@@ -161,6 +161,21 @@ func (m *App) clearProgress() {
 	m.updateSizes()
 }
 
+// setResult publishes an action outcome on the banner: green for
+// ok, red otherwise, auto-expiring after notifyDuration. Returns the
+// tick Cmd that clears it — callers must return it (or batch it) or
+// the banner sticks until the next notification. Every result handler
+// goes through here so the banner state transitions stay in one place
+// (the counterpart of setProgress for the "running" state).
+func (m *App) setResult(msg string, ok bool) tea.Cmd {
+	m.notification = msg
+	m.notificationOK = ok
+	m.notificationInProgress = false
+	m.notificationExpiry = time.Now().Add(notifyDuration)
+	m.updateSizes()
+	return notifyAfter(notifyDuration)
+}
+
 // refreshStatusForPaths dispatches loadDirStatus for each unique parent
 // directory of the given paths. Much faster than a full DryRunUpdate when
 // only a few directories are affected.
@@ -629,11 +644,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 			m.refreshHistoryWorkingState()
 			changes := len(m.statusMap)
-			m.notification = fmt.Sprintf("Status: %d file(s) with changes (dry-run, nothing pulled)", changes)
-			m.notificationOK = true
-			m.notificationExpiry = time.Now().Add(notifyDuration)
-			m.updateSizes()
-			return m, notifyAfter(notifyDuration)
+			notifyCmd := m.setResult(fmt.Sprintf("Status: %d file(s) with changes (dry-run, nothing pulled)", changes), true)
+			return m, notifyCmd
 		}
 
 	case commitMsg:
@@ -648,11 +660,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(blocked) > 1 {
 				noun = "files"
 			}
-			m.notification = fmt.Sprintf("✗ %d %s with unresolved conflict markers — press M to merge first", len(blocked), noun)
-			m.notificationOK = false
-			m.notificationExpiry = time.Now().Add(notifyDuration)
-			m.updateSizes()
-			return m, notifyAfter(notifyDuration)
+			notifyCmd := m.setResult(fmt.Sprintf("✗ %d %s with unresolved conflict markers — press M to merge first", len(blocked), noun), false)
+			return m, notifyCmd
 		}
 		m.setProgress(fmt.Sprintf("⟳ Committing %d file(s)…", len(msg.files)))
 		return m, doCommit(m.exec, msg.message, msg.untracked, msg.files)
@@ -668,32 +677,25 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(msg.paths) == 1 {
 				label = filepath.Base(msg.paths[0])
 			}
-			m.notification = fmt.Sprintf("✗ Action failed for %s — see Console", label)
-			m.notificationOK = false
-			m.notificationInProgress = false
-			m.notificationExpiry = time.Now().Add(notifyDuration)
-			m.updateSizes()
+			notifyCmd := m.setResult(fmt.Sprintf("✗ Action failed for %s — see Console", label), false)
 			invalidateCmd := m.invalidateHistoryCache(msg.paths)
-			return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths), invalidateCmd)
+			return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths), invalidateCmd)
 		}
 		m.clearProgress()
 		invalidateCmd := m.invalidateHistoryCache(msg.paths)
 		return m, tea.Batch(m.refreshStatusForPaths(msg.paths), invalidateCmd)
 
 	case commitDoneMsg:
+		var notifyCmd tea.Cmd
 		if msg.err == nil {
-			m.notification = fmt.Sprintf("✓ Committed %d file(s): %q", len(msg.files), msg.message)
-			m.notificationOK = true
+			notifyCmd = m.setResult(fmt.Sprintf("✓ Committed %d file(s): %q", len(msg.files), msg.message), true)
 			for _, p := range msg.files {
 				delete(m.filelist.marked, p)
 			}
 			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		} else {
-			m.notification = "✗ Commit failed — see Console for details"
-			m.notificationOK = false
+			notifyCmd = m.setResult("✗ Commit failed — see Console for details", false)
 		}
-		m.notificationExpiry = time.Now().Add(notifyDuration)
-		m.updateSizes() // banner reduces contentHeight by 1 — relayout sub-panels
 		// A successful commit creates a new revision: drop the cached
 		// revisions / diffs / contents for every committed path so the
 		// History tab reflects the new state immediately.
@@ -701,7 +703,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err == nil {
 			invalidateCmd = m.invalidateHistoryCache(msg.files)
 		}
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.files), invalidateCmd)
+		return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.files), invalidateCmd)
 
 	case notificationExpiredMsg:
 		// Only clear if we're actually past the displayed expiry. Multiple
@@ -731,31 +733,27 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, doRemove(m.exec, msg.paths, msg.statuses)
 
 	case updateDoneMsg:
-		if msg.err != nil {
-			m.notification = "✗ Update failed — see Console"
-			m.notificationOK = false
-		} else if len(msg.inTheWay) > 0 {
+		var notifyCmd tea.Cmd
+		switch {
+		case msg.err != nil:
+			notifyCmd = m.setResult("✗ Update failed — see Console", false)
+		case len(msg.inTheWay) > 0:
 			// CVS held back N files because local files were in the
 			// way; surface that in the banner and open the dialog.
-			m.notification = fmt.Sprintf("⚠ %d file(s) blocked by local copies — choose how to resolve", len(msg.inTheWay))
-			m.notificationOK = false
+			notifyCmd = m.setResult(fmt.Sprintf("⚠ %d file(s) blocked by local copies — choose how to resolve", len(msg.inTheWay)), false)
 			m.dialog.OpenInTheWay(msg.inTheWay)
-		} else if len(msg.paths) == 1 {
-			m.notification = fmt.Sprintf("✓ Updated %s", filepath.Base(msg.paths[0]))
-			m.notificationOK = true
-		} else {
-			m.notification = fmt.Sprintf("✓ Updated %d file(s)", len(msg.paths))
-			m.notificationOK = true
+		case len(msg.paths) == 1:
+			notifyCmd = m.setResult(fmt.Sprintf("✓ Updated %s", filepath.Base(msg.paths[0])), true)
+		default:
+			notifyCmd = m.setResult(fmt.Sprintf("✓ Updated %d file(s)", len(msg.paths)), true)
 		}
-		m.notificationExpiry = time.Now().Add(notifyDuration)
-		m.updateSizes()
 		// `cvs update` may pull new server revisions for these paths;
 		// drop the History cache so the next view sees them.
 		var invalidateCmd tea.Cmd
 		if msg.err == nil {
 			invalidateCmd = m.invalidateHistoryCache(msg.paths)
 		}
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths), invalidateCmd)
+		return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths), invalidateCmd)
 
 	case inTheWayResolveMsg:
 		return m, m.handleInTheWayResolve(msg)
@@ -766,31 +764,26 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(msg.paths) == 1 {
 				label = filepath.Base(msg.paths[0])
 			}
-			m.notification = fmt.Sprintf("✗ Remove failed for %s — see Console", label)
-			m.notificationOK = false
-			m.notificationExpiry = time.Now().Add(notifyDuration)
-			m.updateSizes()
-			return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths))
+			notifyCmd := m.setResult(fmt.Sprintf("✗ Remove failed for %s — see Console", label), false)
+			return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths))
 		}
 		for _, p := range msg.paths {
 			delete(m.filelist.marked, p)
 		}
 		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+		var notifyCmd tea.Cmd
 		if len(msg.paths) == 1 {
-			m.notification = fmt.Sprintf("✓ Removed %s", filepath.Base(msg.paths[0]))
+			notifyCmd = m.setResult(fmt.Sprintf("✓ Removed %s", filepath.Base(msg.paths[0])), true)
 		} else {
-			m.notification = fmt.Sprintf("✓ Removed %d file(s)", len(msg.paths))
+			notifyCmd = m.setResult(fmt.Sprintf("✓ Removed %d file(s)", len(msg.paths)), true)
 		}
-		m.notificationOK = true
-		m.notificationExpiry = time.Now().Add(notifyDuration)
-		m.updateSizes()
 		// Removed files: their on-disk state changed (R-status / gone)
 		// so any cached working-copy diff is now stale. Tracked files
 		// will get a new revision once the removal is committed; drop
 		// the cache now so that future commit auto-refreshes the
 		// History view.
 		invalidateCmd := m.invalidateHistoryCache(msg.paths)
-		return m, tea.Batch(notifyAfter(notifyDuration), m.refreshStatusForPaths(msg.paths), invalidateCmd)
+		return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths), invalidateCmd)
 
 	case editorClosedMsg:
 		return m, m.refreshStatusForPaths([]string{msg.path})
@@ -800,19 +793,11 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// dispatch the universal commitMsg so the conflict-marker check
 		// and doCommit run via the same path as the inline-input flow.
 		if msg.err != nil {
-			m.notification = "✗ Editor invocation failed — see Console"
-			m.notificationOK = false
-			m.notificationExpiry = time.Now().Add(notifyDuration)
-			m.updateSizes()
-			return m, notifyAfter(notifyDuration)
+			return m, m.setResult("✗ Editor invocation failed — see Console", false)
 		}
 		message := strings.TrimSpace(msg.message)
 		if message == "" {
-			m.notification = "Commit aborted (empty message)"
-			m.notificationOK = false
-			m.notificationExpiry = time.Now().Add(notifyDuration)
-			m.updateSizes()
-			return m, notifyAfter(notifyDuration)
+			return m, m.setResult("Commit aborted (empty message)", false)
 		}
 		untracked := m.staged.PathsByStatus("?")
 		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")

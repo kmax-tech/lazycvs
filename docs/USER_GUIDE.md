@@ -65,7 +65,6 @@ the same keys with `Ctrl` jump **between** panes.
 | `Ctrl-j` `Ctrl-↓`     | Focus console                                     |
 | `Ctrl-k` `Ctrl-↑`     | Back to panes from console                        |
 | `Tab` / `Shift-Tab`   | Cycle focus: left → right → console               |
-| `[` `]`               | Focus left / right (legacy aliases)               |
 | `?`                   | Help overlay                                      |
 | `/`                   | Fuzzy search (jump to file or directory)          |
 | `q`                   | Quit                                              |

@@ -1028,7 +1028,6 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("C-j / C-↓", "focus console") + "\n")
 	b.WriteString(helpRow("C-k / C-↑", "back to panes from console") + "\n")
 	b.WriteString(helpRow("tab", "cycle focused panel") + "\n")
-	b.WriteString(helpRow("[ / ]", "focus left / right (legacy aliases)") + "\n")
 	b.WriteString(helpRow("/", "fuzzy search files") + "\n")
 
 	// ── Tabs ──────────────────────────────────────────────────────

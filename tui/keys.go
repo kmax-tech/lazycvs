@@ -74,10 +74,10 @@ var keys = keyMap{
 	Tab3:    key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "staged")),
 	Tab4:    key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "history")),
 	FocusL: key.NewBinding(
-		key.WithKeys("ctrl+h", "ctrl+left", "["),
+		key.WithKeys("ctrl+h", "ctrl+left"),
 		key.WithHelp("C-h", "left pane")),
 	FocusR: key.NewBinding(
-		key.WithKeys("ctrl+l", "ctrl+right", "]"),
+		key.WithKeys("ctrl+l", "ctrl+right"),
 		key.WithHelp("C-l", "right pane")),
 	FocusC: key.NewBinding(
 		key.WithKeys("ctrl+j", "ctrl+down"),

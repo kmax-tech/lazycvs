@@ -51,6 +51,14 @@ func versionString() string {
 }
 
 func main() {
+	// `init` subcommand bypasses flag parsing so a positional CVSROOT
+	// argument doesn't get mistaken for a -flag value. Anything after
+	// `init` is forwarded to runSetupMode untouched.
+	if len(os.Args) > 1 && os.Args[1] == "init" {
+		runSetupMode(os.Args[2:])
+		return
+	}
+
 	cvsBin := flag.String("cvs", "", "path to CVS binary")
 	configPath := flag.String("config", "", "config file path")
 	showVersion := flag.Bool("version", false, "print version and exit")
@@ -61,29 +69,16 @@ func main() {
 		return
 	}
 
+	cfgMgr := loadConfig(*configPath)
+	cfg := cfgMgr.Get()
+
 	// Path argument: first positional arg, or empty if none
 	var targetPath string
 	pathExplicit := false
 	if args := flag.Args(); len(args) > 0 {
 		targetPath = args[0]
 		pathExplicit = true
-	}
-
-	// Load config (needed early for the default-path fallback)
-	cfgPath := *configPath
-	if cfgPath == "" {
-		cfgPath = config.DefaultConfigPath()
-	}
-	cfgMgr, err := config.NewConfigManager(cfgPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: cannot load config: %v (using defaults)\n", err)
-		cfgMgr, _ = config.NewConfigManager("")
-	}
-	cfg := cfgMgr.Get()
-
-	// If no explicit path: prefer cwd; if cwd has no CVS metadata, fall back to
-	// configured default_path (if any). With an explicit path, no fallback.
-	if !pathExplicit {
+	} else {
 		targetPath = "."
 	}
 
@@ -110,6 +105,7 @@ func main() {
 		} else {
 			if cfg.CVS.DefaultPath == "" {
 				fmt.Fprintf(os.Stderr, "Error: %q has no CVS/Root and no [cvs] default_path is configured.\n", absTarget)
+				fmt.Fprintln(os.Stderr, "Hint: `lazycvs init` walks you through cloning a module.")
 				os.Exit(1)
 			}
 			fallback, err := resolvePath(cfg.CVS.DefaultPath)
@@ -126,18 +122,47 @@ func main() {
 		}
 	}
 
-	actualCVS := cfg.CVS.Binary
-	if *cvsBin != "" {
-		actualCVS = *cvsBin
-	}
-	timeout := time.Duration(cfg.CVS.Timeout) * time.Second
+	runApp(workDir, initialPath, cfgMgr, *cvsBin)
+}
 
-	// Validate CVS binary
-	cvsPath, err := exec.LookPath(actualCVS)
+// loadConfig handles the "config exists / doesn't exist / corrupt" branches
+// uniformly so both main and runSetupMode get the same ConfigManager.
+func loadConfig(explicitPath string) *config.ConfigManager {
+	cfgPath := explicitPath
+	if cfgPath == "" {
+		cfgPath = config.DefaultConfigPath()
+	}
+	cfgMgr, err := config.NewConfigManager(cfgPath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: CVS binary %q not found. Install CVS or use -cvs flag.\n", actualCVS)
+		fmt.Fprintf(os.Stderr, "Warning: cannot load config: %v (using defaults)\n", err)
+		cfgMgr, _ = config.NewConfigManager("")
+	}
+	return cfgMgr
+}
+
+// resolveCVSBin returns the absolute path to the cvs binary, or exits
+// with a clear error. Shared by main and runSetupMode.
+func resolveCVSBin(cfgMgr *config.ConfigManager, override string) string {
+	cfg := cfgMgr.Get()
+	bin := cfg.CVS.Binary
+	if override != "" {
+		bin = override
+	}
+	cvsPath, err := exec.LookPath(bin)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: CVS binary %q not found. Install CVS or use -cvs flag.\n", bin)
 		os.Exit(1)
 	}
+	return cvsPath
+}
+
+// runApp is the normal startup path: validate the working copy, build the
+// executor + TUI, and run until the user quits. Factored out of main so
+// runSetupMode can chain into it after a successful checkout.
+func runApp(workDir, initialPath string, cfgMgr *config.ConfigManager, cvsBinOverride string) {
+	cfg := cfgMgr.Get()
+	cvsPath := resolveCVSBin(cfgMgr, cvsBinOverride)
+	timeout := time.Duration(cfg.CVS.Timeout) * time.Second
 
 	// Read CVSROOT (validates the working copy is reachable; the value isn't
 	// otherwise needed by the TUI, but failing here gives a clearer error than
@@ -155,17 +180,71 @@ func main() {
 		}
 	}
 
-	// Initialize components
 	cmdLog := cvs.NewCommandLog(50)
 	executor := cvs.NewCVSExecutor(workDir, cvsPath, timeout, cmdLog)
-
-	// Launch the TUI
 	app := tui.NewApp(executor, cmdLog, cfgMgr, initialPath)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
+}
+
+// runSetupMode drives `lazycvs init`: prompt for CVSROOT (with sensible
+// defaults), list modules, check one out, and chain into runApp against
+// the new working copy. cwd is captured once here so no downstream code
+// has to peek at os.Getwd.
+func runSetupMode(args []string) {
+	// Re-parse a minimal flag set so `lazycvs init -cvs /opt/bin/cvs ROOT`
+	// still works. Anything not consumed here ends up as positional.
+	fs := flag.NewFlagSet("init", flag.ExitOnError)
+	cvsBin := fs.String("cvs", "", "path to CVS binary")
+	configPath := fs.String("config", "", "config file path")
+	_ = fs.Parse(args)
+
+	cfgMgr := loadConfig(*configPath)
+	cfg := cfgMgr.Get()
+
+	// CVSROOT preference order: positional → $CVSROOT → cfg.CVS.Root.
+	root := ""
+	if pos := fs.Args(); len(pos) > 0 {
+		root = pos[0]
+	}
+	if root == "" {
+		root = os.Getenv("CVSROOT")
+	}
+	if root == "" {
+		root = cfg.CVS.Root
+	}
+
+	parentDir, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot determine cwd: %v\n", err)
+		os.Exit(1)
+	}
+
+	cvsPath := resolveCVSBin(cfgMgr, *cvsBin)
+
+	app := tui.NewSetupApp(cfgMgr, cvsPath, root, cfg.CVS.SSHKey, parentDir)
+	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	finalModel, err := p.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+
+	// On a successful checkout the App stashes the new working copy
+	// path; main chains into the normal startup path against it.
+	// Empty means the user aborted with Esc — exit cleanly.
+	finalApp, ok := finalModel.(tui.App)
+	if !ok {
+		return
+	}
+	newWorkDir := finalApp.BootstrapResult()
+	if newWorkDir == "" {
+		return
+	}
+	runApp(newWorkDir, "", cfgMgr, *cvsBin)
 }
 
 // resolvePath turns a user-supplied path into an absolute path. It expands a

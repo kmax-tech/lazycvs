@@ -221,6 +221,19 @@ type App struct {
 	cmdLog *cvs.CommandLog
 	cfgMgr *config.ConfigManager
 
+	// Bootstrap mode (lazycvs init): when true, render only the
+	// DialogCheckout overlay and skip every working-copy-dependent
+	// init. parentDir is the cwd captured at startup — the eventual
+	// checkout lands inside it. bootstrapWorkDir is set on success
+	// and inspected by main after tea.Quit to decide whether to
+	// chain into the normal startup path against that path.
+	setupMode        bool
+	bootstrapRoot    string // initial CVSROOT (env / config / arg)
+	bootstrapSSHKey  string // CVS_RSH=ssh -i <SSHKey> when non-empty
+	bootstrapCVSBin  string // path to cvs binary for the bootstrap calls
+	bootstrapParent  string // parentDir for cvs co MODULE
+	bootstrapWorkDir string // populated by bootstrapCheckoutDoneMsg on success
+
 	width  int
 	height int
 
@@ -327,6 +340,53 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 	}
 }
 
+// NewSetupApp constructs an App in bootstrap mode: only the
+// DialogCheckoutRoot overlay renders, the rest of the TUI stays
+// blank. main calls this for `lazycvs init`. parentDir is the cwd
+// the new working copy should be created in (captured once before
+// the TUI takes over, so nothing else has to call os.Getwd).
+func NewSetupApp(cfgMgr *config.ConfigManager, cvsBin, root, sshKey, parentDir string) App {
+	cfg := cfgMgr.Get()
+	app := App{
+		// Minimal panel set — they're never shown but a few helpers
+		// (renderBanner, View() short-circuit) read these fields.
+		activeTab:       TabTree,
+		focus:           PanelLeft,
+		tree:            NewTreeModel(parentDir), // benign placeholder
+		filelist:        NewFileListModel(),
+		console:         NewConsoleModel(cvs.NewCommandLog(1)),
+		favorites:       NewFavoritesModel(&cfg),
+		staged:          NewStagedModel(),
+		history:         NewHistoryModel(),
+		search:          NewSearchModel(),
+		dialog:          NewDialogModel(),
+		cfgMgr:          cfgMgr,
+		consoleHeight:   6,
+		statusMap:       make(map[string]string),
+		staleDirs:       make(map[string]bool),
+		baseRevMap:      make(map[string]string),
+		statusEpoch:     1,
+		dirEpoch:        make(map[string]uint64),
+		histRevisions:   make(map[string]*cvs.FileHistory),
+		histDiffs:       make(map[string]map[string]*cvs.DiffResult),
+		histContents:    make(map[string]map[string]string),
+		histPending:     make(map[string]bool),
+		histStreams:     make(map[uint64]chan tea.Msg),
+		setupMode:       true,
+		bootstrapRoot:   root,
+		bootstrapSSHKey: sshKey,
+		bootstrapCVSBin: cvsBin,
+		bootstrapParent: parentDir,
+	}
+	app.dialog.OpenCheckoutRoot(root)
+	return app
+}
+
+// BootstrapResult returns the absolute path of the new working copy
+// the user just checked out, or "" if they aborted. main inspects this
+// after tea.Quit returns to decide whether to chain into runApp.
+func (m App) BootstrapResult() string { return m.bootstrapWorkDir }
+
 // applyStatuses removes statusMap entries listed in toClear, then merges
 // the codes parsed from statuses on top, and refreshes the tree and
 // staged panel. Used by both dirStatusMsg (clears a whole directory)
@@ -396,11 +456,34 @@ func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
 }
 
 func (m App) Init() tea.Cmd {
+	// Bootstrap mode has no working copy yet — skip the tree init and
+	// the background dir scan (both would blow up on a nil exec).
+	if m.setupMode {
+		return nil
+	}
 	initEpoch := m.statusEpoch
 	return tea.Batch(
 		m.tree.Init(),
 		backgroundDirScan(m.exec, initEpoch, m.initialPath),
 	)
+}
+
+// humanizeBootstrapErr trims the noisy "cvs [...] failed:" wrap that
+// cvs/bootstrap puts on every error and surfaces a short single-line
+// message suitable for the dialog footer. Long stderr dumps are kept
+// as-is when they're the whole error.
+func humanizeBootstrapErr(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	if i := strings.Index(s, "\n"); i > 0 && i < 200 {
+		return s[:i]
+	}
+	if len(s) > 200 {
+		return s[:200] + "…"
+	}
+	return s
 }
 
 // refreshStatusUser fans out the two refresh sources in parallel
@@ -723,6 +806,51 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case restoreRevMsg:
 		m.setProgress(fmt.Sprintf("⟳ Restoring %s @ %s…", filepath.Base(msg.path), msg.rev))
 		return m, doRestoreRev(m.exec, msg.path, msg.rev)
+
+	case modulesLoadRequestedMsg:
+		// Bootstrap dialog phase 1 → 2 trigger. Run `cvs co -c` off
+		// the UI goroutine; result lands as modulesLoadedMsg.
+		cvsBin := m.bootstrapCVSBin
+		sshKey := m.bootstrapSSHKey
+		root := msg.root
+		return m, func() tea.Msg {
+			mods, err := cvs.ListModules(cvsBin, root, sshKey)
+			return modulesLoadedMsg{root: root, modules: mods, err: err}
+		}
+
+	case modulesLoadedMsg:
+		if msg.err != nil {
+			m.dialog.SetCheckoutError(humanizeBootstrapErr(msg.err))
+			return m, nil
+		}
+		if len(msg.modules) == 0 {
+			m.dialog.SetCheckoutError("CVSROOT has no modules (cvs co -c returned empty)")
+			return m, nil
+		}
+		m.dialog.SetCheckoutModules(msg.modules)
+		return m, nil
+
+	case bootstrapCheckoutMsg:
+		cvsBin := m.bootstrapCVSBin
+		sshKey := m.bootstrapSSHKey
+		parent := m.bootstrapParent
+		root := msg.root
+		mod := msg.module
+		return m, func() tea.Msg {
+			workDir, err := cvs.CheckoutModule(cvsBin, root, sshKey, mod, parent)
+			return bootstrapCheckoutDoneMsg{workDir: workDir, err: err}
+		}
+
+	case bootstrapCheckoutDoneMsg:
+		if msg.err != nil {
+			m.dialog.SetCheckoutError(humanizeBootstrapErr(msg.err))
+			return m, nil
+		}
+		// Success: stash the path so main can chain into the normal
+		// startup, close the dialog, and quit the bootstrap loop.
+		m.bootstrapWorkDir = msg.workDir
+		m.dialog.Close()
+		return m, tea.Quit
 
 	case removeMsg:
 		// Deliberately do NOT touch m.filelist.marked here — let the

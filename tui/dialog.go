@@ -30,6 +30,8 @@ const (
 	DialogPreview
 	DialogInTheWay
 	DialogRestoreRev
+	DialogCheckoutRoot   // CVSROOT input (lazycvs init)
+	DialogCheckoutModule // module picker after `cvs co -c` returns
 )
 
 type DialogModel struct {
@@ -49,6 +51,15 @@ type DialogModel struct {
 	// Restore-revision dialog state.
 	restoreRev    string // the revision the user wants to check out
 	restoreStatus string // working-copy status of restoreRev's path (M/C/A/…)
+
+	// Bootstrap-checkout dialog state (lazycvs init).
+	// checkoutErr stays sticky between renders so the user can read the
+	// error after the loading line clears; it's wiped on the next
+	// successful state transition.
+	checkoutModules []cvs.Module
+	checkoutCursor  int
+	checkoutErr     string
+	checkoutLoading string // non-empty while a bootstrap cvs call is in flight
 }
 
 func NewDialogModel() DialogModel {
@@ -96,6 +107,66 @@ func (m *DialogModel) OpenRestoreRev(path, rev, status string) {
 	m.path = path
 	m.restoreRev = rev
 	m.restoreStatus = status
+}
+
+// OpenCheckoutRoot starts the bootstrap dialog at the CVSROOT-input
+// phase. initialRoot pre-fills the input from $CVSROOT / config.root /
+// the positional arg; the user can edit it before pressing enter to
+// load the module list.
+func (m *DialogModel) OpenCheckoutRoot(initialRoot string) {
+	m.kind = DialogCheckoutRoot
+	m.input.Placeholder = ":pserver:user@host:/path/to/cvsroot"
+	m.input.SetValue(initialRoot)
+	m.input.CursorEnd()
+	m.input.Focus()
+	m.checkoutErr = ""
+	m.checkoutLoading = ""
+	m.checkoutModules = nil
+	m.checkoutCursor = 0
+}
+
+// SetCheckoutModules transitions the dialog from the root phase to
+// the module-picker phase after a successful `cvs co -c`. Called from
+// the App's modulesLoadedMsg handler.
+func (m *DialogModel) SetCheckoutModules(mods []cvs.Module) {
+	m.kind = DialogCheckoutModule
+	m.checkoutModules = mods
+	m.checkoutCursor = 0
+	m.checkoutErr = ""
+	m.checkoutLoading = ""
+	m.input.Blur()
+}
+
+// SetCheckoutError surfaces a bootstrap failure under the current
+// phase without closing the dialog so the user can retry. Re-focuses
+// the input when we're in the root phase.
+func (m *DialogModel) SetCheckoutError(msg string) {
+	m.checkoutErr = msg
+	m.checkoutLoading = ""
+	if m.kind == DialogCheckoutRoot {
+		m.input.Focus()
+	}
+}
+
+// SetCheckoutLoading sets a transient "doing X…" line beneath the
+// current phase so the user knows a background call is running.
+func (m *DialogModel) SetCheckoutLoading(msg string) {
+	m.checkoutLoading = msg
+	m.checkoutErr = ""
+}
+
+// CheckoutRoot returns the trimmed CVSROOT the user typed.
+func (m DialogModel) CheckoutRoot() string {
+	return strings.TrimSpace(m.input.Value())
+}
+
+// CheckoutSelectedModule returns the module under the picker cursor,
+// or nil when the list is empty / cursor is out of range.
+func (m DialogModel) CheckoutSelectedModule() *cvs.Module {
+	if m.checkoutCursor < 0 || m.checkoutCursor >= len(m.checkoutModules) {
+		return nil
+	}
+	return &m.checkoutModules[m.checkoutCursor]
 }
 
 func (m *DialogModel) OpenIgnore(path string) {
@@ -493,6 +564,10 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 			return m.updateRevert(msg)
 		case DialogRestoreRev:
 			return m.updateRestoreRev(msg)
+		case DialogCheckoutRoot:
+			return m.updateCheckoutRoot(msg)
+		case DialogCheckoutModule:
+			return m.updateCheckoutModule(msg)
 		case DialogRemove:
 			return m.updateRemove(msg)
 		case DialogIgnore:
@@ -522,8 +597,9 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 		}
 	}
 
-	// Update text input if in commit mode
-	if m.kind == DialogCommit {
+	// Update text input if in commit mode or root-prompt phase of the
+	// bootstrap dialog.
+	if m.kind == DialogCommit || m.kind == DialogCheckoutRoot {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		return m, cmd
@@ -723,6 +799,10 @@ func (m DialogModel) View() string {
 		content = m.viewRevert()
 	case DialogRestoreRev:
 		content = m.viewRestoreRev()
+	case DialogCheckoutRoot:
+		content = m.viewCheckoutRoot()
+	case DialogCheckoutModule:
+		content = m.viewCheckoutModule()
 	case DialogRemove:
 		content = m.viewRemove()
 	case DialogIgnore:
@@ -1036,6 +1116,9 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("2", "Favorites — pinned directories") + "\n")
 	b.WriteString(helpRow("3", "Staged — files marked for commit") + "\n")
 	b.WriteString(helpRow("4", "History — revisions of the selected file") + "\n")
+	b.WriteString("\n  " + mutedStyle.Render(
+		"Bootstrap: `lazycvs init` in an empty dir to check out a fresh\n"+
+			"module from a CVSROOT (TUI prompts for root + module).") + "\n")
 
 	// ── File actions ──────────────────────────────────────────────
 	b.WriteString(helpSection("File actions"))

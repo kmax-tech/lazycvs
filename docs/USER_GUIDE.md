@@ -18,6 +18,47 @@ If the current directory isn't a CVS working copy, lazycvs falls back to
 `[cvs] default_path` from your config file. If neither resolves to a CVS
 checkout, lazycvs exits with an error.
 
+### Bootstrap a new working copy: `lazycvs init`
+
+Run `lazycvs init` inside an empty directory to bootstrap a fresh
+checkout from a CVSROOT. The TUI prompts for the root, runs
+`cvs co -c` to list available modules, and checks the picked one out
+into the current directory. After a successful checkout it flows
+straight into the normal session against the new working copy.
+
+```bash
+lazycvs init                                  # prompts for CVSROOT
+lazycvs init :pserver:max@host:/srv/cvsroot   # skips the prompt, jumps to module list
+```
+
+CVSROOT resolution order: positional argument → `$CVSROOT` →
+`[cvs] root` in the config → empty (dialog prompts).
+
+Escape at any point aborts cleanly without leaving a half-checked-out
+directory. Errors (bad root, auth failure, network) keep the dialog
+open with the message visible so the user can edit & retry.
+
+`lazycvs init` is the **only** entry into bootstrap mode — opening
+lazycvs in an empty directory without `init` still errors out as
+before; the bootstrap doesn't fire by accident.
+
+#### Config options (optional)
+
+```toml
+[cvs]
+root    = ":pserver:max@host:/srv/cvsroot"   # default CVSROOT for `init`
+ssh_key = "/home/max/.ssh/cvs_id"            # see whitespace caveat below
+```
+
+`ssh_key` is a convenience for simple paths — it expands to
+`CVS_RSH=ssh -i <path>` for the session. For paths with whitespace,
+custom ports, or any non-trivial SSH config, set `CVS_RSH` yourself
+and leave `ssh_key` unset.
+
+Auth is assumed to be set up before `lazycvs init`: pserver via a
+prior `cvs login`, ext/ssh via your usual ssh-agent or
+`~/.ssh/config`. lazycvs does not prompt for passwords.
+
 ## Layout
 
 ```

@@ -79,6 +79,20 @@ func (m App) View() string {
 		return "Loading..."
 	}
 
+	// Bootstrap mode: skip the full TUI chrome and render only the
+	// centered DialogCheckout overlay. The dialog renderer below
+	// (renderDialog) draws on top of the rest; here we just provide
+	// an empty backdrop so the dialog has clean space.
+	if m.setupMode {
+		dialog := m.dialog.View()
+		// Centre the dialog roughly in the terminal — same trick the
+		// modal overlay uses normally, but without any other content.
+		body := lipgloss.Place(m.width, m.height-1,
+			lipgloss.Center, lipgloss.Center, dialog)
+		footer := " " + helpStyle.Render("lazycvs init — bootstrap mode")
+		return body + "\n" + footer
+	}
+
 	tabBar := m.renderTabBar()
 	mainContent := m.renderMainContent()
 	console := m.renderConsole()

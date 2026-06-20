@@ -17,6 +17,14 @@ type CVSConfig struct {
 	// runs lazycvs without a path argument and the current working directory
 	// has no CVS metadata. Supports a leading "~" for the home directory.
 	DefaultPath string `toml:"default_path,omitempty" json:"default_path,omitempty"`
+	// Root is the default CVSROOT for `lazycvs init` when $CVSROOT is unset.
+	// e.g. ":pserver:user@host:/srv/cvsroot" or ":ext:user@host:/srv/cvsroot".
+	Root string `toml:"root,omitempty" json:"root,omitempty"`
+	// SSHKey, when set, makes `lazycvs init` export
+	// CVS_RSH=ssh -i <SSHKey>` so :ext: connections use a specific key.
+	// CVS interpolates CVS_RSH shell-style, so the path must NOT contain
+	// whitespace — set CVS_RSH yourself for paths with spaces.
+	SSHKey string `toml:"ssh_key,omitempty" json:"ssh_key,omitempty"`
 }
 
 // FavoritesConfig holds the list of favorite directories.

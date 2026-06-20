@@ -61,8 +61,26 @@ var globalBindings = []struct {
 		return m.autoLoadHistory()
 	}},
 	{keys.FocusL, func(m *App) tea.Cmd { m.focus = PanelLeft; return nil }},
-	{keys.FocusR, func(m *App) tea.Cmd { m.focus = PanelRight; return nil }},
+	{keys.FocusR, func(m *App) tea.Cmd {
+		if m.activeTab == TabStaged && m.staged.mode == StagedActions {
+			return nil // single-panel tab; nothing to the right
+		}
+		m.focus = PanelRight
+		if m.activeTab == TabStaged {
+			m.staged.input.Focus()
+		}
+		return nil
+	}},
 	{keys.FocusC, func(m *App) tea.Cmd { m.focus = PanelConsole; return nil }},
+	{keys.FocusUp, func(m *App) tea.Cmd {
+		// Up out of the console row lands on the left pane — the
+		// "first" pane of the row above. Up from a pane goes to
+		// the left pane (or stays put if already there).
+		if m.focus == PanelConsole {
+			m.focus = PanelLeft
+		}
+		return nil
+	}},
 	{keys.Help, func(m *App) tea.Cmd { m.dialog.OpenHelp(); return nil }},
 	{keys.Search, func(m *App) tea.Cmd { return m.search.Open(m.exec.WorkDir) }},
 }
@@ -75,7 +93,12 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return nil, false
 	}
 	switch {
-	case key.Matches(msg, keys.Escape), msg.Type == tea.KeyLeft:
+	case key.Matches(msg, keys.Escape):
+		// Left arrow used to also blur the input + return to the file
+		// list, which broke text-cursor movement inside the message
+		// (a user fixing a typo with Left would exit the input). Esc
+		// is the explicit "back" key now; Ctrl-h works too via the
+		// global pane-focus handler.
 		m.focus = PanelLeft
 		m.staged.input.Blur()
 		m.staged.mode = StagedActions
@@ -174,55 +197,12 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			m.focus = PanelRight
 		}
 		return nil, true
-	case msg.Type == tea.KeyRight && m.focus == PanelLeft:
-		// Staged in actions mode is single-panel — there's no right side
-		// to switch to. Consume silently rather than moving focus into a
-		// non-rendered area.
-		if m.activeTab == TabStaged && m.staged.mode == StagedActions {
-			return nil, true
-		}
-		m.focus = PanelRight
-		if m.activeTab == TabStaged {
-			m.staged.input.Focus()
-		}
-		return nil, true
-	case msg.Type == tea.KeyLeft && m.focus == PanelRight:
-		m.focus = PanelLeft
-		if m.activeTab == TabStaged {
-			m.staged.input.Blur()
-		}
-		return nil, true
-
-	// vim-style h/l: tree expand/collapse takes precedence; otherwise switch
-	// focus between left and right panels — same effect as the arrow keys.
-	case msg.String() == "l" && m.focus == PanelLeft:
-		if m.activeTab == TabTree && m.tree.CanExpand() {
-			return nil, false // fall through to delegateKey → tree expands
-		}
-		if m.activeTab == TabStaged && m.staged.mode == StagedActions {
-			return nil, true // single-panel; no right to switch to
-		}
-		m.focus = PanelRight
-		if m.activeTab == TabStaged {
-			m.staged.input.Focus()
-		}
-		return nil, true
-	case msg.String() == "h" && m.focus == PanelLeft:
-		if m.activeTab == TabTree && m.tree.CanCollapse() {
-			return nil, false // fall through; tree collapses or moves up
-		}
-		// No panel left of the left one — silently consume so the key
-		// doesn't propagate into the focused list as a no-op nav action.
-		return nil, true
-	case msg.String() == "h" && m.focus == PanelRight:
-		m.focus = PanelLeft
-		if m.activeTab == TabStaged {
-			m.staged.input.Blur()
-		}
-		return nil, true
-	case msg.String() == "l" && m.focus == PanelRight:
-		// No panel right of the right one — silently consume.
-		return nil, true
+	// Arrow keys and h/l navigate WITHIN the focused pane only. Cross-
+	// pane movement is on the explicit Ctrl-modified variants (FocusL/R/
+	// C/Up), Tab, or the [ / ] aliases. h/l in the tree pane fall
+	// through to TreeModel.Update so they collapse/expand the dir under
+	// the cursor (the only in-pane horizontal motion that makes sense
+	// for a tree).
 	case msg.String() == "I" && m.activeTab == TabTree:
 		m.filelist.hideIgnored = !m.filelist.hideIgnored
 		m.filelist.cursor = 0
@@ -432,9 +412,22 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			if key.Matches(msg, keys.Enter) || key.Matches(msg, keys.Down) || key.Matches(msg, keys.Up) {
 				if m.treeMode == TreeViewDetails {
 					previewCmd := m.autoLoadPreview()
+					if key.Matches(msg, keys.Enter) {
+						// yazi-style: Enter selects + crosses into the
+						// preview pane so the next keypress acts on
+						// what the user just opened.
+						m.focus = PanelRight
+					}
 					return tea.Batch(cmd, previewCmd)
 				}
 				m.updateFileList()
+				if key.Matches(msg, keys.Enter) {
+					// In Files layout, Enter on a tree dir moved
+					// expand state + filled the file list; jump the
+					// cursor across so the user can act on those
+					// files without an extra Tab / Ctrl-l keystroke.
+					m.focus = PanelRight
+				}
 			}
 			return cmd
 		case TabFavorites:

@@ -421,7 +421,7 @@ func (m App) renderKeybar() string {
 
 	// Line 1: navigation. Identical on every tab.
 	nav := keyStyle.Render("j/k") + ":nav" + sep +
-		keyStyle.Render("tab") + ":focus" + sep +
+		keyStyle.Render("C-h/C-l") + ":pane" + sep +
 		keyStyle.Render("1") + ":files" + sep +
 		keyStyle.Render("2") + ":fav" + sep +
 		keyStyle.Render("3") + ":staged" + sep +

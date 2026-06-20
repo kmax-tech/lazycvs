@@ -14,6 +14,7 @@ type keyMap struct {
 	FocusL  key.Binding
 	FocusR  key.Binding
 	FocusC  key.Binding
+	FocusUp key.Binding
 	Status  key.Binding
 	Update  key.Binding
 	Help    key.Binding
@@ -72,9 +73,18 @@ var keys = keyMap{
 	Tab2:    key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "favorites")),
 	Tab3:    key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "staged")),
 	Tab4:    key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "history")),
-	FocusL:  key.NewBinding(key.WithKeys("["), key.WithHelp("[", "left panel")),
-	FocusR:  key.NewBinding(key.WithKeys("]"), key.WithHelp("]", "right panel")),
-	FocusC:  key.NewBinding(key.WithKeys("ctrl+j"), key.WithHelp("C-j", "console")),
+	FocusL: key.NewBinding(
+		key.WithKeys("ctrl+h", "ctrl+left", "["),
+		key.WithHelp("C-h", "left pane")),
+	FocusR: key.NewBinding(
+		key.WithKeys("ctrl+l", "ctrl+right", "]"),
+		key.WithHelp("C-l", "right pane")),
+	FocusC: key.NewBinding(
+		key.WithKeys("ctrl+j", "ctrl+down"),
+		key.WithHelp("C-j", "console")),
+	FocusUp: key.NewBinding(
+		key.WithKeys("ctrl+k", "ctrl+up"),
+		key.WithHelp("C-k", "back to panes")),
 	Status:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "status")),
 	Update:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "update")),
 	Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),

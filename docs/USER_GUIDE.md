@@ -48,18 +48,27 @@ vanishes on success — disappearance is the "done" signal.
 
 ## Navigation — works the same everywhere
 
-| Keys                | Action                                          |
-|---------------------|-------------------------------------------------|
-| `j` `k` `↓` `↑`     | Line by line                                    |
-| `g` `G`             | First / last item                               |
-| `PgUp` `PgDn`       | Page up / down                                  |
-| `Ctrl-U` `Ctrl-D`   | Page up / down (vim alias)                      |
-| `Ctrl-B` `Ctrl-F`   | Page up / down (vim alias)                      |
-| `Tab` / `Shift-Tab` | Cycle focus: left panel → right panel → console |
-| `[` `]` `Ctrl-J`    | Jump focus directly to left / right / console   |
-| `?`                 | Help overlay                                    |
-| `/`                 | Fuzzy search (jump to file or directory)        |
-| `q`                 | Quit                                            |
+The rule of thumb: arrows / `hjkl` move **inside** the focused pane,
+the same keys with `Ctrl` jump **between** panes.
+
+| Keys                  | Action                                            |
+|-----------------------|---------------------------------------------------|
+| `j` `k` `↓` `↑`       | Cursor up / down (within pane)                    |
+| `h` `l` `←` `→`       | Collapse / expand tree dir (within pane; no-op elsewhere) |
+| `g` `G`               | First / last item                                 |
+| `PgUp` `PgDn`         | Page up / down                                    |
+| `Ctrl-U` `Ctrl-D`     | Page up / down (vim alias)                        |
+| `Ctrl-B` `Ctrl-F`     | Page up / down (vim alias)                        |
+| `enter`               | Select + jump to right pane (yazi-style)          |
+| `Ctrl-h` `Ctrl-←`     | Focus left pane                                   |
+| `Ctrl-l` `Ctrl-→`     | Focus right pane                                  |
+| `Ctrl-j` `Ctrl-↓`     | Focus console                                     |
+| `Ctrl-k` `Ctrl-↑`     | Back to panes from console                        |
+| `Tab` / `Shift-Tab`   | Cycle focus: left → right → console               |
+| `[` `]`               | Focus left / right (legacy aliases)               |
+| `?`                   | Help overlay                                      |
+| `/`                   | Fuzzy search (jump to file or directory)          |
+| `q`                   | Quit                                              |
 | `Esc`               | Context-aware back / cancel                     |
 
 Page sizes are scaled per panel — the History revisions list (two lines

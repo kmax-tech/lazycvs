@@ -1016,13 +1016,19 @@ func buildHelpContent() string {
 
 	// ── Navigation ────────────────────────────────────────────────
 	b.WriteString(helpSection("Navigation"))
-	b.WriteString(helpRow("j / k", "down / up") + "\n")
+	b.WriteString(mutedStyle.Render(
+		"  Within a pane: arrows / hjkl. Between panes: add Ctrl.\n"))
+	b.WriteString(helpRow("j / k", "cursor down / up") + "\n")
 	b.WriteString(helpRow("h / l", "collapse / expand (tree)") + "\n")
 	b.WriteString(helpRow("g / G", "top / bottom") + "\n")
 	b.WriteString(helpRow("PgUp/PgDn", "scroll page (also C-u / C-d)") + "\n")
+	b.WriteString(helpRow("enter", "select + jump to right pane (yazi-style)") + "\n")
+	b.WriteString(helpRow("C-h / C-←", "focus left pane") + "\n")
+	b.WriteString(helpRow("C-l / C-→", "focus right pane") + "\n")
+	b.WriteString(helpRow("C-j / C-↓", "focus console") + "\n")
+	b.WriteString(helpRow("C-k / C-↑", "back to panes from console") + "\n")
 	b.WriteString(helpRow("tab", "cycle focused panel") + "\n")
-	b.WriteString(helpRow("[ / ]", "left / right panel") + "\n")
-	b.WriteString(helpRow("C-j", "console panel") + "\n")
+	b.WriteString(helpRow("[ / ]", "focus left / right (legacy aliases)") + "\n")
 	b.WriteString(helpRow("/", "fuzzy search files") + "\n")
 
 	// ── Tabs ──────────────────────────────────────────────────────

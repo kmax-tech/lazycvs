@@ -414,6 +414,13 @@ func (m App) renderConsole() string {
 	if fl := m.console.FilterLabel(); fl != "" {
 		consoleTitle += " [" + fl + "]"
 	}
+	// Echo the working-copy root so the cvs invocations in the log
+	// are unambiguous — every command runs with cmd.Dir = WorkDir,
+	// and with multiple checkouts on disk the path args (relative
+	// to WorkDir) alone don't tell you which one was acted on.
+	if m.exec != nil && m.exec.WorkDir != "" {
+		consoleTitle += " — " + filepath.Base(m.exec.WorkDir)
+	}
 	title := " " + lipgloss.NewStyle().Foreground(colorMuted).Bold(true).Render(consoleTitle) + " "
 	info := ""
 	if m.console.lastLen > 0 {

@@ -341,6 +341,12 @@ Inside lazycvs:
   `<file>.lazycvs-backup` over `<file>`, the backup file disappears,
   and the restored content shows up as `M` ready to commit or
   revert again.
+* `B` with files marked (`Space` on each, or `A` on a dir) restores
+  the whole set at once — the typical undo after an accidental
+  bulk revert. Paths that don't have a matching backup are skipped
+  and reported in the result banner; the rest still go through.
+  Toggle `I` first to show the `.lazycvs-backup` rows if you want
+  to mark them directly.
 
 To clear them in bulk:
 

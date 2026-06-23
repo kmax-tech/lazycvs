@@ -195,6 +195,71 @@ func (m *App) restoreFromBackup(path string) tea.Cmd {
 	return tea.Batch(notifyCmd, m.refreshStatusForPaths([]string{target, backup}))
 }
 
+// restoreFromBackupBulk is the marked-set companion to
+// restoreFromBackup. Each input path is normalized to its
+// <file>/<file>.lazycvs-backup pair, then renamed in place. Paths
+// that don't have a matching backup are reported in the result
+// banner but don't abort the rest — partial restore is better than
+// none when the user just wants their data back.
+func (m *App) restoreFromBackupBulk(paths []string) tea.Cmd {
+	const suffix = ".lazycvs-backup"
+	seen := make(map[string]bool, len(paths))
+	type pair struct{ target, backup string }
+	var pairs []pair
+	for _, p := range paths {
+		target := p
+		backup := p + suffix
+		if strings.HasSuffix(p, suffix) {
+			target = strings.TrimSuffix(p, suffix)
+			backup = p
+		}
+		if seen[target] {
+			continue // user marked both halves of the pair — restore once
+		}
+		seen[target] = true
+		pairs = append(pairs, pair{target: target, backup: backup})
+	}
+
+	var restored, missing, failed int
+	var firstErr error
+	var refreshPaths []string
+	for _, p := range pairs {
+		absTarget := filepath.Join(m.exec.WorkDir, p.target)
+		absBackup := filepath.Join(m.exec.WorkDir, p.backup)
+		if _, err := os.Stat(absBackup); err != nil {
+			missing++
+			continue
+		}
+		if err := os.Rename(absBackup, absTarget); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		restored++
+		refreshPaths = append(refreshPaths, p.target, p.backup)
+		delete(m.filelist.marked, p.target)
+		delete(m.filelist.marked, p.backup)
+	}
+
+	var notifyCmd tea.Cmd
+	switch {
+	case restored == 0 && missing > 0:
+		notifyCmd = m.setResult(fmt.Sprintf("✗ No backups found for %d marked path(s)", missing), false)
+	case failed > 0:
+		notifyCmd = m.setResult(fmt.Sprintf("⚠ Restored %d, %d failed — see Console", restored, failed), false)
+	case missing > 0:
+		notifyCmd = m.setResult(fmt.Sprintf("✓ Restored %d (skipped %d without backup)", restored, missing), true)
+	default:
+		notifyCmd = m.setResult(fmt.Sprintf("✓ Restored %d file(s) from backup", restored), true)
+	}
+	if len(refreshPaths) == 0 {
+		return notifyCmd
+	}
+	return tea.Batch(notifyCmd, m.refreshStatusForPaths(refreshPaths))
+}
+
 // revertOne reverts a single file. For M-status it runs `cvs update -C`
 // (the conventional revert). For C-status — "Unresolved Conflict" —
 // the safer path is `rm <path>` followed by `cvs update <path>`: cvs

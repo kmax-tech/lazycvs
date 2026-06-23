@@ -338,8 +338,19 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			m.dialog.OpenRemove(paths, m.statusesFor(paths))
 			return nil
-		case key.Matches(msg, keys.RestoreBackup) && selectedPath != "" && m.activeTab != TabHistory:
-			return m.restoreFromBackup(selectedPath)
+		case key.Matches(msg, keys.RestoreBackup) && m.activeTab != TabHistory:
+			// Marked files take precedence — `B` after a bulk revert is
+			// the "undo": mark every backup file (or every original
+			// file) and press once. Falls through to the cursor file
+			// when nothing is marked, mirroring the `D` (remove)
+			// single-vs-bulk split.
+			if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
+				return m.restoreFromBackupBulk(paths)
+			}
+			if selectedPath != "" {
+				return m.restoreFromBackup(selectedPath)
+			}
+			return nil
 		case key.Matches(msg, keys.Space) && m.focus == PanelLeft && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 			node := m.tree.SelectedNode()
 			if node != nil {

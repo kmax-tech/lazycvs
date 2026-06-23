@@ -387,7 +387,11 @@ func doCommit(exec *cvs.CVSExecutor, message string, untracked, files []string) 
 	}
 }
 
-func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
+// doRevert reverts a single file driven by the per-file Revert dialog.
+// status is the file's current CVS status code (M/C/…) captured at the
+// time of dispatch — needed so revertOne can pick the right cvs
+// sequence (update -C for M; rm + update for C, see comment there).
+func doRevert(exec *cvs.CVSExecutor, path, status string) tea.Cmd {
 	return func() tea.Msg {
 		// Create backup. path is relative to the working copy — join
 		// with WorkDir so the backup works no matter which directory
@@ -398,10 +402,7 @@ func doRevert(exec *cvs.CVSExecutor, path string) tea.Cmd {
 		if data != nil {
 			os.WriteFile(abs+".lazycvs-backup", data, 0644)
 		}
-		r, err := exec.Run("update", "-C", path)
-		if err == nil && r != nil && !r.Success {
-			err = fmt.Errorf("cvs update -C %s exited %d", path, r.ExitCode)
-		}
+		err := revertOne(exec, exec.WorkDir, path, status)
 		return actionDoneMsg{paths: []string{path}, err: err}
 	}
 }

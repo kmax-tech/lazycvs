@@ -801,7 +801,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case revertMsg:
 		m.setProgress(fmt.Sprintf("⟳ Reverting %s…", filepath.Base(msg.path)))
-		return m, doRevert(m.exec, msg.path)
+		return m, doRevert(m.exec, msg.path, m.statusMap[msg.path])
 
 	case restoreRevMsg:
 		m.setProgress(fmt.Sprintf("⟳ Restoring %s @ %s…", filepath.Base(msg.path), msg.rev))

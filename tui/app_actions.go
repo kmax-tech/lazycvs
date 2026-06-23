@@ -115,15 +115,29 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 			return actionDoneMsg{paths: paths, err: firstErr}
 		}
 	case "revert":
+		// Capture per-path statuses BEFORE the goroutine: cvs needs a
+		// different sequence for C ("Unresolved Conflict") than for M.
+		// `cvs update -C` reliably restores an M file from the server,
+		// but for C the Entries "Result of merge" marker survives the
+		// rewrite and the file keeps reporting as C. `rm <path> && cvs
+		// update <path>` deletes the working copy and re-fetches fresh
+		// — that path clears the marker for both M and C, at the cost
+		// of losing CVS's own `.#file.rev` backup. We already write a
+		// `<file>.lazycvs-backup` next to every reverted file (see
+		// stagedBulkPrepareBackups below), so no actual recovery info
+		// is lost.
+		statuses := make(map[string]string, len(paths))
+		for _, p := range paths {
+			statuses[p] = m.statusMap[p]
+		}
+		workDir := exec.WorkDir
+		stagedBulkPrepareBackups(workDir, paths)
 		return func() tea.Msg {
 			var firstErr error
 			for _, p := range paths {
-				if r, err := exec.Run("update", "-C", p); err != nil {
-					if firstErr == nil {
-						firstErr = err
-					}
-				} else if r != nil && !r.Success && firstErr == nil {
-					firstErr = fmt.Errorf("cvs update -C %s exited %d", p, r.ExitCode)
+				err := revertOne(exec, workDir, p, statuses[p])
+				if err != nil && firstErr == nil {
+					firstErr = err
 				}
 			}
 			return actionDoneMsg{paths: paths, err: firstErr}
@@ -147,6 +161,55 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 		}
 	}
 	return nil
+}
+
+// revertOne reverts a single file. For M-status it runs `cvs update -C`
+// (the conventional revert). For C-status — "Unresolved Conflict" —
+// the safer path is `rm <path>` followed by `cvs update <path>`: cvs
+// keeps a "Result of merge" marker in CVS/Entries that `update -C`
+// doesn't fully clear, so the file keeps reporting as C even after
+// the working copy has been overwritten. Removing the working file
+// first forces cvs to re-create it cleanly and the marker is wiped
+// with it.
+func revertOne(exec *cvs.CVSExecutor, workDir, path, status string) error {
+	abs := filepath.Join(workDir, path)
+	if status == "C" {
+		// Best-effort delete: if the file is already gone the next
+		// cvs update will still bring it back, which is the goal.
+		_ = os.Remove(abs)
+		r, err := exec.Run("update", path)
+		if err != nil {
+			return err
+		}
+		if r != nil && !r.Success {
+			return fmt.Errorf("cvs update %s exited %d", path, r.ExitCode)
+		}
+		return nil
+	}
+	r, err := exec.Run("update", "-C", path)
+	if err != nil {
+		return err
+	}
+	if r != nil && !r.Success {
+		return fmt.Errorf("cvs update -C %s exited %d", path, r.ExitCode)
+	}
+	return nil
+}
+
+// stagedBulkPrepareBackups writes a <path>.lazycvs-backup for every
+// path that's still on disk *before* the revert goroutine touches it.
+// Mirrors the per-file backup doRevert already writes for the
+// dialog-driven single-file revert, but lifts it out of the goroutine
+// so the backups are guaranteed in place before any `rm` lands.
+func stagedBulkPrepareBackups(workDir string, paths []string) {
+	for _, p := range paths {
+		abs := filepath.Join(workDir, p)
+		data, err := os.ReadFile(abs)
+		if err != nil {
+			continue // missing on disk → nothing to back up
+		}
+		_ = os.WriteFile(abs+".lazycvs-backup", data, 0644)
+	}
 }
 
 func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {

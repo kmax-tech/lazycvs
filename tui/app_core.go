@@ -803,6 +803,30 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setProgress(fmt.Sprintf("⟳ Reverting %s…", filepath.Base(msg.path)))
 		return m, doRevert(m.exec, msg.path, m.statusMap[msg.path])
 
+	case revertBulkMsg:
+		// Mirror the dispatch in stagedBulkAction("revert", …) but
+		// with explicit statuses from the dialog so we don't have to
+		// re-derive them after the marks may have been cleared.
+		paths := msg.paths
+		statuses := msg.statuses
+		for _, p := range paths {
+			delete(m.filelist.marked, p)
+		}
+		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+		m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(paths)))
+		exec := m.exec
+		workDir := exec.WorkDir
+		stagedBulkPrepareBackups(workDir, paths)
+		return m, func() tea.Msg {
+			var firstErr error
+			for _, p := range paths {
+				if err := revertOne(exec, workDir, p, statuses[p]); err != nil && firstErr == nil {
+					firstErr = err
+				}
+			}
+			return actionDoneMsg{paths: paths, err: firstErr}
+		}
+
 	case restoreRevMsg:
 		m.setProgress(fmt.Sprintf("⟳ Restoring %s @ %s…", filepath.Base(msg.path), msg.rev))
 		return m, doRestoreRev(m.exec, msg.path, msg.rev)

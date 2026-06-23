@@ -25,6 +25,7 @@ var cvsDefaultIgnore = strings.Fields(`
 	*.old *.bak *.BAK *.orig *.rej .del-*
 	*.a *.olb *.o *.obj *.so *.exe
 	*.Z *.elc *.ln
+	*.lazycvs-backup
 	core
 `)
 

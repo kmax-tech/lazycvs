@@ -163,6 +163,38 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 	return nil
 }
 
+// restoreFromBackup swaps a file with its <file>.lazycvs-backup sibling
+// — used after the user thinks a revert was a mistake and wants the
+// pre-revert content back. Accepts either side of the pair: cursor on
+// foo.jpg → restore from foo.jpg.lazycvs-backup; cursor on
+// foo.jpg.lazycvs-backup → restore foo.jpg from it. The backup file is
+// renamed (not deleted) over the working file, so the user sees the
+// restored content immediately and there's no leftover backup file
+// that would re-appear as ? on the next refresh.
+func (m *App) restoreFromBackup(path string) tea.Cmd {
+	const suffix = ".lazycvs-backup"
+	target, backup := path, path+suffix
+	if strings.HasSuffix(path, suffix) {
+		target = strings.TrimSuffix(path, suffix)
+		backup = path
+	}
+	absTarget := filepath.Join(m.exec.WorkDir, target)
+	absBackup := filepath.Join(m.exec.WorkDir, backup)
+	if _, err := os.Stat(absBackup); err != nil {
+		notifyCmd := m.setResult(fmt.Sprintf("✗ No backup at %s", backup), false)
+		return notifyCmd
+	}
+	if err := os.Rename(absBackup, absTarget); err != nil {
+		notifyCmd := m.setResult(fmt.Sprintf("✗ Restore failed: %v", err), false)
+		return notifyCmd
+	}
+	// The restored file is back in M state from CVS's perspective —
+	// reuse the per-path refresh that the action handlers use so the
+	// listing picks up the new status and the now-gone backup file.
+	notifyCmd := m.setResult(fmt.Sprintf("✓ Restored %s from backup", filepath.Base(target)), true)
+	return tea.Batch(notifyCmd, m.refreshStatusForPaths([]string{target, backup}))
+}
+
 // revertOne reverts a single file. For M-status it runs `cvs update -C`
 // (the conventional revert). For C-status — "Unresolved Conflict" —
 // the safer path is `rm <path>` followed by `cvs update <path>`: cvs

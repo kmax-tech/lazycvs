@@ -58,6 +58,10 @@ func main() {
 		runSetupMode(os.Args[2:])
 		return
 	}
+	if len(os.Args) > 1 && os.Args[1] == "clean-backups" {
+		runCleanBackups(os.Args[2:])
+		return
+	}
 
 	cvsBin := flag.String("cvs", "", "path to CVS binary")
 	configPath := flag.String("config", "", "config file path")
@@ -245,6 +249,62 @@ func runSetupMode(args []string) {
 		return
 	}
 	runApp(newWorkDir, "", cfgMgr, *cvsBin)
+}
+
+// runCleanBackups walks a path looking for .lazycvs-backup sidecar files
+// and removes them. Defaults to the current directory; a positional arg
+// overrides. Dry-run mode prints what would be deleted without touching
+// disk. Headless — no TUI, just stdout, so it's easy to run from
+// scripts or one-off after a noisy revert session.
+func runCleanBackups(args []string) {
+	fs := flag.NewFlagSet("clean-backups", flag.ExitOnError)
+	dryRun := fs.Bool("n", false, "list candidates but don't delete (dry-run)")
+	_ = fs.Parse(args)
+
+	root := "."
+	if pos := fs.Args(); len(pos) > 0 {
+		root = pos[0]
+	}
+	abs, err := resolvePath(root)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot resolve path %q: %v\n", root, err)
+		os.Exit(1)
+	}
+
+	var count int
+	walkErr := filepath.Walk(abs, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // tolerate unreadable subtrees
+		}
+		// Don't descend into CVS metadata — never our backup files there
+		// and the dir is otherwise off-limits for hygiene reasons.
+		if info.IsDir() && info.Name() == "CVS" {
+			return filepath.SkipDir
+		}
+		if info.IsDir() || !strings.HasSuffix(info.Name(), ".lazycvs-backup") {
+			return nil
+		}
+		if *dryRun {
+			fmt.Println(path)
+		} else {
+			if err := os.Remove(path); err != nil {
+				fmt.Fprintf(os.Stderr, "Error: cannot remove %s: %v\n", path, err)
+				return nil
+			}
+			fmt.Println("removed", path)
+		}
+		count++
+		return nil
+	})
+	if walkErr != nil {
+		fmt.Fprintf(os.Stderr, "Error: walk failed: %v\n", walkErr)
+		os.Exit(1)
+	}
+	if *dryRun {
+		fmt.Printf("\n%d candidate(s) under %s\n", count, abs)
+	} else {
+		fmt.Printf("\n%d backup(s) removed under %s\n", count, abs)
+	}
 }
 
 // resolvePath turns a user-supplied path into an absolute path. It expands a

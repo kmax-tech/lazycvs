@@ -35,8 +35,9 @@ type keyMap struct {
 	Diff    key.Binding
 	Commit  key.Binding
 	Revert  key.Binding
-	Restore key.Binding
-	Remove  key.Binding
+	Restore        key.Binding
+	RestoreBackup  key.Binding
+	Remove         key.Binding
 	Edit    key.Binding
 	EditDiff key.Binding
 	Merge    key.Binding
@@ -107,8 +108,9 @@ var keys = keyMap{
 	Diff:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
 	Commit:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
 	Revert:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "revert")),
-	Restore: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "restore rev")),
-	Remove:  key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "remove")),
+	Restore:       key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "restore rev")),
+	RestoreBackup: key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "restore backup")),
+	Remove:        key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "remove")),
 	Edit:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
 	EditDiff: key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "diff tool")),
 	Merge:   key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "merge tool")),

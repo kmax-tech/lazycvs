@@ -326,6 +326,32 @@ Files with status `C`:
   marked file still contains `<<<<<<< / =======` markers and surfaces the
   reason in a banner.
 
+## Backup files (`*.lazycvs-backup`)
+
+Every revert (`r` on a single file or in the Staged tab) writes a
+`<file>.lazycvs-backup` next to the file before overwriting it. The
+backup is plain disk content — `mv` it back any time you want the
+pre-revert state.
+
+Inside lazycvs:
+
+* The backup files are part of the default ignore list, so they
+  don't clutter the file listing. Toggle `I` to see them.
+* Cursor on either side of the pair + `B` swaps: lazycvs renames
+  `<file>.lazycvs-backup` over `<file>`, the backup file disappears,
+  and the restored content shows up as `M` ready to commit or
+  revert again.
+
+To clear them in bulk:
+
+```bash
+lazycvs clean-backups          # scrubs the current directory tree
+lazycvs clean-backups -n       # dry-run: lists what would be removed
+lazycvs clean-backups path/to  # scoped to a subtree
+```
+
+Skips `CVS/` administrative directories.
+
 ## Configuration
 
 Default path on macOS: `~/Library/Application Support/lazycvs/config.toml`

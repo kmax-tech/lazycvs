@@ -338,6 +338,8 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			m.dialog.OpenRemove(paths, m.statusesFor(paths))
 			return nil
+		case key.Matches(msg, keys.RestoreBackup) && selectedPath != "" && m.activeTab != TabHistory:
+			return m.restoreFromBackup(selectedPath)
 		case key.Matches(msg, keys.Space) && m.focus == PanelLeft && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 			node := m.tree.SelectedNode()
 			if node != nil {
@@ -482,13 +484,20 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				}
 			case key.Matches(msg, keys.Revert):
 				// Bulk-revert every M *and* C file in the staged set.
-				// cvs update -C discards both local edits and any 3-way
-				// merge markers, so the same code path resolves modified
-				// and conflicted files alike — the typical workflow when
-				// the user gave up on a merge and wants to take server.
+				// Opens a confirmation dialog first — the action is
+				// destructive (cvs update -C / rm + cvs update,
+				// depending on per-path status), and confirmations are
+				// the standard pattern for the equivalent file-action
+				// `r` in other tabs. The dialog dispatch carries the
+				// status map across so the action handler picks the
+				// right cvs sequence per file.
 				if paths := m.staged.PathsByStatus("M", "C"); len(paths) > 0 {
-					m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(paths)))
-					return m.stagedBulkAction("revert", paths)
+					statuses := make(map[string]string, len(paths))
+					for _, p := range paths {
+						statuses[p] = m.statusMap[p]
+					}
+					m.dialog.OpenRevertBulk(paths, statuses)
+					return nil
 				}
 			case key.Matches(msg, keys.Ignore):
 				// Ignore: add all ? files to .cvsignore

@@ -95,6 +95,23 @@ func (m *DialogModel) OpenRemove(paths []string, statuses map[string]string) {
 func (m *DialogModel) OpenRevert(path string) {
 	m.kind = DialogRevert
 	m.path = path
+	m.files = nil
+	m.commitStatuses = nil
+}
+
+// OpenRevertBulk opens the same DialogRevert dialog in multi-file
+// mode: viewRevert lists every path and waits for the same y/n
+// confirmation. statuses carries the per-path CVS state so the
+// dispatch can pick the right revert sequence (cvs update -C for M,
+// rm + cvs update for C) without re-reading state across the
+// goroutine boundary.
+func (m *DialogModel) OpenRevertBulk(paths []string, statuses map[string]string) {
+	m.kind = DialogRevert
+	m.files = paths
+	m.commitStatuses = statuses
+	if len(paths) > 0 {
+		m.path = paths[0] // for the title/header; viewRevert handles the bulk render
+	}
 }
 
 // OpenRestoreRev opens a confirmation dialog before running
@@ -244,6 +261,14 @@ type commitMsg struct {
 	files []string
 }
 type revertMsg struct{ path string }
+
+// revertBulkMsg dispatches the bulk-revert flow from the Staged tab.
+// Carries per-path statuses so the action handler can pick the right
+// cvs sequence (rm + update for C, cvs update -C for M).
+type revertBulkMsg struct {
+	paths    []string
+	statuses map[string]string
+}
 
 // restoreRevMsg is dispatched from the DialogRestoreRev confirmation;
 // the handler runs cvs update -C -r <rev> <path>, refreshes status for
@@ -647,6 +672,17 @@ func (m DialogModel) updateCommit(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 func (m DialogModel) updateRevert(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.Yes):
+		// Bulk vs single-file is decided by whether OpenRevertBulk
+		// populated files. Both routes go through the same dialog +
+		// confirmation; the message split happens here.
+		if len(m.files) > 0 {
+			paths := m.files
+			statuses := m.commitStatuses
+			m.Close()
+			return m, func() tea.Msg {
+				return revertBulkMsg{paths: paths, statuses: statuses}
+			}
+		}
 		path := m.path
 		m.Close()
 		return m, func() tea.Msg {
@@ -889,6 +925,62 @@ func (m DialogModel) viewCommit() string {
 func (m DialogModel) viewRevert() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("Revert") + "\n\n")
+
+	if len(m.files) > 0 {
+		// Bulk-revert confirmation: show counts per status so the user
+		// sees what they're agreeing to discard. Same shape as the
+		// bulk-remove dialog (viewRemove) so the two flows feel
+		// consistent.
+		var mCount, cCount, otherCount int
+		for _, p := range m.files {
+			switch m.commitStatuses[p] {
+			case "M":
+				mCount++
+			case "C":
+				cCount++
+			default:
+				otherCount++
+			}
+		}
+		fmt.Fprintf(&b, "Revert %d file(s)?\n\n", len(m.files))
+		if mCount > 0 {
+			fmt.Fprintf(&b, "  %d modified — local edits discarded (cvs update -C)\n", mCount)
+		}
+		if cCount > 0 {
+			fmt.Fprintf(&b, "  %d in conflict — markers + edits discarded (rm + cvs update)\n", cCount)
+		}
+		if otherCount > 0 {
+			fmt.Fprintf(&b, "  %d other status — handled as M\n", otherCount)
+		}
+		b.WriteString("\n")
+		// Show the first handful of paths so the user can sanity-check
+		// the scope. Cap at 8 to keep the dialog readable on small
+		// terminals; the count above always carries the full figure.
+		const maxList = 8
+		shown := len(m.files)
+		if shown > maxList {
+			shown = maxList
+		}
+		for i := 0; i < shown; i++ {
+			st := m.commitStatuses[m.files[i]]
+			label := "  "
+			if st != "" {
+				label = lipgloss.NewStyle().Width(2).Foreground(statusColor(st)).Render(st)
+			}
+			fmt.Fprintf(&b, "  %s  %s\n", label, m.files[i])
+		}
+		if len(m.files) > maxList {
+			fmt.Fprintf(&b, "  %s\n", mutedStyle.Render(
+				fmt.Sprintf("… and %d more", len(m.files)-maxList)))
+		}
+		b.WriteString("\n")
+		b.WriteString(mutedStyle.Render(
+			"Per-file backups land next to each as <file>.lazycvs-backup.") + "\n\n")
+		b.WriteString(helpStyle.Render("y:revert all  n:cancel"))
+		return b.String()
+	}
+
+	// Single-file confirmation (file-action `r`).
 	fmt.Fprintf(&b, "Revert %s?\n\n", m.path)
 	b.WriteString("Local changes will be overwritten.\n")
 	fmt.Fprintf(&b, "Backup: %s.lazycvs-backup\n\n", m.path)
@@ -1126,7 +1218,8 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("d", "diff (working vs base revision)") + "\n")
 	b.WriteString(helpRow("c", "commit cursor file (or marked files)") + "\n")
 	b.WriteString(helpRow("a", "add cursor file (?-status) to CVS") + "\n")
-	b.WriteString(helpRow("r", "revert cursor file") + "\n")
+	b.WriteString(helpRow("r", "revert cursor file (bulk in Staged tab)") + "\n")
+	b.WriteString(helpRow("B", "restore <file>.lazycvs-backup over the file") + "\n")
 	b.WriteString(helpRow("D", "remove (single file or marked set)") + "\n")
 	b.WriteString(helpRow("i", "ignore — add pattern to .cvsignore") + "\n")
 	b.WriteString(helpRow("e", "edit in $EDITOR") + "\n")

@@ -91,10 +91,14 @@ func stripCheckoutHeader(content string) string {
 }
 
 // extractRevToTemp checks out a specific revision and writes the result to a
-// temp file with the original file's extension preserved (so syntax-aware
-// diff tools light up correctly). Returns the temp-file path. The caller is
-// responsible for cleanup if desired; most diff tools open the files lazily
-// so we deliberately do NOT remove them ourselves.
+// temp file whose basename leads with the revision label, so external diff
+// tools (which usually only show the basename in tab titles) make it obvious
+// which side is which: `rev-1.1-foo.md` vs `rev-1.2-foo.md`. The original
+// extension is preserved so syntax-aware tools light up correctly. Each call
+// gets its own MkdirTemp directory — that way no random suffix is needed in
+// the filename itself, keeping the rev visually adjacent to the basename.
+// The caller is responsible for cleanup if desired; most diff tools open the
+// files lazily so we deliberately do NOT remove them ourselves.
 func extractRevToTemp(executor *cvs.CVSExecutor, path, rev string) (string, error) {
 	content, err := catRevisionStdout(executor, path, rev)
 	if err != nil {
@@ -103,22 +107,18 @@ func extractRevToTemp(executor *cvs.CVSExecutor, path, rev string) (string, erro
 
 	revLabel := "HEAD"
 	if rev != "" {
-		revLabel = strings.ReplaceAll(rev, ".", "_")
+		revLabel = rev
 	}
-	base := filepath.Base(path)
-	pattern := fmt.Sprintf("lazycvs-%s-%s-*%s", strings.TrimSuffix(base, filepath.Ext(base)), revLabel, filepath.Ext(base))
-	f, err := os.CreateTemp("", pattern)
+	dir, err := os.MkdirTemp("", "lazycvs-diff-")
 	if err != nil {
 		return "", err
 	}
-	if _, err := f.WriteString(content); err != nil {
-		f.Close()
+	name := fmt.Sprintf("rev-%s-%s", revLabel, filepath.Base(path))
+	fullPath := filepath.Join(dir, name)
+	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
 		return "", err
 	}
-	if err := f.Close(); err != nil {
-		return "", err
-	}
-	return f.Name(), nil
+	return fullPath, nil
 }
 
 // resolveDiffTool returns the command template configured by the user, or an

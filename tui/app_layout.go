@@ -310,36 +310,42 @@ func (m App) renderMainContent() string {
 	// Right panel title & info
 	var rightTitle string
 	var rightInfo string
+	wcRoot := filepath.Base(m.exec.WorkDir)
+	// fullDirPath joins the working-copy basename with the file-list's
+	// relative dir so the title always says "where in this checkout am
+	// I". Without it the title only showed the immediate dir name and
+	// couldn't disambiguate when several working copies have the same
+	// leaf names.
+	fullDirPath := func(rel string) string {
+		if rel == "" || rel == "." {
+			return wcRoot
+		}
+		return wcRoot + "/" + rel
+	}
 	switch m.activeTab {
 	case TabTree:
 		if m.treeMode == TreeViewDetails {
 			node := m.tree.SelectedNode()
 			if node != nil {
 				if node.IsDir {
-					rightTitle = node.Path + "/"
+					rightTitle = fullDirPath(node.Path) + "/"
 				} else if node.Status != "" {
-					rightTitle = node.Status + " " + node.Path
+					rightTitle = node.Status + " " + fullDirPath(node.Path)
 				} else {
-					rightTitle = node.Path
+					rightTitle = fullDirPath(node.Path)
 				}
 			} else {
 				rightTitle = "Preview"
 			}
 		} else {
-			rightTitle = "Files"
-			if m.filelist.dir != "" {
-				rightTitle = "Files — " + m.filelist.dir
-			}
+			rightTitle = "Files — " + fullDirPath(m.filelist.dir)
 			files := m.filelist.rows()
 			if len(files) > 0 {
 				rightInfo = fmt.Sprintf(" %d of %d ", m.filelist.cursor+1, len(files))
 			}
 		}
 	case TabFavorites:
-		rightTitle = "Files"
-		if m.filelist.dir != "" {
-			rightTitle = "Files — " + m.filelist.dir
-		}
+		rightTitle = "Files — " + fullDirPath(m.filelist.dir)
 		files := m.filelist.rows()
 		if len(files) > 0 {
 			rightInfo = fmt.Sprintf(" %d of %d ", m.filelist.cursor+1, len(files))

@@ -91,8 +91,8 @@ var keys = keyMap{
 
 	Up:     key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("k", "up")),
 	Down:   key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("j", "down")),
-	Left:   key.NewBinding(key.WithKeys("h"), key.WithHelp("h", "collapse")),
-	Right:  key.NewBinding(key.WithKeys("l"), key.WithHelp("l", "expand")),
+	Left:   key.NewBinding(key.WithKeys("h", "left"), key.WithHelp("h/←", "collapse")),
+	Right:  key.NewBinding(key.WithKeys("l", "right"), key.WithHelp("l/→", "expand")),
 	Top:    key.NewBinding(key.WithKeys("g"), key.WithHelp("gg", "top")),
 	Bottom: key.NewBinding(key.WithKeys("G"), key.WithHelp("G", "bottom")),
 	PageUp: key.NewBinding(

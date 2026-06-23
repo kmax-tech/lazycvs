@@ -1099,7 +1099,7 @@ func buildHelpContent() string {
 	b.WriteString(mutedStyle.Render(
 		"  Within a pane: arrows / hjkl. Between panes: add Ctrl.\n"))
 	b.WriteString(helpRow("j / k", "cursor down / up") + "\n")
-	b.WriteString(helpRow("h / l", "collapse / expand (tree)") + "\n")
+	b.WriteString(helpRow("h / l / ← / →", "collapse / expand (tree)") + "\n")
 	b.WriteString(helpRow("g / G", "top / bottom") + "\n")
 	b.WriteString(helpRow("PgUp/PgDn", "scroll page (also C-u / C-d)") + "\n")
 	b.WriteString(helpRow("enter", "select + jump to right pane (yazi-style)") + "\n")

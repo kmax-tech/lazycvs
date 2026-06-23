@@ -347,6 +347,11 @@ Inside lazycvs:
   and reported in the result banner; the rest still go through.
   Toggle `I` first to show the `.lazycvs-backup` rows if you want
   to mark them directly.
+* `B` with the **cursor on a directory in the tree pane** (no marks)
+  walks the dir's subtree and restores every `.lazycvs-backup` it
+  finds — the cleanest "undo all reverts I did under here" path.
+  CVS/ admin dirs are skipped. Use this instead of `A` + `B` when
+  you'd otherwise sweep up unrelated `?` files in the marking pass.
 
 To clear them in bulk:
 

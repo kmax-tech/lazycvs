@@ -260,6 +260,64 @@ func (m *App) restoreFromBackupBulk(paths []string) tea.Cmd {
 	return tea.Batch(notifyCmd, m.refreshStatusForPaths(refreshPaths))
 }
 
+// restoreBackupsInSubtree walks dirPath relative to the working copy
+// and renames every <file>.lazycvs-backup it finds over <file>. Skips
+// CVS/ admin dirs. dirPath == "." restores the whole working copy;
+// that's allowed but the user explicitly chose the root in the tree
+// pane so the scope is on them.
+func (m *App) restoreBackupsInSubtree(dirPath string) tea.Cmd {
+	const suffix = ".lazycvs-backup"
+	abs := filepath.Join(m.exec.WorkDir, dirPath)
+	var restored, failed int
+	var firstErr error
+	var refreshPaths []string
+	walkErr := filepath.Walk(abs, func(p string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // tolerate unreadable subtrees
+		}
+		if info.IsDir() {
+			if info.Name() == "CVS" {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), suffix) {
+			return nil
+		}
+		target := strings.TrimSuffix(p, suffix)
+		if err := os.Rename(p, target); err != nil {
+			failed++
+			if firstErr == nil {
+				firstErr = err
+			}
+			return nil
+		}
+		restored++
+		// Both halves of the pair, expressed relative to WorkDir so
+		// the refresh keys line up with statusMap entries.
+		if rel, err := filepath.Rel(m.exec.WorkDir, target); err == nil {
+			refreshPaths = append(refreshPaths, rel, rel+suffix)
+		}
+		return nil
+	})
+	if walkErr != nil && firstErr == nil {
+		firstErr = walkErr
+	}
+	var notifyCmd tea.Cmd
+	switch {
+	case restored == 0 && failed == 0:
+		notifyCmd = m.setResult(fmt.Sprintf("No .lazycvs-backup files under %s", dirPath), false)
+	case failed > 0:
+		notifyCmd = m.setResult(fmt.Sprintf("⚠ Restored %d, %d failed — see Console", restored, failed), false)
+	default:
+		notifyCmd = m.setResult(fmt.Sprintf("✓ Restored %d backup(s) under %s", restored, dirPath), true)
+	}
+	if len(refreshPaths) == 0 {
+		return notifyCmd
+	}
+	return tea.Batch(notifyCmd, m.refreshStatusForPaths(refreshPaths))
+}
+
 // revertOne reverts a single file. For M-status it runs `cvs update -C`
 // (the conventional revert). For C-status — "Unresolved Conflict" —
 // the safer path is `rm <path>` followed by `cvs update <path>`: cvs

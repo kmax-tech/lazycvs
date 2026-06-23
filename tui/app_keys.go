@@ -339,13 +339,21 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			m.dialog.OpenRemove(paths, m.statusesFor(paths))
 			return nil
 		case key.Matches(msg, keys.RestoreBackup) && m.activeTab != TabHistory:
-			// Marked files take precedence — `B` after a bulk revert is
-			// the "undo": mark every backup file (or every original
-			// file) and press once. Falls through to the cursor file
-			// when nothing is marked, mirroring the `D` (remove)
-			// single-vs-bulk split.
+			// Three modes, in priority order:
+			//   1. Marked files: explicit "restore these" set.
+			//   2. Cursor on a dir tree node: scan its subtree for
+			//      .lazycvs-backup files and restore each. This is
+			//      the typical "undo bulk revert" path — the user
+			//      doesn't have to mark anything, just navigate to
+			//      the affected dir and press B once.
+			//   3. Cursor on a file: single-pair restore.
 			if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
 				return m.restoreFromBackupBulk(paths)
+			}
+			if m.activeTab == TabTree && m.focus == PanelLeft {
+				if node := m.tree.SelectedNode(); node != nil && node.IsDir {
+					return m.restoreBackupsInSubtree(node.Path)
+				}
 			}
 			if selectedPath != "" {
 				return m.restoreFromBackup(selectedPath)

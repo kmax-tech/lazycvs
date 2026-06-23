@@ -1219,7 +1219,7 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("c", "commit cursor file (or marked files)") + "\n")
 	b.WriteString(helpRow("a", "add cursor file (?-status) to CVS") + "\n")
 	b.WriteString(helpRow("r", "revert cursor file (bulk in Staged tab)") + "\n")
-	b.WriteString(helpRow("B", "restore <file>.lazycvs-backup (bulk on marked set)") + "\n")
+	b.WriteString(helpRow("B", "restore <file>.lazycvs-backup (marked set / dir subtree / cursor file)") + "\n")
 	b.WriteString(helpRow("D", "remove (single file or marked set)") + "\n")
 	b.WriteString(helpRow("i", "ignore — add pattern to .cvsignore") + "\n")
 	b.WriteString(helpRow("e", "edit in $EDITOR") + "\n")

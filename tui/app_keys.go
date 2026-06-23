@@ -320,7 +320,11 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			return openInOS(fullPath)
 		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory:
 			return m.openCommitDialog()
-		case key.Matches(msg, keys.Revert) && selectedPath != "" && m.activeTab != TabHistory:
+		case key.Matches(msg, keys.Revert) && selectedPath != "" && m.activeTab != TabHistory && m.activeTab != TabStaged:
+			// Staged tab handles `r` further down as a bulk revert
+			// over every M/C file at once — falling through to the
+			// per-file dialog there would force the user to confirm
+			// 18 times for an 18-file conflict set.
 			m.dialog.OpenRevert(selectedPath)
 			return nil
 		case key.Matches(msg, keys.Remove) && selectedPath != "" && m.activeTab != TabHistory:
@@ -477,8 +481,12 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 					m.staged.input.Focus()
 				}
 			case key.Matches(msg, keys.Revert):
-				// Revert: revert all M files
-				if paths := m.staged.PathsByStatus("M"); len(paths) > 0 {
+				// Bulk-revert every M *and* C file in the staged set.
+				// cvs update -C discards both local edits and any 3-way
+				// merge markers, so the same code path resolves modified
+				// and conflicted files alike — the typical workflow when
+				// the user gave up on a merge and wants to take server.
+				if paths := m.staged.PathsByStatus("M", "C"); len(paths) > 0 {
 					m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(paths)))
 					return m.stagedBulkAction("revert", paths)
 				}

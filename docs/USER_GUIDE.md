@@ -381,6 +381,17 @@ dirs = ["src/main", "docs", "tests/integration"]
 3. `M` to open the configured merge tool, or
 4. `c` then resolve conflict markers in `$EDITOR`, then `c` again
 
+**Discard local edits + conflicts in bulk** (take server's version for everything)
+
+Stage the files you want to drop (Files tab + `Space` / `A`, or just
+let the staged tab populate them), switch to `3:Staged`, and press
+`r`. lazycvs runs `cvs update -C` over every M and C entry in the
+staged set, replacing each file with the server's revision and
+clearing conflict markers. A backup of each file's pre-revert
+content lands next to it as `<name>.lazycvs-backup`. No
+per-file confirmation prompt — the staged set IS the confirmation,
+so unstage anything you want to keep before pressing `r`.
+
 **Move files into a new subfolder** (CVS has no `mv`, so it's a remove + add)
 
 If you reorganized your working copy by copying files from the root

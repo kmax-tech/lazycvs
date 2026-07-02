@@ -789,7 +789,7 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 		// on-disk working copy.
 		m.vsWorking = !m.vsWorking
 		m.mode = HistoryDiff
-	case keyMsg.String() == "<":
+	case key.Matches(keyMsg, keys.ScrollLeft):
 		if m.hOffset > 0 {
 			m.hOffset -= hScrollStep
 			if m.hOffset < 0 {
@@ -797,7 +797,7 @@ func (m HistoryModel) Update(msg tea.Msg) (HistoryModel, tea.Cmd) {
 			}
 			m.reapplyHOffset()
 		}
-	case keyMsg.String() == ">":
+	case key.Matches(keyMsg, keys.ScrollRight):
 		m.hOffset += hScrollStep
 		m.reapplyHOffset()
 	default:

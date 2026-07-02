@@ -55,6 +55,14 @@ type keyMap struct {
 	SideBySide     key.Binding
 	CompareWorking key.Binding
 	ViewMode       key.Binding
+	ListMode       key.Binding
+	TreeList       key.Binding
+	HideIgnored    key.Binding
+	ForceUpdate    key.Binding
+	Preview        key.Binding
+	CollapseAll    key.Binding
+	ScrollLeft     key.Binding
+	ScrollRight    key.Binding
 
 	// Console
 	Clear key.Binding
@@ -125,7 +133,15 @@ var keys = keyMap{
 	Blame:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "blame")),
 	SideBySide:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "parallel")),
 	CompareWorking: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "vs working")),
-	ViewMode:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view mode")),
+	ViewMode:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "layout")),
+	ListMode:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "list")),
+	TreeList:       key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "tree list")),
+	HideIgnored:    key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "hide-ign")),
+	ForceUpdate:    key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "force update")),
+	Preview:        key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "preview")),
+	CollapseAll:    key.NewBinding(key.WithKeys("~"), key.WithHelp("~", "collapse all")),
+	ScrollLeft:     key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "scroll left")),
+	ScrollRight:    key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "scroll right")),
 
 	Clear: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "clear")),
 

@@ -137,7 +137,7 @@ func (m TreeModel) Update(msg tea.Msg) (TreeModel, tea.Cmd) {
 			return m, m.expandOrSelect()
 		case key.Matches(msg, keys.Left):
 			m.collapseOrUp()
-		case msg.String() == "~":
+		case key.Matches(msg, keys.CollapseAll):
 			// Collapse all and go to root
 			for _, n := range m.root {
 				m.collapseAll(n)

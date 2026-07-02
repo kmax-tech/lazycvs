@@ -316,17 +316,21 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 			}
 			m.cursor = 0
 			m.offset = 0
-		// `t` jumps straight to tree mode. Its siblings `f` (cycle view
-		// mode) and `I` (hide-ignored) are handled at the App level so
-		// they work from either panel and stay in sync with the tree
-		// pane — do NOT re-add them here or the copies shadow-drift.
-		case msg.String() == "t":
-			m.viewMode = FileViewTree
-			m.cursor = 0
-			m.offset = 0
 		}
+		// View-mode keys (f cycle, t tree-jump, I hide-ignored) are
+		// handled at the App level so they work from either panel and
+		// stay in sync with the tree pane — do NOT re-add them here or
+		// the copies shadow-drift (see issues/021).
 	}
 	return m, nil
+}
+
+// SetViewTree jumps the list straight to tree mode (the `t` key,
+// dispatched from the App-level handler).
+func (m *FileListModel) SetViewTree() {
+	m.viewMode = FileViewTree
+	m.cursor = 0
+	m.offset = 0
 }
 
 func (m *FileListModel) ensureVisible() {

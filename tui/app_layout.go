@@ -470,13 +470,13 @@ func (m App) renderKeybar() string {
 		actions = mutedStyle.Render("[Action] ") +
 			keyHelp(keys.Diff, keys.Commit, keys.Add, keys.Remove, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll) + sep +
 			mutedStyle.Render("[View] ") +
-			keyStyle.Render("v") + ":layout  " + keyStyle.Render("f") + ":list  " + keyStyle.Render("F") + ":filter  " + keyStyle.Render("I") + ":hide-ign" + sep +
+			keyHelp(keys.ViewMode, keys.ListMode, keys.Filter, keys.HideIgnored) + sep +
 			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update) + mergeHint
 	case TabFavorites:
 		actions = mutedStyle.Render("[Action] ") +
 			keyHelp(keys.Diff, keys.Commit, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.FavAdd, keys.FavDel) + sep +
 			mutedStyle.Render("[View] ") +
-			keyStyle.Render("f") + ":list  " + keyStyle.Render("F") + ":filter" + sep +
+			keyHelp(keys.ListMode, keys.Filter) + sep +
 			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update) + mergeHint
 	case TabStaged:
 		if m.staged.mode == StagedCommit && m.staged.input.Focused() {

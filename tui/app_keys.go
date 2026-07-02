@@ -174,10 +174,17 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	// Context-dependent bindings: focus/tab/mode-aware.
 	switch {
 	case key.Matches(msg, keys.Tab):
-		// Cycle focus: Left → Right → Console → Left
+		// Cycle focus: Left → Right → Console → Left. The Staged tab in
+		// actions mode renders a single panel, so the cycle skips the
+		// nonexistent right pane there — same guard FocusR applies.
+		singlePanel := m.activeTab == TabStaged && m.staged.mode == StagedActions
 		switch m.focus {
 		case PanelLeft:
-			m.focus = PanelRight
+			if singlePanel {
+				m.focus = PanelConsole
+			} else {
+				m.focus = PanelRight
+			}
 		case PanelRight:
 			m.focus = PanelConsole
 		case PanelConsole:
@@ -185,13 +192,18 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case key.Matches(msg, keys.BackTab):
+		singlePanel := m.activeTab == TabStaged && m.staged.mode == StagedActions
 		switch m.focus {
 		case PanelLeft:
 			m.focus = PanelConsole
 		case PanelRight:
 			m.focus = PanelLeft
 		case PanelConsole:
-			m.focus = PanelRight
+			if singlePanel {
+				m.focus = PanelLeft
+			} else {
+				m.focus = PanelRight
+			}
 		}
 		return nil, true
 	// Arrow keys and h/l navigate WITHIN the focused pane only. Cross-
@@ -200,7 +212,7 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	// through to TreeModel.Update so they collapse/expand the dir under
 	// the cursor (the only in-pane horizontal motion that makes sense
 	// for a tree).
-	case msg.String() == "I" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+	case key.Matches(msg, keys.HideIgnored) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		m.filelist.hideIgnored = !m.filelist.hideIgnored
 		m.filelist.cursor = 0
 		m.filelist.offset = 0
@@ -232,19 +244,24 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// would surprise the user by mutating state they're trying to
 		// inspect, so silently consume it.
 		return nil, true
-	case msg.String() == "U" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+	case key.Matches(msg, keys.ForceUpdate) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
 			m.dialog.OpenForceUpdate(paths)
 		} else if target := m.selectedTarget(); target != "" {
 			m.dialog.OpenForceUpdate([]string{target})
 		}
 		return nil, true
-	case msg.String() == "f" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+	case key.Matches(msg, keys.ListMode) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		// Cycle the filelist's flat → sub → tree view mode regardless of
 		// which panel is focused. Previously this only worked when the
 		// right pane was focused; users with the cursor on the tree pane
 		// pressed `f`, saw nothing happen, and had to switch focus first.
 		m.filelist.CycleViewMode()
+		return nil, true
+	case key.Matches(msg, keys.TreeList) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+		// `t` jumps straight to tree mode — same focus-agnostic rule as
+		// its sibling `f` above.
+		m.filelist.SetViewTree()
 		return nil, true
 	case key.Matches(msg, keys.ViewMode):
 		if m.activeTab != TabTree {
@@ -401,7 +418,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			return m.addFavorite()
 		case key.Matches(msg, keys.FavDel) && m.activeTab == TabFavorites:
 			return m.removeFavorite()
-		case msg.String() == "p" && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
+		case key.Matches(msg, keys.Preview) && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			data, err := os.ReadFile(fullPath)
 			if err == nil {
@@ -545,7 +562,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 					m.setProgress(fmt.Sprintf("⟳ Updating %d file(s)…", len(paths)))
 					return m.stagedBulkAction("update", paths)
 				}
-			case msg.String() == "U":
+			case key.Matches(msg, keys.ForceUpdate):
 				// Force update: cvs update -C (needs confirmation)
 				if paths := m.staged.PathsByStatus("M", "C"); len(paths) > 0 {
 					m.dialog.OpenForceUpdate(paths)
@@ -590,8 +607,9 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			// either panel — they change *what* is shown, which is a
 			// cross-panel concern. Everything else scrolls the
 			// right-pane viewport.
-			switch msg.String() {
-			case "p", "d", "b", "w", " ", "enter":
+			if key.Matches(msg, keys.SideBySide) || key.Matches(msg, keys.Diff) ||
+				key.Matches(msg, keys.Blame) || key.Matches(msg, keys.CompareWorking) ||
+				key.Matches(msg, keys.Space) || key.Matches(msg, keys.Enter) {
 				return m.delegateHistoryKey(msg)
 			}
 			var cmd tea.Cmd

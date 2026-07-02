@@ -96,6 +96,7 @@ the same keys with `Ctrl` jump **between** panes.
 |-----------------------|---------------------------------------------------|
 | `j` `k` `↓` `↑`       | Cursor up / down (within pane)                    |
 | `h` `l` `←` `→`       | Collapse / expand tree dir (within pane; no-op elsewhere) |
+| `~`                   | Collapse all tree dirs, jump to root              |
 | `g` `G`               | First / last item                                 |
 | `PgUp` `PgDn`         | Page up / down                                    |
 | `Ctrl-U` `Ctrl-D`     | Page up / down (vim alias)                        |
@@ -154,9 +155,14 @@ ignores, use `~/.cvsignore` via the `i` dialog options [2] / [3].
 
 ### 2 — Favorites
 
-Pinned directories (set in `[favorites]` config). Live status counts
-update with the rest of the working copy. Useful when your repo has
-many top-level dirs but you only care about a few.
+Pinned directories. Live status counts update with the rest of the
+working copy. Useful when your repo has many top-level dirs but you
+only care about a few.
+
+`+` pins the directory under the cursor (from the Files tree or this
+tab); `-` unpins the selected favorite. Both persist to the
+`[favorites]` section of the config file, which you can also edit by
+hand (e.g. to set a display name per entry).
 
 ### 3 — Staged
 
@@ -164,8 +170,9 @@ Files you've **marked** with `space`. Press `c` to open the commit
 input; type a message and `Enter` commits everything in this tab as one
 cvs invocation. `?` files get `cvs add`-ed automatically before commit.
 
-`r` reverts marked `M` files; `i` adds marked `?` files to `.cvsignore`;
-`u` runs `cvs update` on the selection.
+`r` bulk-reverts every marked `M` and `C` file after a confirmation
+dialog; `i` adds marked `?` files to `.cvsignore`; `u` runs
+`cvs update` on the selection.
 
 **Multi-line commit messages**: while the commit input is focused,
 press `Ctrl+E` to open `$EDITOR` with the current message + a comment
@@ -189,7 +196,7 @@ are marked with `space` — the entire marked set.
 | `space`   | Mark / unmark file. On a directory: toggle every changed file under it. |
 | `A`       | Mark / unmark every changed file in the current directory subtree |
 | `c`       | Commit. Marked set first; otherwise the file under the cursor. `?` files get `cvs add` automatically as part of the commit. |
-| `r`       | Revert (`cvs update -C` — keeps a `.lazycvs-backup` copy)     |
+| `r`       | Revert after confirmation — keeps a `.lazycvs-backup` copy. `M` files via `cvs update -C`; `C` files via delete + re-fetch (clears the conflict marker). Bulk over the whole staged set in the Staged tab. |
 | `D`       | Remove. Marked set in a list dialog, otherwise single file. Untracked files just get deleted from disk; tracked files are scheduled for removal (status `R`). |
 | `e`       | Open in `$EDITOR`                                            |
 | `E`       | Open the configured external diff tool (working copy vs HEAD) |
@@ -199,9 +206,10 @@ are marked with `space` — the entire marked set.
 | `o`       | Open with the OS default viewer (`open` / `xdg-open`)        |
 | `p`       | Read-only file preview overlay                               |
 | `d`       | Jump to History tab pre-loaded with this file                |
+| `+` / `-` | Pin the dir under the cursor as favorite / unpin the selected favorite (`-` in Favorites tab only) |
 | `u`       | `cvs update` (selection or whole repo)                       |
 | `U`       | Force update (`cvs update -C`)                               |
-| `s`       | Refresh status (silent dry-run update)                       |
+| `s`       | Refresh status (dry-run update + per-dir scan in parallel; progress in the banner) |
 
 After every action, lazycvs runs `cvs status -l` on the affected
 directories so the file list and status counts update without a manual

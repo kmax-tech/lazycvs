@@ -57,7 +57,6 @@ type keyMap struct {
 	ViewMode       key.Binding
 
 	// Console
-	Copy  key.Binding
 	Clear key.Binding
 
 	// Dialog
@@ -128,7 +127,6 @@ var keys = keyMap{
 	CompareWorking: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "vs working")),
 	ViewMode:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "view mode")),
 
-	Copy:  key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "copy")),
 	Clear: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "clear")),
 
 	Escape: key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),

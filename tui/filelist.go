@@ -316,15 +316,12 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 			}
 			m.cursor = 0
 			m.offset = 0
-		// View mode switching: f cycles flat→sub→tree, t jumps to tree
-		case msg.String() == "f":
-			m.CycleViewMode()
+		// `t` jumps straight to tree mode. Its siblings `f` (cycle view
+		// mode) and `I` (hide-ignored) are handled at the App level so
+		// they work from either panel and stay in sync with the tree
+		// pane — do NOT re-add them here or the copies shadow-drift.
 		case msg.String() == "t":
 			m.viewMode = FileViewTree
-			m.cursor = 0
-			m.offset = 0
-		case msg.String() == "I":
-			m.hideIgnored = !m.hideIgnored
 			m.cursor = 0
 			m.offset = 0
 		}

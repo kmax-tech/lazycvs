@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"lazycvs/config"
 	"lazycvs/cvs"
 	"os"
 	"path/filepath"
@@ -365,6 +366,66 @@ func stagedBulkPrepareBackups(workDir string, paths []string) {
 		}
 		_ = os.WriteFile(abs+".lazycvs-backup", data, 0644)
 	}
+}
+
+// addFavorite pins the directory the user is looking at: the tree
+// cursor's dir (or the parent dir when the cursor is on a file),
+// falling back to the file-list's current dir. The entry is written
+// through ConfigManager so it survives restarts, then mirrored into
+// the in-memory model.
+func (m *App) addFavorite() tea.Cmd {
+	dir := ""
+	if m.activeTab == TabTree {
+		if node := m.tree.SelectedNode(); node != nil {
+			if node.IsDir {
+				dir = node.Path
+			} else {
+				dir = filepath.Dir(node.Path)
+			}
+		}
+	}
+	if dir == "" || dir == "." {
+		dir = m.filelist.dir
+	}
+	if dir == "" || dir == "." {
+		// The working-copy root is always one keypress away (Tab 1);
+		// favoriting it would just duplicate that.
+		return m.setResult("✗ Select a directory to add as favorite", false)
+	}
+	if m.favorites.Contains(dir) {
+		return m.setResult(fmt.Sprintf("Already a favorite: %s", dir), false)
+	}
+	fav := config.FavoriteDir{Name: filepath.Base(dir), Path: dir}
+	if err := m.cfgMgr.Update(func(c *config.Config) {
+		c.Favorites.Dirs = append(c.Favorites.Dirs, fav)
+	}); err != nil {
+		return m.setResult(fmt.Sprintf("✗ Save favorites: %v", err), false)
+	}
+	m.favorites.Add(fav)
+	m.favorites.UpdateCounts(m.statusMap)
+	return m.setResult(fmt.Sprintf("✓ Added %s to favorites", dir), true)
+}
+
+// removeFavorite unpins the favorite under the cursor (Favorites tab)
+// and persists the shrunken list.
+func (m *App) removeFavorite() tea.Cmd {
+	path := m.favorites.RemoveSelected()
+	if path == "" {
+		return nil
+	}
+	if err := m.cfgMgr.Update(func(c *config.Config) {
+		kept := c.Favorites.Dirs[:0]
+		for _, d := range c.Favorites.Dirs {
+			if d.Path != path {
+				kept = append(kept, d)
+			}
+		}
+		c.Favorites.Dirs = kept
+	}); err != nil {
+		return m.setResult(fmt.Sprintf("✗ Save favorites: %v", err), false)
+	}
+	m.updateFileList()
+	return m.setResult(fmt.Sprintf("✓ Removed %s from favorites", path), true)
 }
 
 func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {

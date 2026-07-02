@@ -138,9 +138,6 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		return func() tea.Msg {
 			return commitMsg{message: message, untracked: untracked, files: commitFiles}
 		}, true
-	case key.Matches(msg, keys.Tab1), key.Matches(msg, keys.Tab2),
-		key.Matches(msg, keys.Tab3), key.Matches(msg, keys.Tab4):
-		return nil, false // let globalBindings handle tab switching
 	}
 	var cmd tea.Cmd
 	m.staged.input, cmd = m.staged.input.Update(msg)
@@ -203,7 +200,7 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	// through to TreeModel.Update so they collapse/expand the dir under
 	// the cursor (the only in-pane horizontal motion that makes sense
 	// for a tree).
-	case msg.String() == "I" && m.activeTab == TabTree:
+	case msg.String() == "I" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		m.filelist.hideIgnored = !m.filelist.hideIgnored
 		m.filelist.cursor = 0
 		m.filelist.offset = 0
@@ -224,9 +221,16 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			}
 			return m.doUpdateSelected(), true
 		}
-		// Other tabs (Staged, History) are read-only with respect to the
-		// working copy. `u` would surprise the user by mutating state
-		// they're trying to inspect, so silently consume it.
+		if m.activeTab == TabStaged {
+			// The Staged tab has its own bulk-update handler in
+			// delegateKey (cvs update over the staged set) — fall
+			// through so it actually receives the key. Consuming it
+			// here left the keybar's `u:update` advertising a no-op.
+			return nil, false
+		}
+		// History is read-only with respect to the working copy. `u`
+		// would surprise the user by mutating state they're trying to
+		// inspect, so silently consume it.
 		return nil, true
 	case msg.String() == "U" && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
@@ -318,7 +322,11 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		case key.Matches(msg, keys.Open) && selectedPath != "":
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			return openInOS(fullPath)
-		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory:
+		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory && m.activeTab != TabStaged:
+			// Staged tab handles `c` further down: it switches to the
+			// in-pane commit input instead of the modal dialog. Without
+			// this gate the dialog opened on top of the Staged tab and
+			// the in-pane path was unreachable.
 			return m.openCommitDialog()
 		case key.Matches(msg, keys.Revert) && selectedPath != "" && m.activeTab != TabHistory && m.activeTab != TabStaged:
 			// Staged tab handles `r` further down as a bulk revert
@@ -389,6 +397,10 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				m.toggleDirFiles(target)
 			}
 			return nil
+		case key.Matches(msg, keys.FavAdd) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+			return m.addFavorite()
+		case key.Matches(msg, keys.FavDel) && m.activeTab == TabFavorites:
+			return m.removeFavorite()
 		case msg.String() == "p" && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			data, err := os.ReadFile(fullPath)
@@ -486,7 +498,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			case key.Matches(msg, keys.PageUp):
 				m.staged.cursor = clamp(m.staged.cursor-(m.staged.height-1), 0, max(0, len(m.staged.files)-1))
 				m.staged.ensureVisible()
-			case key.Matches(msg, keys.Space), msg.String() == "x":
+			case key.Matches(msg, keys.Space):
 				if path := m.staged.SelectedPath(); path != "" {
 					delete(m.filelist.marked, path)
 					m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)

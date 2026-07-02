@@ -1262,7 +1262,6 @@ func buildHelpContent() string {
 	// ── Console ───────────────────────────────────────────────────
 	b.WriteString(helpSection("Console"))
 	b.WriteString(helpRow("F", "cycle filter: compact → verbose → errors → slow") + "\n")
-	b.WriteString(helpRow("y", "copy selected entry") + "\n")
 	b.WriteString(helpRow("x", "clear log") + "\n")
 
 	// ── Status codes ──────────────────────────────────────────────

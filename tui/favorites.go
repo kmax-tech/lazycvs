@@ -64,6 +64,37 @@ func (m FavoritesModel) SelectedPath() string {
 	return m.favorites[m.cursor].Config.Path
 }
 
+// Contains reports whether path is already favorited.
+func (m FavoritesModel) Contains(path string) bool {
+	for _, f := range m.favorites {
+		if f.Config.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+// Add appends an entry to the in-memory list. Persistence is the
+// caller's job (App.addFavorite writes through ConfigManager).
+func (m *FavoritesModel) Add(d config.FavoriteDir) {
+	m.favorites = append(m.favorites, FavoriteEntry{Config: d})
+}
+
+// RemoveSelected drops the cursor entry and returns its path, or ""
+// when the list is empty. The cursor is clamped so it stays on a
+// valid row after the removal.
+func (m *FavoritesModel) RemoveSelected() string {
+	if m.cursor >= len(m.favorites) {
+		return ""
+	}
+	path := m.favorites[m.cursor].Config.Path
+	m.favorites = append(m.favorites[:m.cursor], m.favorites[m.cursor+1:]...)
+	if m.cursor >= len(m.favorites) {
+		m.cursor = max(0, len(m.favorites)-1)
+	}
+	return path
+}
+
 // SetSize takes the App's layout envelope. Favorites fills the left panel
 // only, so it reads LeftW and Height; RightW is ignored.
 func (m *FavoritesModel) SetSize(d PanelDims) {

@@ -1190,9 +1190,13 @@ func buildHelpContent() string {
 	// ── Navigation ────────────────────────────────────────────────
 	b.WriteString(helpSection("Navigation"))
 	b.WriteString(mutedStyle.Render(
-		"  Within a pane: arrows / hjkl. Between panes: add Ctrl.\n"))
+		"  Vertical: arrows / jk move within the pane. Horizontal is a\n" +
+			"  ranger/yazi axis: → goes deeper (expand, then cross into the\n" +
+			"  right pane), ← goes shallower (fold / walk up; from a right\n" +
+			"  pane it returns to the left). Ctrl+h/l/j/k jump panes directly.\n"))
 	b.WriteString(helpRow("j / k", "cursor down / up") + "\n")
-	b.WriteString(helpRow("h / l / ← / →", "collapse / expand (tree)") + "\n")
+	b.WriteString(helpRow("l / →", "expand dir; nothing to expand → right pane") + "\n")
+	b.WriteString(helpRow("h / ←", "collapse / up (tree); right pane → back left") + "\n")
 	b.WriteString(helpRow("~", "collapse all, jump to root (tree)") + "\n")
 	b.WriteString(helpRow("g / G", "top / bottom") + "\n")
 	b.WriteString(helpRow("PgUp/PgDn", "scroll page (also C-u / C-d)") + "\n")

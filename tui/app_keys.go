@@ -206,12 +206,12 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			}
 		}
 		return nil, true
-	// Arrow keys and h/l navigate WITHIN the focused pane only. Cross-
-	// pane movement is on the explicit Ctrl-modified variants (FocusL/R/
-	// C/Up), Tab, or the [ / ] aliases. h/l in the tree pane fall
-	// through to TreeModel.Update so they collapse/expand the dir under
-	// the cursor (the only in-pane horizontal motion that makes sense
-	// for a tree).
+	// Horizontal keys (h/l/←/→) run on a Miller-column axis handled in
+	// delegateKey: they fold/expand inside the tree first and cross the
+	// pane boundary once there's no in-pane meaning left (→ from a
+	// fully-expanded tree row enters the right pane; ← from any right
+	// pane returns left). The Ctrl-modified variants (FocusL/R/C/Up) and
+	// Tab remain the explicit, unconditional pane jumps.
 	case key.Matches(msg, keys.HideIgnored) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		m.filelist.hideIgnored = !m.filelist.hideIgnored
 		m.filelist.cursor = 0
@@ -461,6 +461,19 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 	case PanelLeft:
 		switch m.activeTab {
 		case TabTree:
+			// Miller-column axis (ranger/yazi): → means "deeper". While
+			// the cursor dir can still expand, the tree consumes it; once
+			// there's nothing left to unfold (file, or already-expanded
+			// dir) the same key crosses into the right pane. ← stays
+			// inside the tree — fold / walk up never leaves the leftmost
+			// column.
+			if key.Matches(msg, keys.Right) && !m.tree.CanExpand() {
+				m.focus = PanelRight
+				if m.treeMode == TreeViewDetails {
+					return m.autoLoadPreview()
+				}
+				return nil
+			}
 			var cmd tea.Cmd
 			m.tree, cmd = m.tree.Update(msg)
 			if key.Matches(msg, keys.Enter) || key.Matches(msg, keys.Down) || key.Matches(msg, keys.Up) {
@@ -485,6 +498,12 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			return cmd
 		case TabFavorites:
+			// → crosses into the file list (the favorites list has no
+			// in-pane horizontal motion).
+			if key.Matches(msg, keys.Right) {
+				m.focus = PanelRight
+				return nil
+			}
 			var cmd tea.Cmd
 			m.favorites, cmd = m.favorites.Update(msg)
 			if key.Matches(msg, keys.Enter) {
@@ -574,9 +593,23 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			return nil
 		case TabHistory:
+			// → crosses into the diff/content viewport.
+			if key.Matches(msg, keys.Right) {
+				m.focus = PanelRight
+				return nil
+			}
 			return m.delegateHistoryKey(msg)
 		}
 	case PanelRight:
+		// Miller-column axis: ← steps back into the left column from any
+		// right pane — no right pane assigns an in-pane meaning to ←.
+		// (The staged commit input never reaches here while focused;
+		// handleStagedInput consumes its keys, so cursor movement inside
+		// the message text is unaffected.)
+		if key.Matches(msg, keys.Left) {
+			m.focus = PanelLeft
+			return nil
+		}
 		switch m.activeTab {
 		case TabTree:
 			if m.treeMode == TreeViewDetails {

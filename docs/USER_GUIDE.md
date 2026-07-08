@@ -89,13 +89,20 @@ vanishes on success — disappearance is the "done" signal.
 
 ## Navigation — works the same everywhere
 
-The rule of thumb: arrows / `hjkl` move **inside** the focused pane,
-the same keys with `Ctrl` jump **between** panes.
+Vertical keys (`j`/`k`/arrows) move **inside** the focused pane.
+Horizontal keys follow the **Miller-column model** known from
+ranger/yazi — they move along one shallower ↔ deeper axis, and the
+pane boundary is just a point on it: `→` digs deeper (expand a tree
+dir; once there's nothing left to unfold, cross into the right pane),
+`←` goes shallower (fold / walk up; from a right pane, step back into
+the left one). `Ctrl` + the same keys always jump panes directly —
+useful for the console, which sits outside the axis.
 
 | Keys                  | Action                                            |
 |-----------------------|---------------------------------------------------|
 | `j` `k` `↓` `↑`       | Cursor up / down (within pane)                    |
-| `h` `l` `←` `→`       | Collapse / expand tree dir (within pane; no-op elsewhere) |
+| `l` `→`               | Expand tree dir; with nothing to expand, cross into the right pane |
+| `h` `←`               | Collapse / walk up (tree); from a right pane, back to the left |
 | `~`                   | Collapse all tree dirs, jump to root              |
 | `g` `G`               | First / last item                                 |
 | `PgUp` `PgDn`         | Page up / down                                    |

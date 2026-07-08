@@ -4,6 +4,7 @@ import (
 	"lazycvs/cvs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -266,11 +267,15 @@ func (m *App) updateFileListForDir(dir string) {
 		files = append(files, cvs.FileEntry{Path: path, Status: status, Size: size, Ignored: ignored})
 	}
 
-	// Surface server-only files. CVS status "U" / "P" can refer to files
-	// that exist on the server but haven't been pulled to disk yet; they
-	// show up in statusMap (so the directory's aggregate count is right)
-	// but `os.ReadDir` doesn't see them. Without this pass the user sees
-	// "1U" on a directory and no U row to act on.
+	// Surface changed files the directory walk above didn't see. Two
+	// kinds land here:
+	//
+	//   - server-only files ("U"/"P" for files not pulled to disk yet)
+	//   - files more than one level below dir — the walk only descends
+	//     one level, but the dir badges count the whole subtree, so a
+	//     deep `M` file must still get a selectable row (attached to
+	//     its top-level subdir group) or the user sees "1M" with no M
+	//     row anywhere to act on.
 	seen := make(map[string]bool, len(files))
 	for _, f := range files {
 		seen[f.Path] = true
@@ -289,22 +294,46 @@ func (m *App) updateFileListForDir(dir string) {
 		}
 		rel := strings.TrimPrefix(path, prefix)
 		parts := strings.Split(rel, "/")
-		switch len(parts) {
-		case 1:
-			// Direct child of dir, missing on disk.
+		if len(parts) == 1 {
+			// Direct child of dir. ReadDir listed everything on disk,
+			// so an unseen direct child can only be server-side.
 			files = append(files, cvs.FileEntry{Path: path, Status: status, ServerOnly: true})
-		case 2:
-			// File inside an immediate subdir — attach to the matching
-			// SubDirGroup if we already have one. Skip otherwise (the
-			// subdir itself doesn't exist on disk, which is rare).
-			subdirName := parts[0]
-			for j := range subDirs {
-				if subDirs[j].Name == subdirName {
-					subDirs[j].Files = append(subDirs[j].Files, cvs.FileEntry{Path: path, Status: status, ServerOnly: true})
-					break
-				}
+			continue
+		}
+		// Below an immediate subdir (any depth). On disk = a deep
+		// local change; missing = server-side addition.
+		entry := cvs.FileEntry{Path: path, Status: status, ServerOnly: true}
+		if info, err := os.Stat(filepath.Join(m.exec.WorkDir, path)); err == nil && !info.IsDir() {
+			entry.ServerOnly = false
+			entry.Size = info.Size()
+		}
+		subdirName := parts[0]
+		found := false
+		for j := range subDirs {
+			if subDirs[j].Name == subdirName {
+				subDirs[j].Files = append(subDirs[j].Files, entry)
+				found = true
+				break
 			}
 		}
+		if !found {
+			// The subdir itself doesn't exist on disk (server-side
+			// addition) — synthesize its group so the row has a home.
+			sg := SubDirGroup{Name: subdirName, Path: prefix + subdirName, Files: []cvs.FileEntry{entry}}
+			if node := m.tree.findNode(sg.Path); node != nil {
+				sg.Counts = node.Counts
+			}
+			subDirs = append(subDirs, sg)
+		}
+	}
+	// statusMap iteration order is random and the appended deep entries
+	// land behind the ReadDir-sorted ones — sort every bucket so the
+	// listing is stable across refreshes.
+	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
+	sort.Slice(subDirs, func(i, j int) bool { return subDirs[i].Path < subDirs[j].Path })
+	for i := range subDirs {
+		sf := subDirs[i].Files
+		sort.Slice(sf, func(a, b int) bool { return sf[a].Path < sf[b].Path })
 	}
 
 	m.filelist.SetFiles(dir, files, subDirs)

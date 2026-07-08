@@ -13,7 +13,7 @@ import (
 type FileViewMode int
 
 const (
-	FileViewFlat FileViewMode = iota // only files in this directory
+	FileViewFlat FileViewMode = iota // this dir's files + changed files below (dir-relative paths)
 	FileViewSub                      // files grouped by subdirectories
 	FileViewTree                     // expandable subtree
 )
@@ -86,6 +86,25 @@ func (m FileListModel) rows() []fileRow {
 				continue
 			}
 			rows = append(rows, fileRow{file: &m.files[i]})
+		}
+		// Changed files below subdirs show up too, as dir-relative
+		// paths (no subDir ref → the renderer keeps the full relative
+		// path). The dir badges count the whole subtree, so flat must
+		// offer a row for every counted change or the user sees "1M"
+		// with nothing to select. Clean subdir files stay hidden —
+		// browsing the tree structure is what sub/tree modes are for.
+		for i := range m.subDirs {
+			sd := &m.subDirs[i]
+			if m.hideIgnored && sd.Ignored {
+				continue
+			}
+			for j := range sd.Files {
+				f := &sd.Files[j]
+				if f.Status == "" || !m.showFile(f) {
+					continue
+				}
+				rows = append(rows, fileRow{file: f})
+			}
 		}
 
 	case FileViewSub, FileViewTree:

@@ -137,9 +137,15 @@ for removal · `?` = untracked · `U` = needs update from server.
 Right panel shows the **file list** for whichever directory is selected
 in the tree. It has three view modes (cycle with `f`):
 
-- `flat` — only files in the selected directory
+- `flat` — files in the selected directory, plus every *changed* file
+  from deeper subdirectories as a dir-relative path (clean deep files
+  stay hidden)
 - `sub`  — files grouped under each immediate subdirectory
 - `tree` — expandable subdirs (press `Enter` on a subdir header to expand)
+
+Changed files any number of levels down always get a row (attached to
+their top-level subdirectory in `sub`/`tree` mode), so every count in a
+directory badge has a selectable file behind it.
 
 `F` filters by status code — each press cycles through:
 all → `*` (anything changed: M/C/?/A/R/U) → `M` → `C` → `?` → all.

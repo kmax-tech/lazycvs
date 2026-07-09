@@ -52,3 +52,35 @@ func TestLogFileOpNilReceiver(t *testing.T) {
 	var log *CommandLog
 	log.LogFileOp("rm x", nil) // must not panic
 }
+
+// An oversized session log is rotated to .old at startup; the fresh
+// file starts with the new session marker.
+func TestSessionLogRotation(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "session.log")
+	if err := os.WriteFile(path, []byte("old content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Truncate(path, maxSessionLogBytes+1); err != nil {
+		t.Fatal(err)
+	}
+
+	log := NewCommandLog(10)
+	if err := log.EnableFileLog(path, "/wc"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(path + ".old"); err != nil {
+		t.Errorf("rotated .old file missing: %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if int64(len(data)) > maxSessionLogBytes {
+		t.Errorf("fresh log still oversized (%d bytes) — rotation didn't happen", len(data))
+	}
+	if !strings.Contains(string(data), "=== lazycvs session") {
+		t.Error("fresh log missing session marker")
+	}
+}

@@ -447,7 +447,9 @@ func doRestoreRev(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
 		// case the user decides the restore was a mistake.
 		data, _ := os.ReadFile(filepath.Join(exec.WorkDir, path))
 		if data != nil {
-			os.WriteFile(filepath.Join(exec.WorkDir, path+".lazycvs-backup"), data, 0644)
+			if os.WriteFile(filepath.Join(exec.WorkDir, path+".lazycvs-backup"), data, 0644) == nil {
+				exec.Log.LogFileOp("cp "+path+" "+path+".lazycvs-backup  # pre-restore safety copy", nil)
+			}
 		}
 		r, err := exec.Run("update", "-C", "-r", rev, path)
 		if err == nil && r != nil && !r.Success {

@@ -424,7 +424,8 @@ func (m *App) handleConflictResolve(msg conflictResolveMsg) tea.Cmd {
 		return nil
 	}
 	resolved := cvs.ResolveConflict(string(data), msg.choice, 0) // 0 = all regions
-	os.WriteFile(fullPath, []byte(resolved), 0644)
+	err = os.WriteFile(fullPath, []byte(resolved), 0644)
+	m.cmdLog.LogFileOp("resolve "+msg.path+" --keep="+msg.choice+"  # strip conflict markers", err)
 	return m.refreshStatusForPaths([]string{msg.path})
 }
 

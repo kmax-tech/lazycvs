@@ -118,12 +118,24 @@ func (l *CommandLog) push(entry ConsoleEntry) {
 	}
 }
 
+// maxSessionLogBytes bounds the session log file. When it exceeds this
+// at startup it's rotated to <path>.old (replacing the previous .old),
+// so total disk usage stays at ~2× this size while the tail of the
+// history is always preserved.
+const maxSessionLogBytes = 1 << 20 // 1 MB ≈ a dozen thousand entries
+
 // EnableFileLog opens path for appending and mirrors every subsequent
 // entry into it, starting with a session marker line. Unlike the ring
 // buffer (which evicts and can be cleared with `x`), the file is a
-// permanent audit trail — the "session report" for questions like
+// rolling audit trail — the "session report" for questions like
 // "which files did that bulk revert delete yesterday?".
 func (l *CommandLog) EnableFileLog(path, workDir string) error {
+	if info, err := os.Stat(path); err == nil && info.Size() > maxSessionLogBytes {
+		// Best-effort rotation at session start; a session's own
+		// writes are small, so checking only here keeps the hot path
+		// free of size checks.
+		_ = os.Rename(path, path+".old")
+	}
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return err

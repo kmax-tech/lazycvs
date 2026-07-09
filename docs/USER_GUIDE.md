@@ -280,12 +280,14 @@ the answer to "which files did that action actually delete?".
 - The `⚠ n` badge in the tab bar counts failed commands since you last
   looked at the console
 
-Everything is also appended to a permanent **session log file** next to
+Everything is also appended to a rolling **session log file** next to
 the config (e.g. `~/.config/lazycvs/lazycvs.log`, platform-dependent —
 the help overlay `?` shows the exact path). Each lazycvs start writes a
 `=== lazycvs session <time> — <workdir> ===` marker, successful
-commands get one line each, failures include their error output. Use it
-as an audit trail across sessions:
+commands get one line each, failures include their error output. The
+file can't grow unbounded: past ~1 MB it rotates to `lazycvs.log.old`
+at the next start (one generation kept). Use it as an audit trail
+across sessions:
 
 ```
 === lazycvs session 2026-07-09 16:18:01 — /home/me/webis ===

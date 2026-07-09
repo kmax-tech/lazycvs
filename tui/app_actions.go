@@ -449,6 +449,7 @@ func (m *App) removeFavorite() tea.Cmd {
 }
 
 func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
+	written := 0
 	for _, p := range paths {
 		delete(m.filelist.marked, p)
 		dir := filepath.Dir(p)
@@ -457,7 +458,11 @@ func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
 		if err == nil {
 			f.WriteString(base(p) + "\n")
 			f.Close()
+			written++
 		}
+	}
+	if written > 0 {
+		m.cmdLog.LogFileOp(fmt.Sprintf("echo %d name(s) >> .cvsignore  # ignore bulk", written), nil)
 	}
 	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 	return m.refreshStatusForPaths(paths)
@@ -557,32 +562,36 @@ func (m *App) handleIgnore(msg ignoreMsg) tea.Cmd {
 			f.WriteString(base(msg.path) + "\n")
 			f.Close()
 		}
+		m.cmdLog.LogFileOp("echo "+base(msg.path)+" >> "+filepath.Join(dir, ".cvsignore"), err)
 	case 2:
 		// Global pattern → ~/.cvsignore
 		e := ext(msg.path)
 		if e != "" {
-			appendToGlobalCvsignore("*" + e)
+			err := appendToGlobalCvsignore("*" + e)
+			m.cmdLog.LogFileOp("echo *"+e+" >> ~/.cvsignore", err)
 		}
 	case 3:
 		// Global exact → ~/.cvsignore
-		appendToGlobalCvsignore(base(msg.path))
+		err := appendToGlobalCvsignore(base(msg.path))
+		m.cmdLog.LogFileOp("echo "+base(msg.path)+" >> ~/.cvsignore", err)
 	}
 	return m.refreshStatusForPaths([]string{msg.path})
 }
 
-func appendToGlobalCvsignore(pattern string) {
+func appendToGlobalCvsignore(pattern string) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return
+		return err
 	}
 	path := filepath.Join(home, ".cvsignore")
 	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return
+		return err
 	}
 	defer f.Close()
 	// CVS ignore files are space-separated, but one pattern per line is safe
-	f.WriteString(pattern + "\n")
+	_, err = f.WriteString(pattern + "\n")
+	return err
 }
 
 // handleInTheWayResolve performs the user's chosen resolution for paths

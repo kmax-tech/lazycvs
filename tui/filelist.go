@@ -451,6 +451,11 @@ func (m FileListModel) View() string {
 				name = strings.TrimPrefix(name, row.subDir.Name+"/")
 				name = "  " + name
 			}
+			if f.IsDir {
+				// Untracked directory surfaced from the status scan
+				// (cvs reports whole unknown dirs as one "?" line).
+				name += "/"
+			}
 
 			// Right-hand column: size, or "(server)" for entries that
 			// CVS reports a status for but which don't exist locally
@@ -458,6 +463,8 @@ func (m FileListModel) View() string {
 			// matches the formatSize column width.
 			size := ""
 			switch {
+			case f.IsDir:
+				// no size for dirs
 			case f.ServerOnly:
 				size = "(server)"
 			case f.Size > 0:

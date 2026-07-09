@@ -85,6 +85,55 @@ func TestUpdateFileListSurfacesDeepChanges(t *testing.T) {
 	}
 }
 
+// An untracked directory reported by `cvs -n update` ("? sub/newdir")
+// exists on disk — it must surface as a dir row, NOT as a "(server)"
+// pseudo-file. Regression test for the mislabeled (server) rows.
+func TestSurfacedUntrackedDirIsNotServerOnly(t *testing.T) {
+	app := newListingTestApp(t)
+	if err := os.MkdirAll(filepath.Join(app.exec.WorkDir, "sub/newdir"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	app.statusMap["sub/newdir"] = "?"
+	app.updateFileListForDir(".")
+
+	for i := range app.filelist.subDirs {
+		for _, f := range app.filelist.subDirs[i].Files {
+			if f.Path != "sub/newdir" {
+				continue
+			}
+			if f.ServerOnly {
+				t.Error("on-disk untracked dir flagged ServerOnly")
+			}
+			if !f.IsDir {
+				t.Error("untracked dir not flagged IsDir")
+			}
+			return
+		}
+	}
+	t.Fatal("untracked dir sub/newdir missing from listing")
+}
+
+// Surfaced statusMap entries respect the ignore patterns — a deep
+// *.lazycvs-backup reported as "?" must carry Ignored so hide-ignored
+// keeps it out of the listing.
+func TestSurfacedEntriesRespectIgnore(t *testing.T) {
+	app := newListingTestApp(t)
+	backup := "sub/deep/old.txt.lazycvs-backup"
+	if err := os.WriteFile(filepath.Join(app.exec.WorkDir, backup), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	app.statusMap[backup] = "?"
+	app.updateFileListForDir(".")
+
+	for i := range app.filelist.subDirs {
+		for _, f := range app.filelist.subDirs[i].Files {
+			if f.Path == backup && !f.Ignored {
+				t.Error("surfaced *.lazycvs-backup entry not flagged Ignored")
+			}
+		}
+	}
+}
+
 // Flat mode must offer a selectable row for every changed file below
 // the dir (as dir-relative path), while clean subdir files stay hidden.
 func TestFlatViewShowsDeepChanges(t *testing.T) {

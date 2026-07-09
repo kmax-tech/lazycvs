@@ -533,7 +533,13 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.MouseMsg:
-		if !m.dialog.Active() && !m.search.active {
+		if m.dialog.Active() {
+			// Wheel scrolls the dialog's own viewport (help / preview);
+			// the panels underneath must not move while covered.
+			m.dialog.HandleMouse(msg)
+			return m, nil
+		}
+		if !m.search.active {
 			return m, m.handleMouse(msg)
 		}
 		return m, nil

@@ -639,6 +639,22 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 	return m, nil
 }
 
+// HandleMouse lets the wheel scroll the scrollable dialogs (help and
+// preview share the viewport). Other dialog kinds are single-screen
+// prompts — the mouse is deliberately ignored there so a stray wheel
+// flick over a confirmation can't change anything.
+func (m *DialogModel) HandleMouse(msg tea.MouseMsg) {
+	if m.kind != DialogHelp && m.kind != DialogPreview {
+		return
+	}
+	switch msg.Button {
+	case tea.MouseButtonWheelUp:
+		m.preview.LineUp(3)
+	case tea.MouseButtonWheelDown:
+		m.preview.LineDown(3)
+	}
+}
+
 func (m DialogModel) updateCommit(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.Escape):

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"lazycvs/config"
 	"lazycvs/cvs"
 	"fmt"
 	"os"
@@ -425,7 +426,9 @@ func doRevert(exec *cvs.CVSExecutor, path, status string) tea.Cmd {
 		abs := filepath.Join(exec.WorkDir, path)
 		data, _ := os.ReadFile(abs)
 		if data != nil {
-			os.WriteFile(abs+".lazycvs-backup", data, 0644)
+			if os.WriteFile(abs+".lazycvs-backup", data, 0644) == nil {
+				exec.Log.LogFileOp("cp "+path+" "+path+".lazycvs-backup  # pre-revert safety copy", nil)
+			}
 		}
 		err := revertOne(exec, exec.WorkDir, path, status)
 		return actionDoneMsg{paths: []string{path}, err: err}
@@ -485,6 +488,7 @@ func doRemove(executor *cvs.CVSExecutor, paths []string, statuses map[string]str
 				// untracked — just delete the file
 				abs := filepath.Join(executor.WorkDir, path)
 				err = os.Remove(abs)
+				executor.Log.LogFileOp("rm "+path+"  # remove untracked", err)
 			default:
 				// Pick -f vs no-flag based on whether the file is still
 				// on disk. cvs remove -f insists on deleting first, so
@@ -1267,7 +1271,11 @@ func buildHelpContent() string {
 	// ── Console ───────────────────────────────────────────────────
 	b.WriteString(helpSection("Console"))
 	b.WriteString(helpRow("F", "cycle filter: compact → verbose → errors → slow") + "\n")
-	b.WriteString(helpRow("x", "clear log") + "\n")
+	b.WriteString(helpRow("+ / -", "grow / shrink the console panel (when focused)") + "\n")
+	b.WriteString(helpRow("x", "clear panel (session log file keeps everything)") + "\n")
+	b.WriteString("\n  " + mutedStyle.Render(
+		"Every cvs command and file operation (rm / mv / backup) is\n"+
+			"also appended to "+config.DefaultLogPath()) + "\n")
 
 	// ── Status codes ──────────────────────────────────────────────
 	b.WriteString(helpSection("Status codes"))

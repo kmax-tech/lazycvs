@@ -265,6 +265,35 @@ first invocation; subsequent searches are instant.
 Marking persists across tab switches. Unmark a single file with `space`
 again, or `A` on the directory to clear the whole subtree.
 
+## Console & session log
+
+The console panel at the bottom shows every command lazycvs ran —
+both the real `cvs` invocations and the file operations it performs
+itself (`rm` during a conflict revert, `mv` for backup restores and
+in-the-way resolutions, backup copies before reverts). That makes it
+the answer to "which files did that action actually delete?".
+
+- `Ctrl-j` focuses the console; `Ctrl-k` goes back up
+- `+` / `-` grow / shrink the panel (while focused)
+- `F` cycles the filter: compact → verbose → errors → slow
+- `x` clears the panel — the session log file below keeps everything
+- The `⚠ n` badge in the tab bar counts failed commands since you last
+  looked at the console
+
+Everything is also appended to a permanent **session log file** next to
+the config (e.g. `~/.config/lazycvs/lazycvs.log`, platform-dependent —
+the help overlay `?` shows the exact path). Each lazycvs start writes a
+`=== lazycvs session <time> — <workdir> ===` marker, successful
+commands get one line each, failures include their error output. Use it
+as an audit trail across sessions:
+
+```
+=== lazycvs session 2026-07-09 16:18:01 — /home/me/webis ===
+16:18:32 $ /opt/homebrew/bin/cvs status part-network-protocol (178ms) ok
+16:19:02 $ cp 18 file(s) → *.lazycvs-backup  # pre-revert safety copies ok
+16:19:03 $ rm webis24-figures/meyer.jpg  # revert conflict: refetch clean copy ok
+```
+
 ## History tab in depth
 
 Open with `4` (or `d` on a file in another tab). Left panel is the

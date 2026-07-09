@@ -132,7 +132,7 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 			statuses[p] = m.statusMap[p]
 		}
 		workDir := exec.WorkDir
-		stagedBulkPrepareBackups(workDir, paths)
+		stagedBulkPrepareBackups(exec, paths)
 		return func() tea.Msg {
 			var firstErr error
 			for _, p := range paths {
@@ -186,9 +186,11 @@ func (m *App) restoreFromBackup(path string) tea.Cmd {
 		return notifyCmd
 	}
 	if err := os.Rename(absBackup, absTarget); err != nil {
+		m.cmdLog.LogFileOp("mv "+backup+" "+target+"  # restore backup", err)
 		notifyCmd := m.setResult(fmt.Sprintf("✗ Restore failed: %v", err), false)
 		return notifyCmd
 	}
+	m.cmdLog.LogFileOp("mv "+backup+" "+target+"  # restore backup", nil)
 	// The restored file is back in M state from CVS's perspective —
 	// reuse the per-path refresh that the action handlers use so the
 	// listing picks up the new status and the now-gone backup file.
@@ -232,12 +234,14 @@ func (m *App) restoreFromBackupBulk(paths []string) tea.Cmd {
 			continue
 		}
 		if err := os.Rename(absBackup, absTarget); err != nil {
+			m.cmdLog.LogFileOp("mv "+p.backup+" "+p.target+"  # restore backup (bulk)", err)
 			failed++
 			if firstErr == nil {
 				firstErr = err
 			}
 			continue
 		}
+		m.cmdLog.LogFileOp("mv "+p.backup+" "+p.target+"  # restore backup (bulk)", nil)
 		restored++
 		refreshPaths = append(refreshPaths, p.target, p.backup)
 		delete(m.filelist.marked, p.target)
@@ -286,13 +290,19 @@ func (m *App) restoreBackupsInSubtree(dirPath string) tea.Cmd {
 			return nil
 		}
 		target := strings.TrimSuffix(p, suffix)
+		relTarget := target
+		if r, err := filepath.Rel(m.exec.WorkDir, target); err == nil {
+			relTarget = r
+		}
 		if err := os.Rename(p, target); err != nil {
+			m.cmdLog.LogFileOp("mv "+relTarget+suffix+" "+relTarget+"  # restore backup (subtree)", err)
 			failed++
 			if firstErr == nil {
 				firstErr = err
 			}
 			return nil
 		}
+		m.cmdLog.LogFileOp("mv "+relTarget+suffix+" "+relTarget+"  # restore backup (subtree)", nil)
 		restored++
 		// Both halves of the pair, expressed relative to WorkDir so
 		// the refresh keys line up with statusMap entries.
@@ -332,7 +342,9 @@ func revertOne(exec *cvs.CVSExecutor, workDir, path, status string) error {
 	if status == "C" {
 		// Best-effort delete: if the file is already gone the next
 		// cvs update will still bring it back, which is the goal.
-		_ = os.Remove(abs)
+		if err := os.Remove(abs); err == nil {
+			exec.Log.LogFileOp("rm "+path+"  # revert conflict: refetch clean copy", nil)
+		}
 		r, err := exec.Run("update", path)
 		if err != nil {
 			return err
@@ -357,14 +369,22 @@ func revertOne(exec *cvs.CVSExecutor, workDir, path, status string) error {
 // Mirrors the per-file backup doRevert already writes for the
 // dialog-driven single-file revert, but lifts it out of the goroutine
 // so the backups are guaranteed in place before any `rm` lands.
-func stagedBulkPrepareBackups(workDir string, paths []string) {
+func stagedBulkPrepareBackups(exec *cvs.CVSExecutor, paths []string) {
+	n := 0
 	for _, p := range paths {
-		abs := filepath.Join(workDir, p)
+		abs := filepath.Join(exec.WorkDir, p)
 		data, err := os.ReadFile(abs)
 		if err != nil {
 			continue // missing on disk → nothing to back up
 		}
-		_ = os.WriteFile(abs+".lazycvs-backup", data, 0644)
+		if os.WriteFile(abs+".lazycvs-backup", data, 0644) == nil {
+			n++
+		}
+	}
+	if n > 0 {
+		// One summary line, not one per file — an 18-file bulk revert
+		// shouldn't spend a third of the console on backup notes.
+		exec.Log.LogFileOp(fmt.Sprintf("cp %d file(s) → *.lazycvs-backup  # pre-revert safety copies", n), nil)
 	}
 }
 
@@ -586,9 +606,11 @@ func (m *App) handleInTheWayResolve(msg inTheWayResolveMsg) tea.Cmd {
 		abs := filepath.Join(m.exec.WorkDir, p)
 		switch msg.choice {
 		case inTheWayMoveAside:
-			os.Rename(abs, abs+".moved-by-lazycvs")
+			err := os.Rename(abs, abs+".moved-by-lazycvs")
+			m.cmdLog.LogFileOp("mv "+p+" "+p+".moved-by-lazycvs  # in-the-way", err)
 		case inTheWayDelete:
-			os.Remove(abs)
+			err := os.Remove(abs)
+			m.cmdLog.LogFileOp("rm "+p+"  # in-the-way", err)
 		}
 	}
 	// Re-run cvs update on the now-unblocked paths so the server

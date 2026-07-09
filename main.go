@@ -184,7 +184,15 @@ func runApp(workDir, initialPath string, cfgMgr *config.ConfigManager, cvsBinOve
 		}
 	}
 
-	cmdLog := cvs.NewCommandLog(50)
+	// 200 entries keeps a whole session's worth of bulk actions visible
+	// in the console; the append-only file below is the unbounded record.
+	cmdLog := cvs.NewCommandLog(200)
+	logPath := config.DefaultLogPath()
+	if err := os.MkdirAll(filepath.Dir(logPath), 0755); err == nil {
+		if err := cmdLog.EnableFileLog(logPath, workDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: session log disabled: %v\n", err)
+		}
+	}
 	executor := cvs.NewCVSExecutor(workDir, cvsPath, timeout, cmdLog)
 	app := tui.NewApp(executor, cmdLog, cfgMgr, initialPath)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())

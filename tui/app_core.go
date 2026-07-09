@@ -816,7 +816,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(paths)))
 		exec := m.exec
 		workDir := exec.WorkDir
-		stagedBulkPrepareBackups(workDir, paths)
+		stagedBulkPrepareBackups(exec, paths)
 		return m, func() tea.Msg {
 			var firstErr error
 			for _, p := range paths {

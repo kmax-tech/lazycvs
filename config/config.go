@@ -62,6 +62,11 @@ func DefaultConfigPath() string {
 	return filepath.Join(dir, "lazycvs", "config.toml")
 }
 
+// DefaultLogPath returns the session-log path, next to the config file.
+func DefaultLogPath() string {
+	return filepath.Join(filepath.Dir(DefaultConfigPath()), "lazycvs.log")
+}
+
 // DefaultConfig returns the default configuration.
 func DefaultConfig() *Config {
 	return &Config{

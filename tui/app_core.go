@@ -94,17 +94,32 @@ type commitDoneMsg struct {
 	err     error
 }
 
+// recentEntry is one row of the `H` recent-changes dialog: the parsed
+// history event plus the two path forms the UI needs — label is shown
+// (relative to the queried dir), wcPath is relative to the working-copy
+// root and feeds the jump-to-History action on Enter.
+type recentEntry struct {
+	event  cvs.HistoryEvent
+	label  string
+	wcPath string
+}
+
 // recentChangesMsg carries the result of the `H` recent-activity query
 // (cvs history scoped to a dir + time window). output holds the raw
 // combined output on error so the handler can surface cvs's own
 // explanation (e.g. missing CVSROOT/history database).
 type recentChangesMsg struct {
-	dir          string
-	days         int
-	modulePrefix string
-	events       []cvs.HistoryEvent
-	err          error
-	output       string
+	dir     string
+	days    int
+	entries []recentEntry
+	err     error
+	output  string
+}
+
+// recentOpenMsg is emitted by the recent-changes dialog when the user
+// presses Enter on a row: jump to the History tab for that file.
+type recentOpenMsg struct {
+	path string
 }
 
 // notificationExpiredMsg is fired by a tea.Tick to clear the banner after
@@ -871,8 +886,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dialog.OpenPreview(title, body)
 			return m, nil
 		}
-		m.dialog.OpenPreview(title, formatRecentChanges(msg))
+		m.dialog.OpenRecent(title, msg.days, msg.entries)
 		return m, nil
+
+	case recentOpenMsg:
+		// Enter on a recent-changes row: land in the History tab for
+		// that file — revision list, diffs, commit messages.
+		m.activeTab = TabHistory
+		m.focus = PanelLeft
+		return m, m.openHistoryFor(msg.path)
 
 	case restoreRevMsg:
 		m.setProgress(fmt.Sprintf("⟳ Restoring %s @ %s…", filepath.Base(msg.path), msg.rev))

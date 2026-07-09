@@ -15,6 +15,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type DialogKind int
@@ -33,6 +34,7 @@ const (
 	DialogRestoreRev
 	DialogCheckoutRoot   // CVSROOT input (lazycvs init)
 	DialogCheckoutModule // module picker after `cvs co -c` returns
+	DialogRecent         // recent repository changes (`H`), Enter jumps to History
 )
 
 type DialogModel struct {
@@ -61,6 +63,13 @@ type DialogModel struct {
 	checkoutCursor  int
 	checkoutErr     string
 	checkoutLoading string // non-empty while a bootstrap cvs call is in flight
+
+	// Recent-changes dialog state (`H`).
+	recentEntries []recentEntry
+	recentCursor  int
+	recentOffset  int
+	recentTitle   string
+	recentDays    int
 }
 
 func NewDialogModel() DialogModel {
@@ -68,6 +77,17 @@ func NewDialogModel() DialogModel {
 	ti.Placeholder = "Commit message..."
 	ti.CharLimit = 256
 	return DialogModel{input: ti}
+}
+
+// OpenRecent shows the recent-repository-changes list (`H`). Enter on
+// a row jumps to the History tab for that file.
+func (m *DialogModel) OpenRecent(title string, days int, entries []recentEntry) {
+	m.kind = DialogRecent
+	m.recentTitle = title
+	m.recentDays = days
+	m.recentEntries = entries
+	m.recentCursor = 0
+	m.recentOffset = 0
 }
 
 func (m *DialogModel) OpenCommit(files []string, statuses map[string]string) {
@@ -600,6 +620,8 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 			return m.updateCheckoutRoot(msg)
 		case DialogCheckoutModule:
 			return m.updateCheckoutModule(msg)
+		case DialogRecent:
+			return m.updateRecent(msg)
 		case DialogRemove:
 			return m.updateRemove(msg)
 		case DialogIgnore:
@@ -640,19 +662,96 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 }
 
 // HandleMouse lets the wheel scroll the scrollable dialogs (help and
-// preview share the viewport). Other dialog kinds are single-screen
-// prompts — the mouse is deliberately ignored there so a stray wheel
-// flick over a confirmation can't change anything.
+// preview share the viewport; the recent-changes list moves its
+// cursor). Other dialog kinds are single-screen prompts — the mouse is
+// deliberately ignored there so a stray wheel flick over a
+// confirmation can't change anything.
 func (m *DialogModel) HandleMouse(msg tea.MouseMsg) {
-	if m.kind != DialogHelp && m.kind != DialogPreview {
-		return
+	switch m.kind {
+	case DialogHelp, DialogPreview:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.preview.LineUp(3)
+		case tea.MouseButtonWheelDown:
+			m.preview.LineDown(3)
+		}
+	case DialogRecent:
+		switch msg.Button {
+		case tea.MouseButtonWheelUp:
+			m.recentCursor = clamp(m.recentCursor-3, 0, max(0, len(m.recentEntries)-1))
+		case tea.MouseButtonWheelDown:
+			m.recentCursor = clamp(m.recentCursor+3, 0, max(0, len(m.recentEntries)-1))
+		}
+		m.recentOffset = ensureCursorVisible(m.recentCursor, m.recentOffset, m.recentVisibleRows())
 	}
-	switch msg.Button {
-	case tea.MouseButtonWheelUp:
-		m.preview.LineUp(3)
-	case tea.MouseButtonWheelDown:
-		m.preview.LineDown(3)
+}
+
+// recentVisibleRows is the row budget for the recent-changes list:
+// terminal height minus the dialog chrome (title, legend, help line,
+// box borders/padding), clamped to something sane.
+func (m DialogModel) recentVisibleRows() int {
+	return clamp(m.height-12, 5, 30)
+}
+
+func (m DialogModel) updateRecent(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
+	last := max(0, len(m.recentEntries)-1)
+	switch {
+	case key.Matches(msg, keys.Escape), msg.String() == "q", msg.String() == "H":
+		m.Close()
+		return m, nil
+	case key.Matches(msg, keys.Down):
+		m.recentCursor = clamp(m.recentCursor+1, 0, last)
+	case key.Matches(msg, keys.Up):
+		m.recentCursor = clamp(m.recentCursor-1, 0, last)
+	case key.Matches(msg, keys.Top):
+		m.recentCursor = 0
+	case key.Matches(msg, keys.Bottom):
+		m.recentCursor = last
+	case key.Matches(msg, keys.PageDown):
+		m.recentCursor = clamp(m.recentCursor+m.recentVisibleRows(), 0, last)
+	case key.Matches(msg, keys.PageUp):
+		m.recentCursor = clamp(m.recentCursor-m.recentVisibleRows(), 0, last)
+	case key.Matches(msg, keys.Enter):
+		if m.recentCursor < len(m.recentEntries) {
+			path := m.recentEntries[m.recentCursor].wcPath
+			m.Close()
+			return m, func() tea.Msg { return recentOpenMsg{path: path} }
+		}
 	}
+	m.recentOffset = ensureCursorVisible(m.recentCursor, m.recentOffset, m.recentVisibleRows())
+	return m, nil
+}
+
+func (m DialogModel) viewRecent() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s\n\n", titleStyle.Render(m.recentTitle))
+	if len(m.recentEntries) == 0 {
+		fmt.Fprintf(&b, "No recorded changes in the last %d day(s).\n\n", m.recentDays)
+		b.WriteString(helpStyle.Render("esc: close"))
+		return b.String()
+	}
+	b.WriteString(mutedStyle.Render(fmt.Sprintf(
+		"%d change(s), newest first.   M=commit  A=add  R=remove\n\n", len(m.recentEntries))))
+
+	visible := m.recentVisibleRows()
+	end := min(m.recentOffset+visible, len(m.recentEntries))
+	maxW := max(20, m.width-12)
+	for i := m.recentOffset; i < end; i++ {
+		en := m.recentEntries[i]
+		line := fmt.Sprintf("%s  %s %-6s %-10s %s",
+			en.event.Time.Local().Format("2006-01-02 15:04"),
+			en.event.Code, en.event.Rev, en.event.User, en.label)
+		line = ansi.Truncate(line, maxW, "…")
+		if i == m.recentCursor {
+			line = lipgloss.NewStyle().Reverse(true).Render(line)
+		}
+		b.WriteString(line + "\n")
+	}
+	if rest := len(m.recentEntries) - end; rest > 0 {
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("… %d more below\n", rest)))
+	}
+	b.WriteString("\n" + helpStyle.Render("enter: open file history   j/k: move   esc: close"))
+	return b.String()
 }
 
 func (m DialogModel) updateCommit(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
@@ -876,6 +975,8 @@ func (m DialogModel) View() string {
 		content = m.viewPreview()
 	case DialogHelp:
 		content = m.viewHelp()
+	case DialogRecent:
+		content = m.viewRecent()
 	}
 
 	return boxStyle.Render(content)
@@ -1274,7 +1375,7 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("s", "status refresh (dry-run + scan, parallel)") + "\n")
 	b.WriteString(helpRow("u", "update (cvs update -d -P)") + "\n")
 	b.WriteString(helpRow("U", "force update (cvs update -C — overwrite!)") + "\n")
-	b.WriteString(helpRow("H", "recent repo changes for dir+subdirs (cvs history, all users, last 7d — config history_days)") + "\n")
+	b.WriteString(helpRow("H", "recent repo changes for dir+subdirs (cvs history, all users, last 7d — config history_days); enter on a row opens the file's History") + "\n")
 
 	// ── History ───────────────────────────────────────────────────
 	b.WriteString(helpSection("History tab"))

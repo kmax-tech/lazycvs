@@ -400,7 +400,8 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 		if err != nil {
 			return recentChangesMsg{dir: dir, days: days, err: fmt.Errorf("read CVS/Repository: %w", err)}
 		}
-		modulePrefix := filepath.Clean(strings.TrimSpace(string(rootRepo)) + "/" + dir)
+		moduleRoot := filepath.Clean(strings.TrimSpace(string(rootRepo)))
+		modulePrefix := filepath.Clean(moduleRoot + "/" + dir)
 		since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 		r, runErr := exec.RunReadOnly("history", "-x", "AMR", "-a", "-D", since)
 		if e := cvs.FirstFailure(r, runErr); e != nil {
@@ -412,29 +413,17 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 		}
 		events := cvs.FilterHistoryByRepoPrefix(cvs.ParseHistory(r.Stdout), modulePrefix)
 		sort.Slice(events, func(i, j int) bool { return events[i].Time.After(events[j].Time) })
-		return recentChangesMsg{dir: dir, days: days, events: events, modulePrefix: modulePrefix}
-	}
-}
-
-// formatRecentChanges renders the H-view body: newest first, one line
-// per event, file paths relative to the chosen dir.
-func formatRecentChanges(msg recentChangesMsg) string {
-	if len(msg.events) == 0 {
-		return fmt.Sprintf("No recorded changes in the last %d day(s).", msg.days)
-	}
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d change(s), newest first.   M=commit  A=add  R=remove\n\n", len(msg.events))
-	for _, e := range msg.events {
-		rel := strings.TrimPrefix(e.RepoDir, msg.modulePrefix)
-		rel = strings.TrimPrefix(rel, "/")
-		p := e.File
-		if rel != "" {
-			p = rel + "/" + e.File
+		entries := make([]recentEntry, 0, len(events))
+		for _, e := range events {
+			full := e.RepoDir + "/" + e.File
+			entries = append(entries, recentEntry{
+				event:  e,
+				label:  strings.TrimPrefix(full, modulePrefix+"/"),
+				wcPath: strings.TrimPrefix(full, moduleRoot+"/"),
+			})
 		}
-		fmt.Fprintf(&b, "%s  %s %-6s %-10s %s\n",
-			e.Time.Local().Format("2006-01-02 15:04"), e.Code, e.Rev, e.User, p)
+		return recentChangesMsg{dir: dir, days: days, entries: entries}
 	}
-	return b.String()
 }
 
 // addFavorite pins the directory the user is looking at: the tree

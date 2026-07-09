@@ -1274,6 +1274,7 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("s", "status refresh (dry-run + scan, parallel)") + "\n")
 	b.WriteString(helpRow("u", "update (cvs update -d -P)") + "\n")
 	b.WriteString(helpRow("U", "force update (cvs update -C — overwrite!)") + "\n")
+	b.WriteString(helpRow("H", "recent repo changes for dir+subdirs (cvs history, all users, last 7d — config history_days)") + "\n")
 
 	// ── History ───────────────────────────────────────────────────
 	b.WriteString(helpSection("History tab"))

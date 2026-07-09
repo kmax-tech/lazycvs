@@ -94,6 +94,19 @@ type commitDoneMsg struct {
 	err     error
 }
 
+// recentChangesMsg carries the result of the `H` recent-activity query
+// (cvs history scoped to a dir + time window). output holds the raw
+// combined output on error so the handler can surface cvs's own
+// explanation (e.g. missing CVSROOT/history database).
+type recentChangesMsg struct {
+	dir          string
+	days         int
+	modulePrefix string
+	events       []cvs.HistoryEvent
+	err          error
+	output       string
+}
+
 // notificationExpiredMsg is fired by a tea.Tick to clear the banner after
 // the notification's display window elapses.
 type notificationExpiredMsg struct{}
@@ -842,6 +855,24 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return actionDoneMsg{paths: paths, err: firstErr}
 		}
+
+	case recentChangesMsg:
+		m.clearProgress()
+		title := fmt.Sprintf("Changes — %s (last %dd)", msg.dir, msg.days)
+		if msg.err != nil {
+			body := fmt.Sprintf("Could not query the repository history:\n\n  %v\n", msg.err)
+			if msg.output != "" {
+				body += "\n" + strings.TrimSpace(msg.output) + "\n"
+			}
+			body += "\nNote: `cvs history` reads the server-side CVSROOT/history\n" +
+				"database. It only exists when history logging is enabled on\n" +
+				"the server (LogHistory in CVSROOT/config) — if it was never\n" +
+				"enabled, there is nothing to query."
+			m.dialog.OpenPreview(title, body)
+			return m, nil
+		}
+		m.dialog.OpenPreview(title, formatRecentChanges(msg))
+		return m, nil
 
 	case restoreRevMsg:
 		m.setProgress(fmt.Sprintf("⟳ Restoring %s @ %s…", filepath.Base(msg.path), msg.rev))

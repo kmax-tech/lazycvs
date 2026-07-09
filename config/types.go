@@ -25,6 +25,11 @@ type CVSConfig struct {
 	// CVS interpolates CVS_RSH shell-style, so the path must NOT contain
 	// whitespace — set CVS_RSH yourself for paths with spaces.
 	SSHKey string `toml:"ssh_key,omitempty" json:"ssh_key,omitempty"`
+	// HistoryDays is the time window for the `H` recent-changes view
+	// (`cvs history -D <now - HistoryDays>`). The history database is
+	// server-global, so the window is what keeps the query cheap.
+	// 0 or unset means 7.
+	HistoryDays int `toml:"history_days,omitempty" json:"history_days,omitempty"`
 }
 
 // FavoritesConfig holds the list of favorite directories.

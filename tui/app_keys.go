@@ -423,6 +423,28 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				m.toggleDirFiles(target)
 			}
 			return nil
+		case key.Matches(msg, keys.Recent) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+			// H = recent repository activity ("what did anyone change
+			// here lately?") for the dir under the cursor, subdirs
+			// included. Root selected → whole module.
+			target := "."
+			if m.activeTab == TabFavorites {
+				if p := m.favorites.SelectedPath(); p != "" {
+					target = p
+				}
+			} else if node := m.tree.SelectedNode(); node != nil {
+				if node.IsDir {
+					target = node.Path
+				} else if d := filepath.Dir(node.Path); d != "" {
+					target = d
+				}
+			}
+			days := m.cfgMgr.Get().CVS.HistoryDays
+			if days <= 0 {
+				days = 7
+			}
+			m.setProgress(fmt.Sprintf("⟳ Loading repo changes for %s (last %d days)…", target, days))
+			return m.loadRecentChanges(target, days)
 		case key.Matches(msg, keys.FavAdd) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 			return m.addFavorite()
 		case key.Matches(msg, keys.FavDel) && m.activeTab == TabFavorites:

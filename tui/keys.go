@@ -51,6 +51,8 @@ type keyMap struct {
 	FavAdd  key.Binding
 	FavDel  key.Binding
 
+	Recent key.Binding
+
 	// Modes
 	Blame          key.Binding
 	SideBySide     key.Binding
@@ -131,6 +133,8 @@ var keys = keyMap{
 	Filter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "filter")),
 	FavAdd:  key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "add fav")),
 	FavDel:  key.NewBinding(key.WithKeys("-"), key.WithHelp("-", "del fav")),
+
+	Recent: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "recent")),
 
 	Blame:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "blame")),
 	SideBySide:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "parallel")),

@@ -6,7 +6,9 @@ import (
 	"lazycvs/cvs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -382,6 +384,57 @@ func stagedBulkPrepareBackups(exec *cvs.CVSExecutor, paths []string) {
 		// shouldn't spend a third of the console on backup notes.
 		exec.Log.LogFileOp(fmt.Sprintf("cp %d file(s) → *.lazycvs-backup  # pre-revert safety copies", n), nil)
 	}
+}
+
+// loadRecentChanges asks the repository which files changed under dir
+// in the last `days` days: `cvs history -x AMR -a -D <since>`. The
+// history database is server-global (CVSROOT/history), so two things
+// bound the result: the -D window keeps the query small, and the
+// module-path prefix scopes it to the chosen dir including all
+// subdirs. Requires history logging on the server (LogHistory in
+// CVSROOT/config) — the handler explains when it's unavailable.
+func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
+	exec := m.exec
+	return func() tea.Msg {
+		rootRepo, err := os.ReadFile(filepath.Join(exec.WorkDir, "CVS", "Repository"))
+		if err != nil {
+			return recentChangesMsg{dir: dir, days: days, err: fmt.Errorf("read CVS/Repository: %w", err)}
+		}
+		modulePrefix := filepath.Clean(strings.TrimSpace(string(rootRepo)) + "/" + dir)
+		since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+		r, runErr := exec.RunReadOnly("history", "-x", "AMR", "-a", "-D", since)
+		if e := cvs.FirstFailure(r, runErr); e != nil {
+			out := ""
+			if r != nil {
+				out = r.Combined
+			}
+			return recentChangesMsg{dir: dir, days: days, err: e, output: out}
+		}
+		events := cvs.FilterHistoryByRepoPrefix(cvs.ParseHistory(r.Stdout), modulePrefix)
+		sort.Slice(events, func(i, j int) bool { return events[i].Time.After(events[j].Time) })
+		return recentChangesMsg{dir: dir, days: days, events: events, modulePrefix: modulePrefix}
+	}
+}
+
+// formatRecentChanges renders the H-view body: newest first, one line
+// per event, file paths relative to the chosen dir.
+func formatRecentChanges(msg recentChangesMsg) string {
+	if len(msg.events) == 0 {
+		return fmt.Sprintf("No recorded changes in the last %d day(s).", msg.days)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d change(s), newest first.   M=commit  A=add  R=remove\n\n", len(msg.events))
+	for _, e := range msg.events {
+		rel := strings.TrimPrefix(e.RepoDir, msg.modulePrefix)
+		rel = strings.TrimPrefix(rel, "/")
+		p := e.File
+		if rel != "" {
+			p = rel + "/" + e.File
+		}
+		fmt.Fprintf(&b, "%s  %s %-6s %-10s %s\n",
+			e.Time.Local().Format("2006-01-02 15:04"), e.Code, e.Rev, e.User, p)
+	}
+	return b.String()
 }
 
 // addFavorite pins the directory the user is looking at: the tree

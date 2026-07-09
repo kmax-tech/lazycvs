@@ -471,13 +471,13 @@ func (m App) renderKeybar() string {
 			keyHelp(keys.Diff, keys.Commit, keys.Add, keys.Remove, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.ClearMarks) + sep +
 			mutedStyle.Render("[View] ") +
 			keyHelp(keys.ViewMode, keys.ListMode, keys.Filter, keys.HideIgnored) + sep +
-			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update) + mergeHint
+			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update, keys.Recent) + mergeHint
 	case TabFavorites:
 		actions = mutedStyle.Render("[Action] ") +
 			keyHelp(keys.Diff, keys.Commit, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.ClearMarks, keys.FavAdd, keys.FavDel) + sep +
 			mutedStyle.Render("[View] ") +
 			keyHelp(keys.ListMode, keys.Filter) + sep +
-			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update) + mergeHint
+			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update, keys.Recent) + mergeHint
 	case TabStaged:
 		if m.staged.mode == StagedCommit && m.staged.input.Focused() {
 			actions = keyStyle.Render("enter") + ":commit" + sep +

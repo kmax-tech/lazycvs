@@ -30,8 +30,11 @@ func newListingTestApp(t *testing.T) *App {
 			t.Fatal(err)
 		}
 	}
+	cmdLog := cvs.NewCommandLog(10)
 	return &App{
-		exec:     &cvs.CVSExecutor{WorkDir: root},
+		exec:     &cvs.CVSExecutor{WorkDir: root, Log: cmdLog},
+		cmdLog:   cmdLog,
+		console:  NewConsoleModel(cmdLog),
 		filelist: NewFileListModel(),
 		statusMap: map[string]string{
 			"sub/deep/modified.txt": "M",

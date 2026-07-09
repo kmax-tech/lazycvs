@@ -1207,7 +1207,10 @@ func buildHelpContent() string {
 	// ── Convention banner ─────────────────────────────────────────
 	b.WriteString(mutedStyle.Render(
 		"Convention: lowercase acts on the file under the cursor;\n" +
-			"UPPERCASE extends to the dir / every marked file.\n"))
+			"UPPERCASE extends to the dir / every marked file.\n" +
+			"Marks are a worklist: a bulk action consumes them on success\n" +
+			"and keeps them on failure (fix + retry). `a` (add) keeps them\n" +
+			"for the follow-up commit. `x` clears them all.\n"))
 
 	// ── Navigation ────────────────────────────────────────────────
 	b.WriteString(helpSection("Navigation"))
@@ -1255,6 +1258,7 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("o", "open in OS default app") + "\n")
 	b.WriteString(helpRow("space", "mark/unmark") + "\n")
 	b.WriteString(helpRow("A", "mark/unmark every changed file in dir") + "\n")
+	b.WriteString(helpRow("x", "clear ALL marks (any tab; console keeps x=clear log)") + "\n")
 	b.WriteString(helpRow("+ / -", "add/remove from favorites") + "\n")
 
 	// ── View modes & filters ──────────────────────────────────────

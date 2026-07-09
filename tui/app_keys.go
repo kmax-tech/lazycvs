@@ -219,6 +219,15 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.tree.SetHideIgnored(m.filelist.hideIgnored)
 		m.updateFileList()
 		return nil, true
+	case key.Matches(msg, keys.ClearMarks) && m.focus != PanelConsole:
+		// Deselect all — drops the whole worklist in one stroke, from
+		// any tab. The console keeps its own `x` (clear log); both are
+		// the same "clear this" gesture in their context.
+		if len(m.filelist.marked) > 0 {
+			m.filelist.marked = make(map[string]bool)
+			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+		}
+		return nil, true
 	case key.Matches(msg, keys.Status):
 		m.setProgress("⟳ Refreshing status…")
 		return m.refreshStatusUser(), true

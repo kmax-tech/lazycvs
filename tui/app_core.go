@@ -117,9 +117,16 @@ type updateDoneMsg struct {
 // a fast, targeted directory refresh instead of a full repo scan. The `err`
 // field carries the first cvs invocation that failed during the action — when
 // non-nil the handler surfaces a banner so add/revert don't fail silently.
+//
+// Mark lifecycle ("marks are a worklist"): the handler consumes the
+// marks for the acted-on paths on success and keeps them on failure so
+// the user can fix the problem and retry with the same selection.
+// keepMarks opts out — set by `add`, which is a preparation step for
+// commit and must leave the worklist in place.
 type actionDoneMsg struct {
-	paths []string
-	err   error
+	paths     []string
+	err       error
+	keepMarks bool
 }
 
 // notifyAfter schedules a notificationExpiredMsg after d.
@@ -771,6 +778,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths), invalidateCmd)
 		}
 		m.clearProgress()
+		if !msg.keepMarks {
+			for _, p := range msg.paths {
+				delete(m.filelist.marked, p)
+			}
+			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+		}
 		invalidateCmd := m.invalidateHistoryCache(msg.paths)
 		return m, tea.Batch(m.refreshStatusForPaths(msg.paths), invalidateCmd)
 
@@ -810,15 +823,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, doRevert(m.exec, msg.path, m.statusMap[msg.path])
 
 	case revertBulkMsg:
-		// Mirror the dispatch in stagedBulkAction("revert", …) but
-		// with explicit statuses from the dialog so we don't have to
-		// re-derive them after the marks may have been cleared.
+		// Mirror the dispatch in stagedBulkAction("revert", …) but with
+		// explicit statuses from the dialog. Marks are consumed by the
+		// actionDoneMsg handler on success — a failed revert keeps the
+		// worklist so the user can retry.
 		paths := msg.paths
 		statuses := msg.statuses
-		for _, p := range paths {
-			delete(m.filelist.marked, p)
-		}
-		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(paths)))
 		exec := m.exec
 		workDir := exec.WorkDir
@@ -904,6 +914,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			notifyCmd = m.setResult(fmt.Sprintf("✓ Updated %s", filepath.Base(msg.paths[0])), true)
 		default:
 			notifyCmd = m.setResult(fmt.Sprintf("✓ Updated %d file(s)", len(msg.paths)), true)
+		}
+		// Clean success consumes the worklist. Partial success (in-the-way
+		// paths) keeps it: the blocked files re-run update after the
+		// resolve dialog and consume on THAT updateDoneMsg.
+		if msg.err == nil && len(msg.inTheWay) == 0 {
+			for _, p := range msg.paths {
+				delete(m.filelist.marked, p)
+			}
+			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		}
 		// `cvs update` may pull new server revisions for these paths;
 		// drop the History cache so the next view sees them.

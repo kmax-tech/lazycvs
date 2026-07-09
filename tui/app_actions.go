@@ -86,16 +86,12 @@ func (m *App) toggleDirFiles(dirPath string) {
 }
 
 // stagedBulkAction runs `cvs add`, `cvs update -C` (revert), or
-// `cvs update` (refresh) on the given paths. Marked entries for non-add
-// actions are unmarked synchronously; the cvs invocation happens in a
-// background goroutine.
+// `cvs update` (refresh) on the given paths. Marks follow the worklist
+// model: the actionDoneMsg/updateDoneMsg handlers consume them on
+// success and keep them on failure — nothing is unmarked here at
+// dispatch time. `add` keeps its marks even on success (keepMarks) so
+// the just-added files stay staged for the follow-up commit.
 func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
-	if action != "add" {
-		for _, p := range paths {
-			delete(m.filelist.marked, p)
-		}
-	}
-	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 	exec := m.exec
 	switch action {
 	case "add":
@@ -113,7 +109,7 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 					firstErr = fmt.Errorf("cvs add %s exited %d", p, r.ExitCode)
 				}
 			}
-			return actionDoneMsg{paths: paths, err: firstErr}
+			return actionDoneMsg{paths: paths, err: firstErr, keepMarks: true}
 		}
 	case "revert":
 		// Capture per-path statuses BEFORE the goroutine: cvs needs a
@@ -451,7 +447,6 @@ func (m *App) removeFavorite() tea.Cmd {
 func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
 	written := 0
 	for _, p := range paths {
-		delete(m.filelist.marked, p)
 		dir := filepath.Dir(p)
 		ignPath := filepath.Join(m.exec.WorkDir, dir, ".cvsignore")
 		f, err := os.OpenFile(ignPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -459,6 +454,9 @@ func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
 			f.WriteString(base(p) + "\n")
 			f.Close()
 			written++
+			// Worklist model: only successfully-ignored paths are
+			// consumed; a failed write keeps its mark for a retry.
+			delete(m.filelist.marked, p)
 		}
 	}
 	if written > 0 {
@@ -522,7 +520,7 @@ func (m *App) addFile(path string) tea.Cmd {
 		if err == nil && r != nil && !r.Success {
 			err = fmt.Errorf("cvs add %s exited %d", path, r.ExitCode)
 		}
-		return actionDoneMsg{paths: []string{path}, err: err}
+		return actionDoneMsg{paths: []string{path}, err: err, keepMarks: true}
 	}
 }
 

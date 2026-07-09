@@ -468,13 +468,13 @@ func (m App) renderKeybar() string {
 	switch m.activeTab {
 	case TabTree:
 		actions = mutedStyle.Render("[Action] ") +
-			keyHelp(keys.Diff, keys.Commit, keys.Add, keys.Remove, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll) + sep +
+			keyHelp(keys.Diff, keys.Commit, keys.Add, keys.Remove, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.ClearMarks) + sep +
 			mutedStyle.Render("[View] ") +
 			keyHelp(keys.ViewMode, keys.ListMode, keys.Filter, keys.HideIgnored) + sep +
 			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update) + mergeHint
 	case TabFavorites:
 		actions = mutedStyle.Render("[Action] ") +
-			keyHelp(keys.Diff, keys.Commit, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.FavAdd, keys.FavDel) + sep +
+			keyHelp(keys.Diff, keys.Commit, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.ClearMarks, keys.FavAdd, keys.FavDel) + sep +
 			mutedStyle.Render("[View] ") +
 			keyHelp(keys.ListMode, keys.Filter) + sep +
 			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update) + mergeHint
@@ -487,7 +487,8 @@ func (m App) renderKeybar() string {
 		}
 		actions = mutedStyle.Render("[Action] ") +
 			keyHelp(keys.Commit, keys.Revert, keys.Ignore, keys.Diff) + "  " +
-			keyStyle.Render("space") + ":unstage" + sep +
+			keyStyle.Render("space") + ":unstage  " +
+			keyHelp(keys.ClearMarks) + sep +
 			mutedStyle.Render("[CVS] ") + keyHelp(keys.Update) + mergeHint
 	case TabHistory:
 		spAnchor := keyStyle.Render("space") + ":anchor"

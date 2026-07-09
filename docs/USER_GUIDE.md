@@ -251,19 +251,36 @@ first invocation; subsequent searches are instant.
 
 ## Marking workflow
 
+**The model: marks are a worklist.** You build a set of files, run one
+bulk action on it, and the action *consumes* the set when it succeeds.
+
 1. Press `space` on each file you want to act on (or `A` to mark every
    changed file in the current directory + subdirs).
 2. Status counts in the tab bar update: `Staged(3)` means three marked.
 3. Switch to the **Staged** tab (`3`) to review the selection.
+   (If nothing is marked yet, the file under the cursor is seeded
+   automatically so the tab is never pointlessly empty.)
 4. Press the action key:
    - `c` to commit (opens message input)
-   - `r` to revert all marked `M` files
+   - `r` to revert all marked `M`/`C` files (confirmation dialog)
    - `i` to ignore all marked `?` files
    - `D` to remove (opens confirmation dialog listing each file)
    - `u` / `U` to update / force update
 
-Marking persists across tab switches. Unmark a single file with `space`
-again, or `A` on the directory to clear the whole subtree.
+The worklist lifecycle after an action:
+
+- **Success** → the acted-on paths are unmarked automatically; the
+  worklist is done.
+- **Failure** → the marks stay, so you can fix the problem (see the
+  Console) and retry the same selection.
+- **Exception `a` (add)** → marks are kept even on success: adding is
+  the preparation step, the follow-up commit is the action that
+  consumes the set.
+
+Marking persists across tab switches. Unmark a single file with
+`space`, a subtree with `A` on its directory, or **everything at once
+with `x`** (works in any tab; with the console focused, `x` clears the
+command log instead).
 
 ## Console & session log
 

@@ -503,12 +503,14 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		switch m.activeTab {
 		case TabTree:
 			// Miller-column axis (ranger/yazi): → means "deeper". While
-			// the cursor dir can still expand, the tree consumes it; once
-			// there's nothing left to unfold (file, or already-expanded
-			// dir) the same key crosses into the right pane. ← stays
+			// the cursor dir can still expand INTO something, the tree
+			// consumes it; once there's nothing left to unfold (file,
+			// already-expanded dir, or a leaf dir with no subdirs) the
+			// same key crosses into the right pane — a files-only dir
+			// crosses on the FIRST press, no empty expand step. ← stays
 			// inside the tree — fold / walk up never leaves the leftmost
 			// column.
-			if key.Matches(msg, keys.Right) && !m.tree.CanExpand() {
+			if key.Matches(msg, keys.Right) && (!m.tree.CanExpand() || !m.tree.SelectedHasSubdirs()) {
 				m.focus = PanelRight
 				if m.treeMode == TreeViewDetails {
 					return m.autoLoadPreview()

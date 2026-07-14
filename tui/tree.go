@@ -212,6 +212,36 @@ func (m TreeModel) CanExpand() bool {
 	return !node.Expanded
 }
 
+// SelectedHasSubdirs reports whether the cursor dir contains at least
+// one subdirectory — the thing `l` could actually reveal by expanding.
+// A leaf dir (files only) has nothing to unfold, so the Miller axis
+// should cross into the file list on the FIRST keypress instead of
+// "expanding" an empty node and needing a second one. For not-yet-
+// loaded nodes this peeks at the disk directly; one ReadDir is far
+// cheaper than the async load-then-nothing round trip it replaces.
+func (m TreeModel) SelectedHasSubdirs() bool {
+	if m.cursor >= len(m.flat) {
+		return false
+	}
+	node := m.flat[m.cursor].node
+	if !node.IsDir {
+		return false
+	}
+	if node.Children != nil {
+		return len(node.Children) > 0
+	}
+	entries, err := os.ReadDir(filepath.Join(m.workDir, node.Path))
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() && e.Name() != "CVS" {
+			return true
+		}
+	}
+	return false
+}
+
 // CanCollapse reports whether the cursor is on a node where pressing `h`
 // would do something (collapse the current dir, or move cursor up to a
 // parent dir).

@@ -59,3 +59,21 @@ func TestRightExpandsBeforeCrossing(t *testing.T) {
 		t.Fatalf("→ on expanded dir: focus = %v, want PanelRight", app.focus)
 	}
 }
+
+// A leaf dir (files only, no subdirs) must cross into the right pane
+// on the FIRST → — not "expand" an empty node and require a second
+// press. Uses the fixture's sub/deep dir, which contains only files.
+func TestRightOnLeafDirCrossesImmediately(t *testing.T) {
+	app := newListingTestApp(t)
+	app.activeTab = TabTree
+	app.focus = PanelLeft
+	// Collapsed, unloaded node for a dir that has no subdirs on disk.
+	app.tree.workDir = app.exec.WorkDir
+	app.tree.root = []*TreeNode{{Path: "sub/deep", IsDir: true}}
+	app.tree.rebuildFlat()
+
+	app.delegateKey(tea.KeyMsg{Type: tea.KeyRight})
+	if app.focus != PanelRight {
+		t.Fatalf("→ on leaf dir: focus = %v, want PanelRight on first press", app.focus)
+	}
+}

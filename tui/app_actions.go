@@ -20,6 +20,59 @@ import (
 // supply input. The actual cvs invocation happens inside the returned
 // closure; the main goroutine is never blocked.
 
+// backupSuffix is the sidecar extension for the safety copies written
+// before destructive actions (revert, restore-rev). THE single
+// definition — the ignore pattern, the restore flows, and the backup
+// writers all derive from it.
+const backupSuffix = ".lazycvs-backup"
+
+// writeBackupFile copies path's on-disk content to path+backupSuffix.
+// Returns true when a backup was written; a path missing on disk is
+// not an error (nothing to protect). Logging is the caller's job —
+// single-file flows log per file, bulk flows log one summary.
+func writeBackupFile(workDir, path string) bool {
+	abs := filepath.Join(workDir, path)
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		return false
+	}
+	return os.WriteFile(abs+backupSuffix, data, 0644) == nil
+}
+
+// validatePaths runs every path through the executor's traversal- and
+// symlink-escape check. This is the enforcement point for the
+// path-validation rule (CLAUDE.md): every action dispatcher that
+// accepts working-copy paths calls it before touching cvs or the
+// filesystem.
+func validatePaths(exec *cvs.CVSExecutor, paths ...string) error {
+	for _, p := range paths {
+		if err := exec.ValidatePath(p); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// revertPathsCmd is the async bulk revert shared by the staged-tab
+// dispatch and the confirmation-dialog dispatch — one loop, one
+// backup pass, so the two flows can't drift apart. statuses decides
+// the per-path cvs sequence (see revertOne).
+func revertPathsCmd(exec *cvs.CVSExecutor, paths []string, statuses map[string]string) tea.Cmd {
+	if err := validatePaths(exec, paths...); err != nil {
+		return func() tea.Msg { return actionDoneMsg{paths: paths, err: err} }
+	}
+	stagedBulkPrepareBackups(exec, paths)
+	return func() tea.Msg {
+		var firstErr error
+		for _, p := range paths {
+			if err := revertOne(exec, exec.WorkDir, p, statuses[p]); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return actionDoneMsg{paths: paths, err: firstErr}
+	}
+}
+
 func (m *App) openCommitDialog() tea.Cmd {
 	marked := m.filelist.MarkedFiles()
 	if len(marked) > 0 {
@@ -99,6 +152,9 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 	switch action {
 	case "add":
 		return func() tea.Msg {
+			if err := validatePaths(exec, paths...); err != nil {
+				return actionDoneMsg{paths: paths, err: err, keepMarks: true}
+			}
 			var firstErr error
 			for _, p := range paths {
 				if err := ensureParentDirs(exec, p); err != nil && firstErr == nil {
@@ -130,20 +186,12 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 		for _, p := range paths {
 			statuses[p] = m.statusMap[p]
 		}
-		workDir := exec.WorkDir
-		stagedBulkPrepareBackups(exec, paths)
-		return func() tea.Msg {
-			var firstErr error
-			for _, p := range paths {
-				err := revertOne(exec, workDir, p, statuses[p])
-				if err != nil && firstErr == nil {
-					firstErr = err
-				}
-			}
-			return actionDoneMsg{paths: paths, err: firstErr}
-		}
+		return revertPathsCmd(exec, paths, statuses)
 	case "update":
 		return func() tea.Msg {
+			if err := validatePaths(exec, paths...); err != nil {
+				return updateDoneMsg{paths: paths, err: err}
+			}
 			// -d adds dirs the server has and we don't, -P prunes dirs
 			// that become empty after the update. Same combo the dry-run
 			// uses; keeps the working copy clean without a follow-up
@@ -172,11 +220,13 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 // restored content immediately and there's no leftover backup file
 // that would re-appear as ? on the next refresh.
 func (m *App) restoreFromBackup(path string) tea.Cmd {
-	const suffix = ".lazycvs-backup"
-	target, backup := path, path+suffix
-	if strings.HasSuffix(path, suffix) {
-		target = strings.TrimSuffix(path, suffix)
+	target, backup := path, path+backupSuffix
+	if strings.HasSuffix(path, backupSuffix) {
+		target = strings.TrimSuffix(path, backupSuffix)
 		backup = path
+	}
+	if err := validatePaths(m.exec, target, backup); err != nil {
+		return m.setResult(fmt.Sprintf("✗ %v", err), false)
 	}
 	absTarget := filepath.Join(m.exec.WorkDir, target)
 	absBackup := filepath.Join(m.exec.WorkDir, backup)
@@ -204,15 +254,14 @@ func (m *App) restoreFromBackup(path string) tea.Cmd {
 // banner but don't abort the rest — partial restore is better than
 // none when the user just wants their data back.
 func (m *App) restoreFromBackupBulk(paths []string) tea.Cmd {
-	const suffix = ".lazycvs-backup"
 	seen := make(map[string]bool, len(paths))
 	type pair struct{ target, backup string }
 	var pairs []pair
 	for _, p := range paths {
 		target := p
-		backup := p + suffix
-		if strings.HasSuffix(p, suffix) {
-			target = strings.TrimSuffix(p, suffix)
+		backup := p + backupSuffix
+		if strings.HasSuffix(p, backupSuffix) {
+			target = strings.TrimSuffix(p, backupSuffix)
 			backup = p
 		}
 		if seen[target] {
@@ -270,7 +319,9 @@ func (m *App) restoreFromBackupBulk(paths []string) tea.Cmd {
 // that's allowed but the user explicitly chose the root in the tree
 // pane so the scope is on them.
 func (m *App) restoreBackupsInSubtree(dirPath string) tea.Cmd {
-	const suffix = ".lazycvs-backup"
+	if err := validatePaths(m.exec, dirPath); err != nil {
+		return m.setResult(fmt.Sprintf("✗ %v", err), false)
+	}
 	abs := filepath.Join(m.exec.WorkDir, dirPath)
 	var restored, failed int
 	var firstErr error
@@ -285,28 +336,28 @@ func (m *App) restoreBackupsInSubtree(dirPath string) tea.Cmd {
 			}
 			return nil
 		}
-		if !strings.HasSuffix(info.Name(), suffix) {
+		if !strings.HasSuffix(info.Name(), backupSuffix) {
 			return nil
 		}
-		target := strings.TrimSuffix(p, suffix)
+		target := strings.TrimSuffix(p, backupSuffix)
 		relTarget := target
 		if r, err := filepath.Rel(m.exec.WorkDir, target); err == nil {
 			relTarget = r
 		}
 		if err := os.Rename(p, target); err != nil {
-			m.cmdLog.LogFileOp("mv "+relTarget+suffix+" "+relTarget+"  # restore backup (subtree)", err)
+			m.cmdLog.LogFileOp("mv "+relTarget+backupSuffix+" "+relTarget+"  # restore backup (subtree)", err)
 			failed++
 			if firstErr == nil {
 				firstErr = err
 			}
 			return nil
 		}
-		m.cmdLog.LogFileOp("mv "+relTarget+suffix+" "+relTarget+"  # restore backup (subtree)", nil)
+		m.cmdLog.LogFileOp("mv "+relTarget+backupSuffix+" "+relTarget+"  # restore backup (subtree)", nil)
 		restored++
 		// Both halves of the pair, expressed relative to WorkDir so
 		// the refresh keys line up with statusMap entries.
 		if rel, err := filepath.Rel(m.exec.WorkDir, target); err == nil {
-			refreshPaths = append(refreshPaths, rel, rel+suffix)
+			refreshPaths = append(refreshPaths, rel, rel+backupSuffix)
 		}
 		return nil
 	})
@@ -371,12 +422,7 @@ func revertOne(exec *cvs.CVSExecutor, workDir, path, status string) error {
 func stagedBulkPrepareBackups(exec *cvs.CVSExecutor, paths []string) {
 	n := 0
 	for _, p := range paths {
-		abs := filepath.Join(exec.WorkDir, p)
-		data, err := os.ReadFile(abs)
-		if err != nil {
-			continue // missing on disk → nothing to back up
-		}
-		if os.WriteFile(abs+".lazycvs-backup", data, 0644) == nil {
+		if writeBackupFile(exec.WorkDir, p) {
 			n++
 		}
 	}
@@ -409,12 +455,11 @@ func addArgs(workDir, path string) []string {
 func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 	exec := m.exec
 	return func() tea.Msg {
-		rootRepo, err := os.ReadFile(filepath.Join(exec.WorkDir, "CVS", "Repository"))
+		root, err := moduleRoot(exec)
 		if err != nil {
-			return recentChangesMsg{dir: dir, days: days, err: fmt.Errorf("read CVS/Repository: %w", err)}
+			return recentChangesMsg{dir: dir, days: days, err: err}
 		}
-		moduleRoot := filepath.Clean(strings.TrimSpace(string(rootRepo)))
-		modulePrefix := filepath.Clean(moduleRoot + "/" + dir)
+		modulePrefix := filepath.Clean(root + "/" + dir)
 		since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 		r, runErr := exec.RunReadOnly("history", "-x", "AMR", "-a", "-D", since)
 		if e := cvs.FirstFailure(r, runErr); e != nil {
@@ -432,7 +477,7 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 			entries = append(entries, recentEntry{
 				event:  e,
 				label:  strings.TrimPrefix(full, modulePrefix+"/"),
-				wcPath: strings.TrimPrefix(full, moduleRoot+"/"),
+				wcPath: strings.TrimPrefix(full, root+"/"),
 			})
 		}
 		return recentChangesMsg{dir: dir, days: days, entries: entries}
@@ -528,6 +573,9 @@ func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
 func (m *App) doUpdatePaths(paths []string) tea.Cmd {
 	exec := m.exec
 	return func() tea.Msg {
+		if err := validatePaths(exec, paths...); err != nil {
+			return updateDoneMsg{paths: paths, err: err}
+		}
 		args := append([]string{"update", "-d", "-P"}, paths...)
 		r, err := exec.Run(args...)
 		if err == nil && r != nil && !r.Success {
@@ -568,6 +616,9 @@ func (m *App) doUpdateSelected() tea.Cmd {
 func (m *App) addFile(path string) tea.Cmd {
 	exec := m.exec
 	return func() tea.Msg {
+		if err := validatePaths(exec, path); err != nil {
+			return actionDoneMsg{paths: []string{path}, err: err, keepMarks: true}
+		}
 		if err := ensureParentDirs(exec, path); err != nil {
 			return actionDoneMsg{paths: []string{path}, err: err}
 		}

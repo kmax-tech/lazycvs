@@ -17,7 +17,7 @@ import (
 
 // cvsDefaultIgnore is the built-in CVS ignore list (see cvs(5) "Ignoring files
 // via cvsignore"). These patterns are always active unless cleared with "!".
-var cvsDefaultIgnore = strings.Fields(`
+var cvsDefaultIgnore = append(strings.Fields(`
 	RCS SCCS CVS CVS.adm
 	RCSLOG cvslog.*
 	tags TAGS
@@ -26,9 +26,8 @@ var cvsDefaultIgnore = strings.Fields(`
 	*.old *.bak *.BAK *.orig *.rej .del-*
 	*.a *.olb *.o *.obj *.so *.exe
 	*.Z *.elc *.ln
-	*.lazycvs-backup
 	core
-`)
+`), "*"+backupSuffix)
 
 // globalIgnorePatterns returns the ignore list built from:
 //  1. CVS built-in defaults

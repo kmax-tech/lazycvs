@@ -855,21 +855,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// explicit statuses from the dialog. Marks are consumed by the
 		// actionDoneMsg handler on success — a failed revert keeps the
 		// worklist so the user can retry.
-		paths := msg.paths
-		statuses := msg.statuses
-		m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(paths)))
-		exec := m.exec
-		workDir := exec.WorkDir
-		stagedBulkPrepareBackups(exec, paths)
-		return m, func() tea.Msg {
-			var firstErr error
-			for _, p := range paths {
-				if err := revertOne(exec, workDir, p, statuses[p]); err != nil && firstErr == nil {
-					firstErr = err
-				}
-			}
-			return actionDoneMsg{paths: paths, err: firstErr}
-		}
+		m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(msg.paths)))
+		return m, revertPathsCmd(m.exec, msg.paths, msg.statuses)
 
 	case recentChangesMsg:
 		m.clearProgress()
@@ -1030,7 +1017,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.setResult("Commit aborted (empty message)", false)
 		}
 		untracked := m.staged.PathsByStatus("?")
-		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")
+		commitFiles := m.staged.CommittablePaths()
 		if len(commitFiles) == 0 {
 			return m, nil
 		}

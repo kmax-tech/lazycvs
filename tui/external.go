@@ -12,6 +12,20 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
+// moduleRoot returns the repository path of the working-copy root
+// relative to CVSROOT, read from CVS/Repository. filepath.Clean
+// normalizes the "." case (a root-level checkout) so joins like
+// root+"/"+path never produce a leading "./" — that trips an internal
+// CVS assertion in recurse.c and aborts `cvs co -p` with exit 1.
+// Shared by the revision-extraction and recent-changes queries.
+func moduleRoot(executor *cvs.CVSExecutor) (string, error) {
+	data, err := os.ReadFile(filepath.Join(executor.WorkDir, "CVS", "Repository"))
+	if err != nil {
+		return "", fmt.Errorf("read CVS/Repository: %w", err)
+	}
+	return filepath.Clean(strings.TrimSpace(string(data))), nil
+}
+
 // externalDiffMsg reports the result of an external-diff launch attempt. err
 // is non-nil if extraction or spawning failed; otherwise the tool was started
 // in the background. The fields aren't used by the model today — the message
@@ -31,16 +45,11 @@ type externalDiffMsg struct {
 //
 // rev=="" means HEAD.
 func catRevisionStdout(executor *cvs.CVSExecutor, path, rev string) (string, error) {
-	rootRepo, err := os.ReadFile(filepath.Join(executor.WorkDir, "CVS", "Repository"))
+	root, err := moduleRoot(executor)
 	if err != nil {
-		return "", fmt.Errorf("read CVS/Repository: %w", err)
+		return "", err
 	}
-	// filepath.Clean normalizes the join when CVS/Repository is "." (a
-	// root-level checkout): ".  /  foo/bar" → "foo/bar". Without this
-	// the leading "./" trips an internal CVS assertion in recurse.c
-	// ("/./" must not appear in the repository path) and `cvs co -p`
-	// aborts with exit 1.
-	modulePath := filepath.Clean(strings.TrimSpace(string(rootRepo)) + "/" + path)
+	modulePath := filepath.Clean(root + "/" + path)
 
 	args := []string{"co", "-p"}
 	if rev == "" {

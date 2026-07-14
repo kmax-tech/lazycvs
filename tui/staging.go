@@ -83,6 +83,21 @@ func (m StagedModel) CountByStatus() map[string]int {
 	return counts
 }
 
+// CommittablePaths returns the staged paths isCommittable accepts —
+// THE single definition of "what can go into a commit" (?, A, M, C,
+// R). Every commit gate uses this instead of restating the status
+// list; a restated list already drifted once (a c-gate without R made
+// deletion-only sets read as "nothing committable").
+func (m StagedModel) CommittablePaths() []string {
+	var paths []string
+	for _, f := range m.files {
+		if isCommittable(f.status) {
+			paths = append(paths, f.path)
+		}
+	}
+	return paths
+}
+
 // PathsByStatus returns staged file paths matching the given statuses.
 func (m StagedModel) PathsByStatus(statuses ...string) []string {
 	set := make(map[string]bool)

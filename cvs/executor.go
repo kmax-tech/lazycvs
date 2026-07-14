@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -155,7 +156,9 @@ func (e *CVSExecutor) DryRunUpdate() (*UpdateResult, error) {
 	return update, nil
 }
 
-// ValidatePath checks that a path is safe (no traversal, no symlink escape).
+// ValidatePath checks that a path is safe (no traversal, no symlink
+// escape). Enforced centrally by the TUI's action dispatchers before
+// any cvs or filesystem operation touches the path.
 func (e *CVSExecutor) ValidatePath(path string) error {
 	if path == "" {
 		return fmt.Errorf("path is empty")
@@ -165,7 +168,7 @@ func (e *CVSExecutor) ValidatePath(path string) error {
 	}
 
 	cleaned := filepath.Clean(path)
-	if strings.HasPrefix(cleaned, "..") {
+	if cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(os.PathSeparator)) {
 		return fmt.Errorf("path outside working copy: %s", path)
 	}
 
@@ -180,7 +183,15 @@ func (e *CVSExecutor) ValidatePath(path string) error {
 		resolved = filepath.Join(resolved, filepath.Base(full))
 	}
 
-	if !strings.HasPrefix(resolved, e.WorkDir) {
+	// Resolve the working dir too: on macOS /tmp and /var are symlinks
+	// into /private, so an unresolved WorkDir would flag every valid
+	// path as escaping. The comparison is path-boundary aware — a
+	// sibling like <workdir>-evil must not pass the prefix test.
+	wd, err := filepath.EvalSymlinks(e.WorkDir)
+	if err != nil {
+		wd = e.WorkDir
+	}
+	if resolved != wd && !strings.HasPrefix(resolved, wd+string(os.PathSeparator)) {
 		return fmt.Errorf("path escapes working copy: %s", path)
 	}
 

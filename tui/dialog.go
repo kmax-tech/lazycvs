@@ -403,6 +403,9 @@ func ensureParentDirs(exec *cvs.CVSExecutor, relPath string) error {
 // marked-set cleanup, and the follow-up status refresh.
 func doCommit(exec *cvs.CVSExecutor, message string, untracked, files []string) tea.Cmd {
 	return func() tea.Msg {
+		if err := validatePaths(exec, files...); err != nil {
+			return commitDoneMsg{files: files, message: message, err: err}
+		}
 		var firstErr error
 		for _, p := range untracked {
 			if err := ensureParentDirs(exec, p); err != nil {
@@ -443,12 +446,8 @@ func doRevert(exec *cvs.CVSExecutor, path, status string) tea.Cmd {
 		// with WorkDir so the backup works no matter which directory
 		// lazycvs was launched from (cwd and WorkDir often differ when
 		// the user starts from a subdir or via the lcvs shell helper).
-		abs := filepath.Join(exec.WorkDir, path)
-		data, _ := os.ReadFile(abs)
-		if data != nil {
-			if os.WriteFile(abs+".lazycvs-backup", data, 0644) == nil {
-				exec.Log.LogFileOp("cp "+path+" "+path+".lazycvs-backup  # pre-revert safety copy", nil)
-			}
+		if writeBackupFile(exec.WorkDir, path) {
+			exec.Log.LogFileOp("cp "+path+" "+path+backupSuffix+"  # pre-revert safety copy", nil)
 		}
 		err := revertOne(exec, exec.WorkDir, path, status)
 		return actionDoneMsg{paths: []string{path}, err: err}
@@ -465,11 +464,8 @@ func doRestoreRev(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
 	return func() tea.Msg {
 		// Backup mirrors doRevert: keep a copy of whatever's on disk in
 		// case the user decides the restore was a mistake.
-		data, _ := os.ReadFile(filepath.Join(exec.WorkDir, path))
-		if data != nil {
-			if os.WriteFile(filepath.Join(exec.WorkDir, path+".lazycvs-backup"), data, 0644) == nil {
-				exec.Log.LogFileOp("cp "+path+" "+path+".lazycvs-backup  # pre-restore safety copy", nil)
-			}
+		if writeBackupFile(exec.WorkDir, path) {
+			exec.Log.LogFileOp("cp "+path+" "+path+backupSuffix+"  # pre-restore safety copy", nil)
 		}
 		r, err := exec.Run("update", "-C", "-r", rev, path)
 		if err == nil && r != nil && !r.Success {
@@ -500,6 +496,9 @@ func doRestoreRev(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
 // the len(paths)==1 case.
 func doRemove(executor *cvs.CVSExecutor, paths []string, statuses map[string]string) tea.Cmd {
 	return func() tea.Msg {
+		if err := validatePaths(executor, paths...); err != nil {
+			return removeDoneMsg{paths: paths, err: err}
+		}
 		var firstErr error
 		for _, path := range paths {
 			var err error

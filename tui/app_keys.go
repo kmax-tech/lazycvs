@@ -109,7 +109,7 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// commit message that wouldn't fit in the single-line input.
 		// On editor close, commitMessageEditedMsg lands and either
 		// commits (non-empty message) or aborts (empty).
-		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")
+		commitFiles := m.staged.CommittablePaths()
 		if len(commitFiles) == 0 {
 			return m.setResult("Nothing committable staged — statuses must be ?, A, M, C or R", false), true
 		}
@@ -126,7 +126,7 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// DialogCommit) emit commitMsg so the check runs in exactly one
 		// place.
 		untracked := m.staged.PathsByStatus("?")
-		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")
+		commitFiles := m.staged.CommittablePaths()
 		if len(commitFiles) == 0 {
 			// Silent-swallow used to read as "commit is broken" — the
 			// input ate the Enter and nothing happened, nothing said why.
@@ -355,13 +355,13 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			// in-pane commit input. When nothing qualifies, SAY so —
 			// this used to be a silent no-op and read as "commit is
 			// broken".
-			if paths := m.staged.PathsByStatus("?", "A", "M", "C"); len(paths) > 0 {
+			if paths := m.staged.CommittablePaths(); len(paths) > 0 {
 				m.staged.mode = StagedCommit
 				m.focus = PanelRight
 				m.staged.input.Focus()
 				return nil
 			}
-			return m.setResult(fmt.Sprintf("Nothing committable in %d staged file(s) — need status ?, A, M or C", len(m.staged.files)), false)
+			return m.setResult(fmt.Sprintf("Nothing committable in %d staged file(s) — need status ?, A, M, C or R", len(m.staged.files)), false)
 		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory && m.activeTab != TabStaged:
 			return m.openCommitDialog()
 		case key.Matches(msg, keys.Revert) && selectedPath != "" && m.activeTab != TabHistory && m.activeTab != TabStaged:

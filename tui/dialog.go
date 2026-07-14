@@ -1332,6 +1332,7 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("C-k / C-↑", "back to panes from console") + "\n")
 	b.WriteString(helpRow("tab", "cycle focused panel") + "\n")
 	b.WriteString(helpRow("/", "fuzzy search files") + "\n")
+	b.WriteString(helpRow("q", "quit lazycvs (inside a dialog: close it)") + "\n")
 
 	// ── Tabs ──────────────────────────────────────────────────────
 	b.WriteString(helpSection("Tabs"))
@@ -1347,9 +1348,10 @@ func buildHelpContent() string {
 	b.WriteString(helpSection("File actions"))
 	b.WriteString(helpRow("d", "diff (working vs base revision)") + "\n")
 	b.WriteString(helpRow("c", "commit cursor file (or marked files)") + "\n")
+	b.WriteString(helpRow("C-e", "commit message in $EDITOR (while input focused)") + "\n")
 	b.WriteString(helpRow("a", "add cursor file (?-status) to CVS") + "\n")
 	b.WriteString(helpRow("r", "revert cursor file (bulk in Staged tab)") + "\n")
-	b.WriteString(helpRow("B", "restore <file>.lazycvs-backup (marked set / dir subtree / cursor file)") + "\n")
+	b.WriteString(helpRow("B", "restore .lazycvs-backup (marked / dir subtree / cursor)") + "\n")
 	b.WriteString(helpRow("D", "remove (single file or marked set)") + "\n")
 	b.WriteString(helpRow("i", "ignore — add pattern to .cvsignore") + "\n")
 	b.WriteString(helpRow("e", "edit in $EDITOR") + "\n")
@@ -1358,7 +1360,7 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("o", "open in OS default app") + "\n")
 	b.WriteString(helpRow("space", "mark/unmark") + "\n")
 	b.WriteString(helpRow("A", "mark/unmark every changed file in dir") + "\n")
-	b.WriteString(helpRow("x", "clear ALL marks (any tab; console keeps x=clear log)") + "\n")
+	b.WriteString(helpRow("x", "clear ALL marks (in console: clear log)") + "\n")
 	b.WriteString(helpRow("+ / -", "add/remove from favorites") + "\n")
 
 	// ── View modes & filters ──────────────────────────────────────
@@ -1374,7 +1376,9 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("s", "status refresh (dry-run + scan, parallel)") + "\n")
 	b.WriteString(helpRow("u", "update (cvs update -d -P)") + "\n")
 	b.WriteString(helpRow("U", "force update (cvs update -C — overwrite!)") + "\n")
-	b.WriteString(helpRow("H", "recent repo changes for dir+subdirs (cvs history, all users, last 7d — config history_days); enter on a row opens the file's History") + "\n")
+	b.WriteString(helpRow("H", "recent repo changes for dir + subdirs (all users)") + "\n")
+	b.WriteString(mutedStyle.Render("             cvs history; window: history_days (default 7d).\n"+
+		"             Enter on a row opens that file's History tab.") + "\n")
 
 	// ── History ───────────────────────────────────────────────────
 	b.WriteString(helpSection("History tab"))

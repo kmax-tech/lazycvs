@@ -137,7 +137,7 @@ var keys = keyMap{
 	Recent: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "recent")),
 
 	Blame:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "blame")),
-	SideBySide:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "parallel")),
+	SideBySide:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "side-by-side")),
 	CompareWorking: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "vs working")),
 	ViewMode:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "layout")),
 	ListMode:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "list")),

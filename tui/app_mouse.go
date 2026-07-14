@@ -41,13 +41,16 @@ func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		contentRow := y - mainTop - 1
 
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
-			if x < leftW {
+			// Staged actions mode is a single full-width panel — every
+			// click belongs to it. Splitting at leftW here used to set
+			// focus to the nonexistent right panel, where action keys
+			// silently died ("clicked the row, pressed c, nothing").
+			if x < leftW || (m.activeTab == TabStaged && m.staged.mode == StagedActions) {
 				m.focus = PanelLeft
 				return m.clickLeft(contentRow)
-			} else {
-				m.focus = PanelRight
-				m.clickRight(contentRow)
 			}
+			m.focus = PanelRight
+			m.clickRight(contentRow)
 			return nil
 		}
 

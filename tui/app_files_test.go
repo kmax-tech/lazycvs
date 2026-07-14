@@ -197,3 +197,46 @@ func TestFlatViewShowsManyNestedChanges(t *testing.T) {
 		}
 	}
 }
+
+// A file inside a dir that has CVS/ metadata but does NOT list the
+// file in CVS/Entries must resolve to "?" — the commit gate and the
+// listing use different resolvers, and this is the case where they
+// used to disagree (list showed ?, commit gate saw "" and c silently
+// refused). Ignored-by-.cvsignore files hit exactly this path: the
+// dry-run never reports them, so statusMap is empty for them.
+func TestResolveFileStatusEntriesPromotion(t *testing.T) {
+	app := newListingTestApp(t)
+	entries := "/direct.txt/1.1/Mon Jan  1 00:00:00 2026//\n"
+	if err := os.WriteFile(filepath.Join(app.exec.WorkDir, "sub/CVS/Entries"), []byte(entries), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(app.exec.WorkDir, "sub/new.pdf"), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := app.resolveFileStatus("sub/new.pdf"); got != "?" {
+		t.Errorf("unregistered file in tracked dir: status %q, want ?", got)
+	}
+	if got := app.resolveFileStatus("sub/direct.txt"); got != "" {
+		t.Errorf("registered clean file: status %q, want \"\"", got)
+	}
+}
+
+// Binary files must be cvs-added with -kb or CVS corrupts them on
+// future checkouts (keyword expansion + line-ending conversion).
+func TestAddArgsBinary(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "doc.pdf"), []byte("%PDF-1.4\x00\x01\x02binary"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("plain text\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := addArgs(dir, "doc.pdf"); len(got) != 3 || got[1] != "-kb" {
+		t.Errorf("binary file: addArgs = %v, want [add -kb doc.pdf]", got)
+	}
+	if got := addArgs(dir, "notes.txt"); len(got) != 2 || got[1] != "notes.txt" {
+		t.Errorf("text file: addArgs = %v, want [add notes.txt]", got)
+	}
+}

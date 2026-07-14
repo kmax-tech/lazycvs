@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"lazycvs/config"
 	"lazycvs/cvs"
+	"lazycvs/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -103,7 +104,7 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 				if err := ensureParentDirs(exec, p); err != nil && firstErr == nil {
 					firstErr = err
 				}
-				if r, err := exec.Run("add", p); err != nil {
+				if r, err := exec.Run(addArgs(exec.WorkDir, p)...); err != nil {
 					if firstErr == nil {
 						firstErr = err
 					}
@@ -386,6 +387,18 @@ func stagedBulkPrepareBackups(exec *cvs.CVSExecutor, paths []string) {
 	}
 }
 
+// addArgs builds the `cvs add` argument list for a file, inserting -kb
+// when the on-disk content is binary. Without -kb, CVS applies keyword
+// expansion and line-ending conversion on every future checkout, which
+// silently corrupts PDFs, images, zips, … (Directories never get -kb;
+// use plain "add" for those.)
+func addArgs(workDir, path string) []string {
+	if fs.IsBinary(filepath.Join(workDir, path)) {
+		return []string{"add", "-kb", path}
+	}
+	return []string{"add", path}
+}
+
 // loadRecentChanges asks the repository which files changed under dir
 // in the last `days` days: `cvs history -x AMR -a -D <since>`. The
 // history database is server-global (CVSROOT/history), so two things
@@ -558,7 +571,7 @@ func (m *App) addFile(path string) tea.Cmd {
 		if err := ensureParentDirs(exec, path); err != nil {
 			return actionDoneMsg{paths: []string{path}, err: err}
 		}
-		r, err := exec.Run("add", path)
+		r, err := exec.Run(addArgs(exec.WorkDir, path)...)
 		if err == nil && r != nil && !r.Success {
 			err = fmt.Errorf("cvs add %s exited %d", path, r.ExitCode)
 		}

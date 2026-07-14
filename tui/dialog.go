@@ -413,7 +413,7 @@ func doCommit(exec *cvs.CVSExecutor, message string, untracked, files []string) 
 				// "no such directory" error anyway, and the captured
 				// firstErr will surface the actual root cause.
 			}
-			r, err := exec.Run("add", p)
+			r, err := exec.Run(addArgs(exec.WorkDir, p)...)
 			if firstErr == nil {
 				firstErr = cvs.FirstFailure(r, err)
 			}

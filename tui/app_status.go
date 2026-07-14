@@ -56,6 +56,17 @@ func (m *App) resolveFileStatus(path string) string {
 		}
 		dir = filepath.Dir(dir)
 	}
+	// Every ancestor has CVS/ metadata and statusMap knows nothing —
+	// that is NOT proof the file is clean: a file can sit in a tracked
+	// dir without being registered in its CVS/Entries (freshly created,
+	// or the dir carries CVS/ but isn't hooked into the parent checkout,
+	// so the dry-run never visits it). The file listing promotes exactly
+	// this case to "?" via readCVSEntries — mirror it here, or the two
+	// resolvers drift: the list shows ? while the commit gate sees ""
+	// and `c` silently refuses the file.
+	if tracked := readCVSEntries(filepath.Join(m.exec.WorkDir, filepath.Dir(path))); tracked != nil && !tracked[filepath.Base(path)] {
+		return "?"
+	}
 	return ""
 }
 

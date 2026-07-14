@@ -111,7 +111,7 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// commits (non-empty message) or aborts (empty).
 		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")
 		if len(commitFiles) == 0 {
-			return nil, true
+			return m.setResult("Nothing committable staged — statuses must be ?, A, M, C or R", false), true
 		}
 		return openCommitEditor(
 			m.staged.input.Value(),
@@ -128,7 +128,9 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		untracked := m.staged.PathsByStatus("?")
 		commitFiles := m.staged.PathsByStatus("?", "A", "M", "C", "R")
 		if len(commitFiles) == 0 {
-			return nil, true
+			// Silent-swallow used to read as "commit is broken" — the
+			// input ate the Enter and nothing happened, nothing said why.
+			return m.setResult("Nothing committable staged — statuses must be ?, A, M, C or R", false), true
 		}
 		message := m.staged.input.Value()
 		m.staged.input.SetValue("")
@@ -348,11 +350,19 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		case key.Matches(msg, keys.Open) && selectedPath != "":
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			return openInOS(fullPath)
+		case key.Matches(msg, keys.Commit) && m.activeTab == TabStaged:
+			// Staged commit works from either panel: switch to the
+			// in-pane commit input. When nothing qualifies, SAY so —
+			// this used to be a silent no-op and read as "commit is
+			// broken".
+			if paths := m.staged.PathsByStatus("?", "A", "M", "C"); len(paths) > 0 {
+				m.staged.mode = StagedCommit
+				m.focus = PanelRight
+				m.staged.input.Focus()
+				return nil
+			}
+			return m.setResult(fmt.Sprintf("Nothing committable in %d staged file(s) — need status ?, A, M or C", len(m.staged.files)), false)
 		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory && m.activeTab != TabStaged:
-			// Staged tab handles `c` further down: it switches to the
-			// in-pane commit input instead of the modal dialog. Without
-			// this gate the dialog opened on top of the Staged tab and
-			// the in-pane path was unreachable.
 			return m.openCommitDialog()
 		case key.Matches(msg, keys.Revert) && selectedPath != "" && m.activeTab != TabHistory && m.activeTab != TabStaged:
 			// Staged tab handles `r` further down as a bulk revert
@@ -569,16 +579,6 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				if path := m.staged.SelectedPath(); path != "" {
 					delete(m.filelist.marked, path)
 					m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
-				}
-			case key.Matches(msg, keys.Commit):
-				// Commit: switch to commit mode for everything that can end
-				// up in a commit. ? files get cvs-added first as part of
-				// the same operation; A files get an initial commit;
-				// M/C files get a content commit.
-				if paths := m.staged.PathsByStatus("?", "A", "M", "C"); len(paths) > 0 {
-					m.staged.mode = StagedCommit
-					m.focus = PanelRight
-					m.staged.input.Focus()
 				}
 			case key.Matches(msg, keys.Revert):
 				// Bulk-revert every M *and* C file in the staged set.

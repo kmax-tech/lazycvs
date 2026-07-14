@@ -43,6 +43,22 @@ must work.
   without it CVS keyword-expands and newline-converts PDFs/images on
   future checkouts, silently corrupting them.
 
+## Correction (follow-up)
+
+The `.cvsignore` theory didn't hold for the reported file: the
+pattern `*frame.pdf` does not glob-match
+`emnlp26-fallacies-frame_2026-05-26.pdf`. The actual trigger was a
+**mouse-focus hole**: in the Staged tab's single-panel actions mode
+the click handler still split at the tree-column boundary, so
+clicking the file row (full-width, mostly right of that boundary)
+silently set focus to the nonexistent right panel — where `c` was
+dead in the pre-fix binary. Fixed in tui/app_mouse.go: clicks
+anywhere in the single panel focus it and move the cursor.
+
+The resolver unification, feedback banners, focus-independent `c`,
+and `-kb` hardening above remain correct and are kept — each closes
+a real silent-failure path of its own.
+
 ## Files touched
 
 - `tui/app_status.go` — Entries promotion in resolveFileStatus

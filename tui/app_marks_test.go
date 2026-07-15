@@ -93,3 +93,26 @@ func TestRecentDialogEnterOpensHistory(t *testing.T) {
 		t.Error("dialog still open after Enter")
 	}
 }
+
+// r with a marked set in the Files tab must open ONE bulk revert
+// dialog over every revertable marked path — not the single-file
+// dialog for the cursor row (which silently ignored the rest).
+func TestRevertWithMarksOpensBulkDialog(t *testing.T) {
+	app := newListingTestApp(t)
+	app.activeTab = TabTree
+	app.focus = PanelLeft
+	app.statusMap["top.txt"] = "M"
+	app.statusMap["sub/direct.txt"] = "C"
+	app.filelist.marked = map[string]bool{"top.txt": true, "sub/direct.txt": true}
+
+	app.delegateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("r")})
+	if !app.dialog.Active() {
+		t.Fatal("r with marks opened no dialog")
+	}
+	if got := len(app.dialog.files); got != 2 {
+		t.Fatalf("bulk revert dialog has %d file(s), want 2: %v", got, app.dialog.files)
+	}
+	if app.dialog.commitStatuses["sub/direct.txt"] != "C" {
+		t.Errorf("statuses not carried: %v", app.dialog.commitStatuses)
+	}
+}

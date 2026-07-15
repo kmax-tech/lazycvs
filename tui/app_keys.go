@@ -364,12 +364,32 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			return m.setResult(fmt.Sprintf("Nothing committable in %d staged file(s) — need status ?, A, M, C or R", len(m.staged.files)), false)
 		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory && m.activeTab != TabStaged:
 			return m.openCommitDialog()
-		case key.Matches(msg, keys.Revert) && selectedPath != "" && m.activeTab != TabHistory && m.activeTab != TabStaged:
-			// Staged tab handles `r` further down as a bulk revert
-			// over every M/C file at once — falling through to the
-			// per-file dialog there would force the user to confirm
-			// 18 times for an 18-file conflict set.
-			m.dialog.OpenRevert(selectedPath)
+		case key.Matches(msg, keys.Revert) && m.activeTab != TabHistory && m.activeTab != TabStaged:
+			// Marked files → ONE bulk confirmation over every revertable
+			// (M/C) marked path, exactly like the Staged tab and like
+			// `D` (remove). Only without marks does `r` fall back to the
+			// single-file dialog on the cursor row — previously the
+			// cursor file was reverted and the rest of the marked set
+			// silently ignored.
+			marked := m.filelist.MarkedFiles()
+			var revertable []string
+			statuses := make(map[string]string, len(marked))
+			for _, p := range marked {
+				if s := m.resolveFileStatus(p); s == "M" || s == "C" {
+					revertable = append(revertable, p)
+					statuses[p] = s
+				}
+			}
+			if len(revertable) > 0 {
+				m.dialog.OpenRevertBulk(revertable, statuses)
+				return nil
+			}
+			if len(marked) > 0 {
+				return m.setResult(fmt.Sprintf("Nothing revertable in %d marked file(s) — need status M or C", len(marked)), false)
+			}
+			if selectedPath != "" {
+				m.dialog.OpenRevert(selectedPath)
+			}
 			return nil
 		case key.Matches(msg, keys.Remove) && selectedPath != "" && m.activeTab != TabHistory:
 			// If files are marked, treat D as a bulk remove and surface
@@ -594,7 +614,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				if paths := m.staged.PathsByStatus("M", "C"); len(paths) > 0 {
 					statuses := make(map[string]string, len(paths))
 					for _, p := range paths {
-						statuses[p] = m.statusMap[p]
+						statuses[p] = m.resolveFileStatus(p)
 					}
 					m.dialog.OpenRevertBulk(paths, statuses)
 					return nil

@@ -184,7 +184,10 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 		// is lost.
 		statuses := make(map[string]string, len(paths))
 		for _, p := range paths {
-			statuses[p] = m.statusMap[p]
+			// resolveFileStatus, not the raw statusMap: the map can lack
+			// entries the resolver derives (Entries promotion), and the
+			// C-vs-M revert sequence depends on getting this right.
+			statuses[p] = m.resolveFileStatus(p)
 		}
 		return revertPathsCmd(exec, paths, statuses)
 	case "update":

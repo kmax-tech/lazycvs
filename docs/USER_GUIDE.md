@@ -209,7 +209,7 @@ are marked with `space` — the entire marked set.
 | `space`   | Mark / unmark file. On a directory: toggle every changed file under it. |
 | `A`       | Mark / unmark every changed file in the current directory subtree |
 | `c`       | Commit. Marked set first; otherwise the file under the cursor. `?` files get `cvs add` automatically as part of the commit. |
-| `r`       | Revert after confirmation — keeps a `.lazycvs-backup` copy. `M` files via `cvs update -C`; `C` files via delete + re-fetch (clears the conflict marker). Bulk over the whole staged set in the Staged tab. |
+| `r`       | Revert after confirmation — keeps a `.lazycvs-backup` copy. `M` files via `cvs update -C`; `C` files via delete + re-fetch (clears the conflict marker). With marked files: one bulk confirmation over every revertable (`M`/`C`) marked path; without marks: the file under the cursor. |
 | `D`       | Remove. Marked set in a list dialog, otherwise single file. Untracked files just get deleted from disk; tracked files are scheduled for removal (status `R`). |
 | `e`       | Open in `$EDITOR`                                            |
 | `E`       | Open the configured external diff tool (working copy vs HEAD) |

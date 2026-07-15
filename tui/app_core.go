@@ -900,12 +900,13 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case recentReloadMsg:
-		m.recentEvents = nil
+		// Keep the cache: loadRecentChanges refreshes INCREMENTALLY on
+		// top of it (only events since the last fetch cross the wire).
 		days := m.cfgMgr.Get().CVS.HistoryDays
 		if days <= 0 {
 			days = 7
 		}
-		m.setProgress(fmt.Sprintf("⟳ Reloading repo changes for %s (last %d days)…", msg.dir, days))
+		m.setProgress(fmt.Sprintf("⟳ Refreshing repo changes for %s…", msg.dir))
 		return m, m.loadRecentChanges(msg.dir, days)
 
 	case recentOpenMsg:

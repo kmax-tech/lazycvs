@@ -50,3 +50,32 @@ func TestFilterHistoryByRepoPrefix(t *testing.T) {
 		t.Errorf("prefix webis must NOT match webis-other: got %+v", got)
 	}
 }
+
+func TestMergeHistory(t *testing.T) {
+	now := time.Now()
+	ev := func(file, rev string, age time.Duration) HistoryEvent {
+		return HistoryEvent{Code: "M", File: file, Rev: rev, RepoDir: "mod", Time: now.Add(-age)}
+	}
+	old := []HistoryEvent{
+		ev("a.txt", "1.2", 2*time.Hour),
+		ev("stale.txt", "1.1", 200*time.Hour), // beyond cutoff
+	}
+	fresh := []HistoryEvent{
+		ev("b.txt", "1.5", 10*time.Minute),
+		ev("a.txt", "1.2", 2*time.Hour), // overlap duplicate
+	}
+
+	got := MergeHistory(old, fresh, now.Add(-168*time.Hour))
+	if len(got) != 2 {
+		t.Fatalf("merged %d events, want 2 (dedup + cutoff): %+v", len(got), got)
+	}
+	if got[0].File != "b.txt" || got[1].File != "a.txt" {
+		t.Errorf("not sorted newest-first: %+v", got)
+	}
+
+	// Full fetch: old == nil behaves as plain sort+cutoff.
+	got = MergeHistory(nil, fresh, now.Add(-168*time.Hour))
+	if len(got) != 2 {
+		t.Errorf("nil-old merge: %d events, want 2", len(got))
+	}
+}

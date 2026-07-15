@@ -7,7 +7,6 @@ import (
 	"lazycvs/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -487,22 +486,42 @@ func (m *App) openRecentFromCache(dir string, days int) tea.Cmd {
 	return nil
 }
 
-// loadRecentChanges asks the repository which files changed in the
-// last `days` days: `cvs history -x AMR -a -D <since>`. The query is
-// deliberately repo-global (only -D bounds it): the result is cached
-// on the App and every later H press — any directory — is served by
-// the client-side prefix filter until the TTL expires. Requires
-// history logging on the server (LogHistory in CVSROOT/config) — the
-// handler explains when it's unavailable.
+// recentSkewOverlap is subtracted from the last-fetch time on
+// incremental refreshes so client/server clock skew can't hide
+// events; MergeHistory dedups whatever the overlap re-delivers.
+const recentSkewOverlap = 10 * time.Minute
+
+// loadRecentChanges asks the repository which files changed:
+// `cvs history -x AMR -a -D <since>`. With a prior fetch in hand the
+// query is INCREMENTAL — since = last fetch minus a skew overlap, so
+// the server only ships events that are actually new, and the result
+// merges into the cached window. Only the first fetch (or a changed
+// day window) pulls the full `days` range. The query is deliberately
+// repo-global (only -D bounds it): one result serves every directory
+// via the client-side prefix filter. Requires history logging on the
+// server (LogHistory in CVSROOT/config) — the handler explains when
+// it's unavailable.
 func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 	exec := m.exec
+	var prior []cvs.HistoryEvent
+	var since time.Time
+	if m.recentEvents != nil && m.recentDays == days {
+		prior = m.recentEvents // snapshot; App only ever replaces the slice
+		since = m.recentFetched.Add(-recentSkewOverlap)
+	}
 	return func() tea.Msg {
 		root, err := moduleRoot(exec)
 		if err != nil {
 			return recentChangesMsg{dir: dir, days: days, err: err}
 		}
-		since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
-		r, runErr := exec.RunReadOnly("history", "-x", "AMR", "-a", "-D", since)
+		sinceArg := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
+		if !since.IsZero() {
+			// Datetime precision for the delta query; "GMT" because the
+			// venerable getdate parser in cvs 1.11 understands it and
+			// server-side event stamps are UTC.
+			sinceArg = since.UTC().Format("2006-01-02 15:04") + " GMT"
+		}
+		r, runErr := exec.RunReadOnly("history", "-x", "AMR", "-a", "-D", sinceArg)
 		if e := cvs.FirstFailure(r, runErr); e != nil {
 			out := ""
 			if r != nil {
@@ -510,8 +529,8 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 			}
 			return recentChangesMsg{dir: dir, days: days, err: e, output: out}
 		}
-		events := cvs.ParseHistory(r.Stdout)
-		sort.Slice(events, func(i, j int) bool { return events[i].Time.After(events[j].Time) })
+		cutoff := time.Now().AddDate(0, 0, -days)
+		events := cvs.MergeHistory(prior, cvs.ParseHistory(r.Stdout), cutoff)
 		return recentChangesMsg{dir: dir, days: days, raw: events, entries: buildRecentEntries(events, root, dir)}
 	}
 }

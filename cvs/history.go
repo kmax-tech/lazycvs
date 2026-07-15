@@ -1,6 +1,7 @@
 package cvs
 
 import (
+	"sort"
 	"strings"
 	"time"
 )
@@ -51,6 +52,32 @@ func ParseHistory(output string) []HistoryEvent {
 		})
 	}
 	return events
+}
+
+// MergeHistory folds a fresh (possibly overlapping) batch of events
+// into an existing list: duplicates are dropped, events older than
+// cutoff fall out, and the result comes back newest-first. This is
+// what makes incremental refreshes work — `cvs history -D <last
+// fetch - overlap>` ships only the new events, the overlap absorbs
+// client/server clock skew, and the dedup here makes the overlap
+// harmless. Pass old == nil for a full (initial) fetch.
+func MergeHistory(old, fresh []HistoryEvent, cutoff time.Time) []HistoryEvent {
+	// A revision number is unique per file, so RepoDir/File@Rev:Code
+	// identifies an event without relying on timestamps.
+	key := func(e HistoryEvent) string {
+		return e.RepoDir + "/" + e.File + "@" + e.Rev + ":" + e.Code
+	}
+	seen := make(map[string]bool, len(old)+len(fresh))
+	out := make([]HistoryEvent, 0, len(old)+len(fresh))
+	for _, e := range append(append([]HistoryEvent{}, fresh...), old...) {
+		if e.Time.Before(cutoff) || seen[key(e)] {
+			continue
+		}
+		seen[key(e)] = true
+		out = append(out, e)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Time.After(out[j].Time) })
+	return out
 }
 
 // FilterHistoryByRepoPrefix keeps events whose repo dir is prefix

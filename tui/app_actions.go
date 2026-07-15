@@ -448,13 +448,52 @@ func addArgs(workDir, path string) []string {
 	return []string{"add", path}
 }
 
-// loadRecentChanges asks the repository which files changed under dir
-// in the last `days` days: `cvs history -x AMR -a -D <since>`. The
-// history database is server-global (CVSROOT/history), so two things
-// bound the result: the -D window keeps the query small, and the
-// module-path prefix scopes it to the chosen dir including all
-// subdirs. Requires history logging on the server (LogHistory in
-// CVSROOT/config) — the handler explains when it's unavailable.
+// recentCacheTTL bounds how stale a cached `cvs history` fetch may be
+// before H re-queries the server. Within the window, re-pressing H —
+// on ANY directory — renders instantly from the cache.
+const recentCacheTTL = 5 * time.Minute
+
+// buildRecentEntries scopes the repo-global event list to dir (incl.
+// subdirs) and attaches the two path forms the dialog needs. Pure —
+// shared by the fresh-fetch path and the cache path.
+func buildRecentEntries(events []cvs.HistoryEvent, root, dir string) []recentEntry {
+	modulePrefix := filepath.Clean(root + "/" + dir)
+	filtered := cvs.FilterHistoryByRepoPrefix(events, modulePrefix)
+	entries := make([]recentEntry, 0, len(filtered))
+	for _, e := range filtered {
+		full := e.RepoDir + "/" + e.File
+		entries = append(entries, recentEntry{
+			event:  e,
+			label:  strings.TrimPrefix(full, modulePrefix+"/"),
+			wcPath: strings.TrimPrefix(full, root+"/"),
+		})
+	}
+	return entries
+}
+
+func recentTitle(dir string, days int) string {
+	return fmt.Sprintf("Changes — %s (last %dd)", dir, days)
+}
+
+// openRecentFromCache serves H from the cached repo-global fetch —
+// no cvs round trip, the dialog opens in the same frame.
+func (m *App) openRecentFromCache(dir string, days int) tea.Cmd {
+	root, err := moduleRoot(m.exec)
+	if err != nil {
+		return m.setResult(fmt.Sprintf("✗ %v", err), false)
+	}
+	m.dialog.OpenRecent(recentTitle(dir, days), days, buildRecentEntries(m.recentEvents, root, dir))
+	m.dialog.SetRecentMeta(dir, m.recentFetched)
+	return nil
+}
+
+// loadRecentChanges asks the repository which files changed in the
+// last `days` days: `cvs history -x AMR -a -D <since>`. The query is
+// deliberately repo-global (only -D bounds it): the result is cached
+// on the App and every later H press — any directory — is served by
+// the client-side prefix filter until the TTL expires. Requires
+// history logging on the server (LogHistory in CVSROOT/config) — the
+// handler explains when it's unavailable.
 func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 	exec := m.exec
 	return func() tea.Msg {
@@ -462,7 +501,6 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 		if err != nil {
 			return recentChangesMsg{dir: dir, days: days, err: err}
 		}
-		modulePrefix := filepath.Clean(root + "/" + dir)
 		since := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
 		r, runErr := exec.RunReadOnly("history", "-x", "AMR", "-a", "-D", since)
 		if e := cvs.FirstFailure(r, runErr); e != nil {
@@ -472,18 +510,9 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 			}
 			return recentChangesMsg{dir: dir, days: days, err: e, output: out}
 		}
-		events := cvs.FilterHistoryByRepoPrefix(cvs.ParseHistory(r.Stdout), modulePrefix)
+		events := cvs.ParseHistory(r.Stdout)
 		sort.Slice(events, func(i, j int) bool { return events[i].Time.After(events[j].Time) })
-		entries := make([]recentEntry, 0, len(events))
-		for _, e := range events {
-			full := e.RepoDir + "/" + e.File
-			entries = append(entries, recentEntry{
-				event:  e,
-				label:  strings.TrimPrefix(full, modulePrefix+"/"),
-				wcPath: strings.TrimPrefix(full, root+"/"),
-			})
-		}
-		return recentChangesMsg{dir: dir, days: days, entries: entries}
+		return recentChangesMsg{dir: dir, days: days, raw: events, entries: buildRecentEntries(events, root, dir)}
 	}
 }
 

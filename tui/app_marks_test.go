@@ -2,7 +2,13 @@ package tui
 
 import (
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
+
+	"lazycvs/config"
+	"lazycvs/cvs"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -114,5 +120,39 @@ func TestRevertWithMarksOpensBulkDialog(t *testing.T) {
 	}
 	if app.dialog.commitStatuses["sub/direct.txt"] != "C" {
 		t.Errorf("statuses not carried: %v", app.dialog.commitStatuses)
+	}
+}
+
+// A fresh repo-global cache serves H instantly for ANY directory —
+// no cvs round trip, dialog opens in the same frame with the
+// client-side dir filter applied.
+func TestRecentChangesServedFromCache(t *testing.T) {
+	app := newListingTestApp(t)
+	cfgMgr, err := config.NewConfigManager(filepath.Join(t.TempDir(), "cfg.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.cfgMgr = cfgMgr
+	if err := os.WriteFile(filepath.Join(app.exec.WorkDir, "CVS", "Repository"), []byte("mod\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	app.recentEvents = []cvs.HistoryEvent{
+		{Code: "M", User: "anna", Rev: "1.2", File: "f.txt", RepoDir: "mod/sub", Time: time.Now()},
+		{Code: "A", User: "timo", Rev: "1.1", File: "other.txt", RepoDir: "othermod", Time: time.Now()},
+	}
+	app.recentDays = 7
+	app.recentFetched = time.Now()
+	app.activeTab = TabTree
+	app.focus = PanelLeft
+
+	app.delegateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	if !app.dialog.Active() {
+		t.Fatal("H with fresh cache opened no dialog")
+	}
+	if got := len(app.dialog.recentEntries); got != 1 {
+		t.Fatalf("cache-served dialog has %d entries, want 1 (dir filter): %+v", got, app.dialog.recentEntries)
+	}
+	if app.dialog.recentEntries[0].wcPath != "sub/f.txt" {
+		t.Errorf("wcPath = %q, want sub/f.txt", app.dialog.recentEntries[0].wcPath)
 	}
 }

@@ -222,7 +222,7 @@ are marked with `space` — the entire marked set.
 | `+` / `-` | Pin the dir under the cursor as favorite / unpin the selected favorite (`-` in Favorites tab only) |
 | `u`       | `cvs update` (selection or whole repo)                       |
 | `U`       | Force update (`cvs update -C`)                               |
-| `H`       | Recent repository changes for the dir under the cursor, subdirs included: who committed/added/removed which file (`cvs history -x AMR -a`, all users). `Enter` on a row jumps to that file's History tab (revisions, diffs, commit messages). Window defaults to 7 days — set `history_days` under `[cvs]` in the config. Needs history logging on the server (`LogHistory` in `CVSROOT/config`). |
+| `H`       | Recent repository changes for the dir under the cursor, subdirs included: who committed/added/removed which file (`cvs history -x AMR -a`, all users). `Enter` on a row jumps to that file's History tab (revisions, diffs, commit messages). The server query is cached for 5 minutes and shared across ALL directories — re-pressing `H` anywhere is instant; the header shows the cache age and `r` inside the dialog forces a fresh fetch. Own commits invalidate the cache. Window defaults to 7 days — set `history_days` under `[cvs]` in the config. Needs history logging on the server (`LogHistory` in `CVSROOT/config`). |
 | `s`       | Refresh status (dry-run update + per-dir scan in parallel; progress in the banner) |
 
 After every action, lazycvs runs `cvs status -l` on the affected

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/textinput"
@@ -65,11 +66,13 @@ type DialogModel struct {
 	checkoutLoading string // non-empty while a bootstrap cvs call is in flight
 
 	// Recent-changes dialog state (`H`).
-	recentEntries []recentEntry
-	recentCursor  int
-	recentOffset  int
-	recentTitle   string
-	recentDays    int
+	recentEntries   []recentEntry
+	recentCursor    int
+	recentOffset    int
+	recentTitle     string
+	recentDays      int
+	recentDir       string    // queried dir — target for the r-reload round trip
+	recentFetchedAt time.Time // when the underlying cvs history ran (cache age)
 }
 
 func NewDialogModel() DialogModel {
@@ -88,6 +91,14 @@ func (m *DialogModel) OpenRecent(title string, days int, entries []recentEntry) 
 	m.recentEntries = entries
 	m.recentCursor = 0
 	m.recentOffset = 0
+}
+
+// SetRecentMeta records which dir the list was built for and when the
+// underlying fetch ran — feeds the r-reload round trip and the cache
+// age shown in the header.
+func (m *DialogModel) SetRecentMeta(dir string, fetchedAt time.Time) {
+	m.recentDir = dir
+	m.recentFetchedAt = fetchedAt
 }
 
 func (m *DialogModel) OpenCommit(files []string, statuses map[string]string) {
@@ -698,6 +709,11 @@ func (m DialogModel) updateRecent(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 	case key.Matches(msg, keys.Escape), msg.String() == "q", msg.String() == "H":
 		m.Close()
 		return m, nil
+	case msg.String() == "r":
+		// Force-refresh: drop the App-level cache and re-query.
+		dir := m.recentDir
+		m.Close()
+		return m, func() tea.Msg { return recentReloadMsg{dir: dir} }
 	case key.Matches(msg, keys.Down):
 		m.recentCursor = clamp(m.recentCursor+1, 0, last)
 	case key.Matches(msg, keys.Up):
@@ -729,8 +745,12 @@ func (m DialogModel) viewRecent() string {
 		b.WriteString(helpStyle.Render("esc: close"))
 		return b.String()
 	}
+	age := ""
+	if !m.recentFetchedAt.IsZero() {
+		age = fmt.Sprintf("   fetched %s ago", time.Since(m.recentFetchedAt).Round(time.Second))
+	}
 	b.WriteString(mutedStyle.Render(fmt.Sprintf(
-		"%d change(s), newest first.   M=commit  A=add  R=remove\n\n", len(m.recentEntries))))
+		"%d change(s), newest first.   M=commit  A=add  R=remove%s\n\n", len(m.recentEntries), age)))
 
 	visible := m.recentVisibleRows()
 	end := min(m.recentOffset+visible, len(m.recentEntries))
@@ -749,7 +769,7 @@ func (m DialogModel) viewRecent() string {
 	if rest := len(m.recentEntries) - end; rest > 0 {
 		b.WriteString(mutedStyle.Render(fmt.Sprintf("… %d more below\n", rest)))
 	}
-	b.WriteString("\n" + helpStyle.Render("enter: open file history   j/k: move   esc: close"))
+	b.WriteString("\n" + helpStyle.Render("enter: open file history   r: reload   j/k: move   esc: close"))
 	return b.String()
 }
 

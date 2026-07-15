@@ -111,9 +111,16 @@ type recentEntry struct {
 type recentChangesMsg struct {
 	dir     string
 	days    int
+	raw     []cvs.HistoryEvent // repo-global, pre-sorted — cached on the App
 	entries []recentEntry
 	err     error
 	output  string
+}
+
+// recentReloadMsg is emitted by the recent-changes dialog's `r` key:
+// drop the cache and re-query the server for the same directory.
+type recentReloadMsg struct {
+	dir string
 }
 
 // recentOpenMsg is emitted by the recent-changes dialog when the user
@@ -333,6 +340,16 @@ type App struct {
 	// fast cursor movement doesn't queue duplicate cvs commands for the
 	// same revision pair.
 	histPending map[string]bool // keys built via pendingLog/pendingContent/pendingDiff
+
+	// Recent-changes cache (`H`). The cvs history query is repo-global
+	// and server-bound — one fetch serves EVERY directory, because the
+	// per-dir scoping is a client-side prefix filter. Re-pressing H
+	// within the TTL renders instantly from here. Invalidated by TTL,
+	// a changed history_days window, `r` inside the dialog, and own
+	// commits/removes (they create events the cache can't know about).
+	recentEvents  []cvs.HistoryEvent
+	recentFetched time.Time
+	recentDays    int
 
 	// histRequestID + histStreams support streaming cvs log loads.
 	// Each openHistoryFor that misses the cache bumps histRequestID
@@ -823,6 +840,8 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				delete(m.filelist.marked, p)
 			}
 			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+			// Own commits create history events the H cache can't know.
+			m.recentEvents = nil
 		} else {
 			notifyCmd = m.setResult("✗ Commit failed — see Console for details", false)
 		}
@@ -860,7 +879,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case recentChangesMsg:
 		m.clearProgress()
-		title := fmt.Sprintf("Changes — %s (last %dd)", msg.dir, msg.days)
+		title := recentTitle(msg.dir, msg.days)
 		if msg.err != nil {
 			body := fmt.Sprintf("Could not query the repository history:\n\n  %v\n", msg.err)
 			if msg.output != "" {
@@ -873,8 +892,21 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.dialog.OpenPreview(title, body)
 			return m, nil
 		}
+		m.recentEvents = msg.raw
+		m.recentFetched = time.Now()
+		m.recentDays = msg.days
 		m.dialog.OpenRecent(title, msg.days, msg.entries)
+		m.dialog.SetRecentMeta(msg.dir, m.recentFetched)
 		return m, nil
+
+	case recentReloadMsg:
+		m.recentEvents = nil
+		days := m.cfgMgr.Get().CVS.HistoryDays
+		if days <= 0 {
+			days = 7
+		}
+		m.setProgress(fmt.Sprintf("⟳ Reloading repo changes for %s (last %d days)…", msg.dir, days))
+		return m, m.loadRecentChanges(msg.dir, days)
 
 	case recentOpenMsg:
 		// Enter on a recent-changes row: land in the History tab for
@@ -988,6 +1020,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			delete(m.filelist.marked, p)
 		}
 		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+		m.recentEvents = nil // scheduled removals will show up as R events
 		var notifyCmd tea.Cmd
 		if len(msg.paths) == 1 {
 			notifyCmd = m.setResult(fmt.Sprintf("✓ Removed %s", filepath.Base(msg.paths[0])), true)

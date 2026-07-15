@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -472,6 +473,12 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			days := m.cfgMgr.Get().CVS.HistoryDays
 			if days <= 0 {
 				days = 7
+			}
+			// The fetch is repo-global; a fresh-enough cache serves any
+			// dir instantly. `r` inside the dialog forces a re-query.
+			if m.recentEvents != nil && m.recentDays == days &&
+				time.Since(m.recentFetched) < recentCacheTTL {
+				return m.openRecentFromCache(target, days)
 			}
 			m.setProgress(fmt.Sprintf("⟳ Loading repo changes for %s (last %d days)…", target, days))
 			return m.loadRecentChanges(target, days)

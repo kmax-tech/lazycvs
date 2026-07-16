@@ -140,7 +140,7 @@ func TestRecentChangesServedFromCache(t *testing.T) {
 		{Code: "M", User: "anna", Rev: "1.2", File: "f.txt", RepoDir: "mod/sub", Time: time.Now()},
 		{Code: "A", User: "timo", Rev: "1.1", File: "other.txt", RepoDir: "othermod", Time: time.Now()},
 	}
-	app.recentDays = 7
+	app.recentCoverage = time.Now().AddDate(0, 0, -7)
 	app.recentFetched = time.Now()
 	app.activeTab = TabTree
 	app.focus = PanelLeft

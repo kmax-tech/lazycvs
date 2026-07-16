@@ -109,12 +109,13 @@ type recentEntry struct {
 // combined output on error so the handler can surface cvs's own
 // explanation (e.g. missing CVSROOT/history database).
 type recentChangesMsg struct {
-	dir     string
-	days    int
-	raw     []cvs.HistoryEvent // repo-global, pre-sorted — cached on the App
-	entries []recentEntry
-	err     error
-	output  string
+	dir      string
+	days     int
+	raw      []cvs.HistoryEvent // repo-global, pre-sorted — cached on the App
+	coverage time.Time          // since when raw is complete
+	entries  []recentEntry
+	err      error
+	output   string
 }
 
 // recentReloadMsg is emitted by the recent-changes dialog's `r` key:
@@ -343,13 +344,18 @@ type App struct {
 
 	// Recent-changes cache (`H`). The cvs history query is repo-global
 	// and server-bound — one fetch serves EVERY directory, because the
-	// per-dir scoping is a client-side prefix filter. Re-pressing H
-	// within the TTL renders instantly from here. Invalidated by TTL,
-	// a changed history_days window, `r` inside the dialog, and own
-	// commits/removes (they create events the cache can't know about).
-	recentEvents  []cvs.HistoryEvent
-	recentFetched time.Time
-	recentDays    int
+	// per-dir scoping (and the day window) is a client-side filter.
+	// Re-pressing H within the TTL renders instantly from here; after
+	// the TTL (or `r`) only the delta since recentFetched crosses the
+	// wire. The session cache is backed by a persistent HistoryStore
+	// on disk, so restarts also start from the last fetch instead of
+	// the full window. recentCoverage = since when the local event list
+	// is complete; a wider display window than that forces a deep
+	// fetch. Own commits/removes drop the session copy (the next H
+	// reloads the store and tops it up incrementally).
+	recentEvents   []cvs.HistoryEvent
+	recentFetched  time.Time
+	recentCoverage time.Time
 
 	// histRequestID + histStreams support streaming cvs log loads.
 	// Each openHistoryFor that misses the cache bumps histRequestID
@@ -894,7 +900,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.recentEvents = msg.raw
 		m.recentFetched = time.Now()
-		m.recentDays = msg.days
+		m.recentCoverage = msg.coverage
 		m.dialog.OpenRecent(title, msg.days, msg.entries)
 		m.dialog.SetRecentMeta(msg.dir, m.recentFetched)
 		return m, nil

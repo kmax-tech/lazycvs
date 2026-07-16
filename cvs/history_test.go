@@ -1,6 +1,8 @@
 package cvs
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -77,5 +79,38 @@ func TestMergeHistory(t *testing.T) {
 	got = MergeHistory(nil, fresh, now.Add(-168*time.Hour))
 	if len(got) != 2 {
 		t.Errorf("nil-old merge: %d events, want 2", len(got))
+	}
+}
+
+func TestHistoryStoreRoundtrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	now := time.Now().Round(time.Second)
+	s := &HistoryStore{
+		CVSRoot:       ":ext:user@host:/srv/cvsroot",
+		LastFetch:     now,
+		CoverageStart: now.AddDate(0, 0, -7),
+		Events: []HistoryEvent{
+			{Code: "M", Time: now, User: "anna", Rev: "1.2", File: "f.txt", RepoDir: "mod"},
+		},
+	}
+	if err := s.Save(path); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := LoadHistoryStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.CVSRoot != s.CVSRoot || !got.LastFetch.Equal(s.LastFetch) ||
+		!got.CoverageStart.Equal(s.CoverageStart) || len(got.Events) != 1 {
+		t.Errorf("roundtrip mismatch: %+v", got)
+	}
+	if got.Events[0].File != "f.txt" || got.Events[0].Code != "M" {
+		t.Errorf("event mangled: %+v", got.Events[0])
+	}
+
+	// No half-written tmp file may survive the atomic save.
+	if _, err := os.Stat(path + ".tmp"); !os.IsNotExist(err) {
+		t.Error("tmp file left behind by Save")
 	}
 }

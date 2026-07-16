@@ -475,8 +475,12 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				days = 7
 			}
 			// The fetch is repo-global; a fresh-enough cache serves any
-			// dir instantly. `r` inside the dialog forces a re-query.
-			if m.recentEvents != nil && m.recentDays == days &&
+			// dir instantly — provided the local history reaches at
+			// least as far back as the requested window. `r` inside the
+			// dialog forces a (delta) re-query.
+			windowStart := time.Now().AddDate(0, 0, -days)
+			if m.recentEvents != nil && !m.recentCoverage.IsZero() &&
+				!windowStart.Before(m.recentCoverage) &&
 				time.Since(m.recentFetched) < recentCacheTTL {
 				return m.openRecentFromCache(target, days)
 			}

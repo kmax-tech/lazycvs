@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"hash/fnv"
 	"lazycvs/config"
 	"lazycvs/cvs"
 	"lazycvs/fs"
@@ -453,13 +454,18 @@ func addArgs(workDir, path string) []string {
 const recentCacheTTL = 5 * time.Minute
 
 // buildRecentEntries scopes the repo-global event list to dir (incl.
-// subdirs) and attaches the two path forms the dialog needs. Pure —
-// shared by the fresh-fetch path and the cache path.
-func buildRecentEntries(events []cvs.HistoryEvent, root, dir string) []recentEntry {
+// subdirs) and the display window, and attaches the two path forms
+// the dialog needs. Pure — shared by the fresh-fetch path and the
+// cache path. The stored list deliberately reaches further back than
+// the window (full local history); the window is display-only.
+func buildRecentEntries(events []cvs.HistoryEvent, root, dir string, windowStart time.Time) []recentEntry {
 	modulePrefix := filepath.Clean(root + "/" + dir)
 	filtered := cvs.FilterHistoryByRepoPrefix(events, modulePrefix)
 	entries := make([]recentEntry, 0, len(filtered))
 	for _, e := range filtered {
+		if e.Time.Before(windowStart) {
+			continue
+		}
 		full := e.RepoDir + "/" + e.File
 		entries = append(entries, recentEntry{
 			event:  e,
@@ -468,6 +474,22 @@ func buildRecentEntries(events []cvs.HistoryEvent, root, dir string) []recentEnt
 		})
 	}
 	return entries
+}
+
+// historyStorePath returns the on-disk location of the persistent
+// history store for this working copy's CVSROOT (stores are shared
+// between checkouts of the same repository), plus the root string
+// used as consistency key. Empty when CVS/Root is unreadable.
+func historyStorePath(exec *cvs.CVSExecutor) (string, string) {
+	data, err := os.ReadFile(filepath.Join(exec.WorkDir, "CVS", "Root"))
+	if err != nil {
+		return "", ""
+	}
+	cvsroot := strings.TrimSpace(string(data))
+	h := fnv.New32a()
+	h.Write([]byte(cvsroot))
+	name := fmt.Sprintf("history-%08x.json", h.Sum32())
+	return filepath.Join(filepath.Dir(config.DefaultConfigPath()), name), cvsroot
 }
 
 func recentTitle(dir string, days int) string {
@@ -481,7 +503,8 @@ func (m *App) openRecentFromCache(dir string, days int) tea.Cmd {
 	if err != nil {
 		return m.setResult(fmt.Sprintf("✗ %v", err), false)
 	}
-	m.dialog.OpenRecent(recentTitle(dir, days), days, buildRecentEntries(m.recentEvents, root, dir))
+	windowStart := time.Now().AddDate(0, 0, -days)
+	m.dialog.OpenRecent(recentTitle(dir, days), days, buildRecentEntries(m.recentEvents, root, dir, windowStart))
 	m.dialog.SetRecentMeta(dir, m.recentFetched)
 	return nil
 }
@@ -503,23 +526,42 @@ const recentSkewOverlap = 10 * time.Minute
 // it's unavailable.
 func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 	exec := m.exec
-	var prior []cvs.HistoryEvent
-	var since time.Time
-	if m.recentEvents != nil && m.recentDays == days {
-		prior = m.recentEvents // snapshot; App only ever replaces the slice
-		since = m.recentFetched.Add(-recentSkewOverlap)
-	}
+	prior := m.recentEvents // snapshot; App only ever replaces the slice
+	lastFetch := m.recentFetched
+	coverage := m.recentCoverage
 	return func() tea.Msg {
 		root, err := moduleRoot(exec)
 		if err != nil {
 			return recentChangesMsg{dir: dir, days: days, err: err}
 		}
-		sinceArg := time.Now().AddDate(0, 0, -days).Format("2006-01-02")
-		if !since.IsZero() {
-			// Datetime precision for the delta query; "GMT" because the
-			// venerable getdate parser in cvs 1.11 understands it and
-			// server-side event stamps are UTC.
-			sinceArg = since.UTC().Format("2006-01-02 15:04") + " GMT"
+		// Session cache empty (fresh start or invalidated)? Seed from
+		// the persistent store, so even the first H of a session only
+		// fetches the delta since the previous run.
+		storePath, cvsroot := historyStorePath(exec)
+		if prior == nil && storePath != "" {
+			if st, err := cvs.LoadHistoryStore(storePath); err == nil && st.CVSRoot == cvsroot {
+				prior = st.Events
+				lastFetch = st.LastFetch
+				coverage = st.CoverageStart
+			}
+		}
+
+		windowStart := time.Now().AddDate(0, 0, -days)
+		newCoverage := coverage
+		var sinceArg string
+		if prior == nil || coverage.IsZero() || windowStart.Before(coverage) {
+			// Nothing local (or the window reaches further back than the
+			// local history is complete) — deep fetch of the full window.
+			sinceArg = windowStart.Format("2006-01-02")
+			if newCoverage.IsZero() || windowStart.Before(newCoverage) {
+				newCoverage = windowStart
+			}
+		} else {
+			// Incremental: only events since the last fetch, minus a skew
+			// overlap. Datetime precision; "GMT" because the venerable
+			// getdate parser in cvs 1.11 understands it and server-side
+			// event stamps are UTC.
+			sinceArg = lastFetch.Add(-recentSkewOverlap).UTC().Format("2006-01-02 15:04") + " GMT"
 		}
 		r, runErr := exec.RunReadOnly("history", "-x", "AMR", "-a", "-D", sinceArg)
 		if e := cvs.FirstFailure(r, runErr); e != nil {
@@ -529,9 +571,21 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 			}
 			return recentChangesMsg{dir: dir, days: days, err: e, output: out}
 		}
-		cutoff := time.Now().AddDate(0, 0, -days)
-		events := cvs.MergeHistory(prior, cvs.ParseHistory(r.Stdout), cutoff)
-		return recentChangesMsg{dir: dir, days: days, raw: events, entries: buildRecentEntries(events, root, dir)}
+		// Zero cutoff: the local history keeps everything it has ever
+		// seen (bounded by the store cap); the display window filters.
+		events := cvs.MergeHistory(prior, cvs.ParseHistory(r.Stdout), time.Time{})
+		if storePath != "" {
+			_ = (&cvs.HistoryStore{
+				CVSRoot:       cvsroot,
+				LastFetch:     time.Now(),
+				CoverageStart: newCoverage,
+				Events:        events,
+			}).Save(storePath)
+		}
+		return recentChangesMsg{
+			dir: dir, days: days, raw: events, coverage: newCoverage,
+			entries: buildRecentEntries(events, root, dir, windowStart),
+		}
 	}
 }
 

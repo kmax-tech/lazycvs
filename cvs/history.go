@@ -1,6 +1,8 @@
 package cvs
 
 import (
+	"encoding/json"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -52,6 +54,56 @@ func ParseHistory(output string) []HistoryEvent {
 		})
 	}
 	return events
+}
+
+// maxStoredHistoryEvents caps the persistent store. Events are ~100
+// bytes each, so the cap bounds the file at a few MB while keeping
+// years of activity for any realistic repository.
+const maxStoredHistoryEvents = 50000
+
+// HistoryStore is the on-disk cache of repository history events —
+// the "full local history" that survives restarts. Every query only
+// tops it up incrementally (events since LastFetch); CoverageStart
+// records since when the local copy is complete, so a widened display
+// window knows whether it can be served locally or needs a deeper
+// server fetch.
+type HistoryStore struct {
+	CVSRoot       string         `json:"cvsroot"`
+	LastFetch     time.Time      `json:"last_fetch"`
+	CoverageStart time.Time      `json:"coverage_start"`
+	Events        []HistoryEvent `json:"events"` // newest-first
+}
+
+// LoadHistoryStore reads a persisted store. Callers should verify
+// CVSRoot matches their repository before trusting Events.
+func LoadHistoryStore(path string) (*HistoryStore, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var s HistoryStore
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
+}
+
+// Save writes the store atomically (tmp + rename) so a crash mid-write
+// can't leave a truncated JSON behind. Applies the event cap, dropping
+// the oldest entries (Events are newest-first).
+func (s *HistoryStore) Save(path string) error {
+	if len(s.Events) > maxStoredHistoryEvents {
+		s.Events = s.Events[:maxStoredHistoryEvents]
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
 }
 
 // MergeHistory folds a fresh (possibly overlapping) batch of events

@@ -524,7 +524,25 @@ const recentSkewOverlap = 10 * time.Minute
 // via the client-side prefix filter. Requires history logging on the
 // server (LogHistory in CVSROOT/config) — the handler explains when
 // it's unavailable.
-func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
+// loadRecentStore seeds the in-memory cache from the persistent
+// store — a synchronous local JSON read, cheap enough for the key
+// handler. Best-effort: mismatched CVSROOT or a missing file leave
+// the cache empty and the caller falls back to a full fetch.
+func (m *App) loadRecentStore() {
+	storePath, cvsroot := historyStorePath(m.exec)
+	if storePath == "" {
+		return
+	}
+	st, err := cvs.LoadHistoryStore(storePath)
+	if err != nil || st.CVSRoot != cvsroot {
+		return
+	}
+	m.recentEvents = st.Events
+	m.recentFetched = st.LastFetch
+	m.recentCoverage = st.CoverageStart
+}
+
+func (m *App) loadRecentChanges(dir string, days int, background bool) tea.Cmd {
 	exec := m.exec
 	prior := m.recentEvents // snapshot; App only ever replaces the slice
 	lastFetch := m.recentFetched
@@ -569,7 +587,7 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 			if r != nil {
 				out = r.Combined
 			}
-			return recentChangesMsg{dir: dir, days: days, err: e, output: out}
+			return recentChangesMsg{dir: dir, days: days, background: background, err: e, output: out}
 		}
 		// Zero cutoff: the local history keeps everything it has ever
 		// seen (bounded by the store cap); the display window filters.
@@ -584,7 +602,8 @@ func (m *App) loadRecentChanges(dir string, days int) tea.Cmd {
 		}
 		return recentChangesMsg{
 			dir: dir, days: days, raw: events, coverage: newCoverage,
-			entries: buildRecentEntries(events, root, dir, windowStart),
+			background: background,
+			entries:    buildRecentEntries(events, root, dir, windowStart),
 		}
 	}
 }

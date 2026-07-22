@@ -101,6 +101,18 @@ func (m *DialogModel) SetRecentMeta(dir string, fetchedAt time.Time) {
 	m.recentFetchedAt = fetchedAt
 }
 
+// UpdateRecentEntries patches an open recent dialog in place after a
+// background delta refresh — the cursor survives (clamped), no reset
+// to the top like a reopen would cause.
+func (m *DialogModel) UpdateRecentEntries(entries []recentEntry, fetchedAt time.Time) {
+	m.recentEntries = entries
+	m.recentFetchedAt = fetchedAt
+	if m.recentCursor >= len(entries) {
+		m.recentCursor = max(0, len(entries)-1)
+	}
+	m.recentOffset = ensureCursorVisible(m.recentCursor, m.recentOffset, m.recentVisibleRows())
+}
+
 func (m *DialogModel) OpenCommit(files []string, statuses map[string]string) {
 	m.kind = DialogCommit
 	m.files = files
@@ -710,9 +722,9 @@ func (m DialogModel) updateRecent(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 		m.Close()
 		return m, nil
 	case msg.String() == "r":
-		// Force-refresh: drop the App-level cache and re-query.
+		// Force-refresh: the dialog STAYS open showing the current
+		// list; the delta fetch patches it in place when it lands.
 		dir := m.recentDir
-		m.Close()
 		return m, func() tea.Msg { return recentReloadMsg{dir: dir} }
 	case key.Matches(msg, keys.Down):
 		m.recentCursor = clamp(m.recentCursor+1, 0, last)

@@ -156,3 +156,33 @@ func TestRecentChangesServedFromCache(t *testing.T) {
 		t.Errorf("wcPath = %q, want sub/f.txt", app.dialog.recentEntries[0].wcPath)
 	}
 }
+
+// After the TTL the local history is STALE but still true — H must
+// show it immediately (stale-while-revalidate) instead of blocking on
+// the server round trip.
+func TestRecentChangesStaleCacheOpensImmediately(t *testing.T) {
+	app := newListingTestApp(t)
+	cfgMgr, err := config.NewConfigManager(filepath.Join(t.TempDir(), "cfg.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	app.cfgMgr = cfgMgr
+	if err := os.WriteFile(filepath.Join(app.exec.WorkDir, "CVS", "Repository"), []byte("mod\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	app.recentEvents = []cvs.HistoryEvent{
+		{Code: "M", User: "anna", Rev: "1.2", File: "f.txt", RepoDir: "mod/sub", Time: time.Now()},
+	}
+	app.recentCoverage = time.Now().AddDate(0, 0, -7)
+	app.recentFetched = time.Now().Add(-30 * time.Minute) // well past the TTL
+	app.activeTab = TabTree
+	app.focus = PanelLeft
+
+	cmd := app.delegateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("H")})
+	if !app.dialog.Active() {
+		t.Fatal("H with stale-but-covered cache did not open the dialog immediately")
+	}
+	if cmd == nil {
+		t.Fatal("no background revalidation command dispatched")
+	}
+}

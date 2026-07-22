@@ -474,18 +474,29 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			if days <= 0 {
 				days = 7
 			}
-			// The fetch is repo-global; a fresh-enough cache serves any
-			// dir instantly — provided the local history reaches at
-			// least as far back as the requested window. `r` inside the
-			// dialog forces a (delta) re-query.
+			// Serve locally whenever the local history covers the
+			// window: instantly and silently within the TTL, and
+			// stale-while-revalidate after it — show the local events
+			// NOW, fetch the delta in the background, and patch the
+			// open dialog when it lands. Only a cold store (or a
+			// window wider than its coverage) blocks on the server.
+			if m.recentEvents == nil {
+				m.loadRecentStore()
+			}
 			windowStart := time.Now().AddDate(0, 0, -days)
-			if m.recentEvents != nil && !m.recentCoverage.IsZero() &&
-				!windowStart.Before(m.recentCoverage) &&
-				time.Since(m.recentFetched) < recentCacheTTL {
+			covered := m.recentEvents != nil && !m.recentCoverage.IsZero() &&
+				!windowStart.Before(m.recentCoverage)
+			if covered && time.Since(m.recentFetched) < recentCacheTTL {
 				return m.openRecentFromCache(target, days)
 			}
+			if covered {
+				return tea.Batch(
+					m.openRecentFromCache(target, days),
+					m.loadRecentChanges(target, days, true),
+				)
+			}
 			m.setProgress(fmt.Sprintf("⟳ Loading repo changes for %s (last %d days)…", target, days))
-			return m.loadRecentChanges(target, days)
+			return m.loadRecentChanges(target, days, false)
 		case key.Matches(msg, keys.FavAdd) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 			return m.addFavorite()
 		case key.Matches(msg, keys.FavDel) && m.activeTab == TabFavorites:

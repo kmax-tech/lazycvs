@@ -114,12 +114,18 @@ type recentChangesMsg struct {
 	raw      []cvs.HistoryEvent // repo-global, pre-sorted — cached on the App
 	coverage time.Time          // since when raw is complete
 	entries  []recentEntry
-	err      error
-	output   string
+	// background marks a stale-while-revalidate delta fetch: the dialog
+	// already shows the local history, so the handler patches it in
+	// place (or drops the result if the user closed it) instead of
+	// (re)opening.
+	background bool
+	err        error
+	output     string
 }
 
 // recentReloadMsg is emitted by the recent-changes dialog's `r` key:
-// drop the cache and re-query the server for the same directory.
+// fetch the delta since the last query and patch the (still open)
+// dialog in place when it lands.
 type recentReloadMsg struct {
 	dir string
 }
@@ -886,6 +892,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case recentChangesMsg:
 		m.clearProgress()
 		title := recentTitle(msg.dir, msg.days)
+		if msg.err != nil && msg.background {
+			// The stale list is still on screen and still true — a
+			// failed refresh only warrants a banner, not an error page
+			// stomping the dialog.
+			return m, m.setResult("✗ History refresh failed — showing cached events", false)
+		}
 		if msg.err != nil {
 			body := fmt.Sprintf("Could not query the repository history:\n\n  %v\n", msg.err)
 			if msg.output != "" {
@@ -901,19 +913,31 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.recentEvents = msg.raw
 		m.recentFetched = time.Now()
 		m.recentCoverage = msg.coverage
+		if m.dialog.Active() && m.dialog.kind == DialogRecent && m.dialog.recentDir == msg.dir {
+			// Background delta landed while the dialog is open on the
+			// same dir — patch in place, cursor survives.
+			m.dialog.UpdateRecentEntries(msg.entries, m.recentFetched)
+			return m, nil
+		}
+		if msg.background {
+			// User closed the dialog while the refresh ran; the cache is
+			// updated, nothing to show.
+			return m, nil
+		}
 		m.dialog.OpenRecent(title, msg.days, msg.entries)
 		m.dialog.SetRecentMeta(msg.dir, m.recentFetched)
 		return m, nil
 
 	case recentReloadMsg:
-		// Keep the cache: loadRecentChanges refreshes INCREMENTALLY on
-		// top of it (only events since the last fetch cross the wire).
+		// Keep the cache AND the open dialog: the refresh is an
+		// incremental background fetch that patches the list in place
+		// when the delta lands.
 		days := m.cfgMgr.Get().CVS.HistoryDays
 		if days <= 0 {
 			days = 7
 		}
 		m.setProgress(fmt.Sprintf("⟳ Refreshing repo changes for %s…", msg.dir))
-		return m, m.loadRecentChanges(msg.dir, days)
+		return m, m.loadRecentChanges(msg.dir, days, true)
 
 	case recentOpenMsg:
 		// Enter on a recent-changes row: land in the History tab for

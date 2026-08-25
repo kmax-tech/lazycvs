@@ -6,12 +6,14 @@ operations.
 
 ## Getting started
 
+Install via `go install github.com/kmax-tech/lazycvs@latest` or build a
+clone with `make build` (see the README's Install section). Then:
+
 ```bash
-make build
-./lazycvs                       # opens the TUI in the current directory
-./lazycvs ~/work/myproject      # explicit working copy
-./lazycvs -cvs /opt/cvs/bin/cvs # alternate cvs binary
-./lazycvs -config /tmp/cfg.toml # alternate config path
+lazycvs                       # opens the TUI in the current directory
+lazycvs ~/work/myproject      # explicit working copy
+lazycvs -cvs /opt/cvs/bin/cvs # alternate cvs binary
+lazycvs -config /tmp/cfg.toml # alternate config path
 ```
 
 If the current directory isn't a CVS working copy, lazycvs falls back to

@@ -6,20 +6,53 @@ Wraps the `cvs` CLI so daily workflows — status, diff, commit, conflict
 resolution, history, blame — happen in a fast keyboard-driven dashboard
 instead of disjoint shell commands.
 
+<!-- TODO: screenshot of the Files tab against the demo repo
+![lazycvs](docs/screenshot.png)
+-->
+
+## Requirements
+
+- The system `cvs` binary (1.11+) on `PATH` — lazycvs is a frontend, all
+  repository access goes through it. Override with `-cvs /path/to/cvs`
+  or `[cvs] binary` in the config.
+- A terminal. That's it — no server component, no daemon.
+- Go 1.24+ only if you build from source.
+
+## Install
+
+**With Go:**
+
+```bash
+go install github.com/kmax-tech/lazycvs@latest
+```
+
+The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`) — make sure
+that's on your `PATH`.
+
+**From source:**
+
+```bash
+git clone https://github.com/kmax-tech/lazycvs
+cd lazycvs
+make build          # builds ./lazycvs
+make release        # or: cross-compile for linux/mac/windows under dist/
+```
+
 ## Quick start
 
 ```bash
-make build          # builds ./lazycvs
-./lazycvs           # opens the TUI in the current working copy
+lazycvs             # opens the TUI in the current working copy
+lazycvs ~/work/repo # or at an explicit path
+lazycvs init        # bootstrap: check out a fresh module into an empty dir
 ```
 
 `lazycvs` looks at your current directory first; if it isn't a CVS working
 copy and you set `[cvs] default_path` in your config, it falls back there.
 
-## Shell function for spontaneous use
+## Optional: shell function for the from-source workflow
 
-If you want to drop into lazycvs from any terminal without typing the
-full path, add this to `~/.zshrc` or `~/.bashrc`:
+If you run lazycvs from a clone (rather than an installed binary) and want
+to drop into it from any terminal, add this to `~/.zshrc` or `~/.bashrc`:
 
 ```bash
 export LAZYCVS_REPO="$HOME/projects/lazycvs"   # adjust to your clone
@@ -162,6 +195,10 @@ make clean              # remove ./lazycvs and dist/
 go test ./...           # run unit tests
 ```
 
-Go 1.22+ required. Stdlib + a small set of `charmbracelet` libraries for
+Go 1.24+ required. Stdlib + a small set of `charmbracelet` libraries for
 the TUI; CVS interaction goes through `os/exec` against the system `cvs`
 binary.
+
+## License
+
+[MIT](LICENSE)

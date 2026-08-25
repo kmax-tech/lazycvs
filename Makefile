@@ -2,10 +2,24 @@ BINARY := lazycvs
 VERSION := $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -ldflags "-s -w -X main.version=$(VERSION)"
 
-.PHONY: build release clean demo demo-setup demo-clean
+.PHONY: build release clean demo demo-setup demo-clean check test
 
 build:
 	go build $(LDFLAGS) -o $(BINARY) .
+
+# Gate: gofmt-clean + vet + tests. Fails loud with the offending files —
+# a `gofmt -l` listing alone exits 0 and the drift goes unnoticed (that's
+# how 23 files drifted before the 2026-08 normalization).
+check:
+	@fmt_out="$$(gofmt -l .)"; \
+	if [ -n "$$fmt_out" ]; then \
+		echo "gofmt needed on:"; echo "$$fmt_out"; exit 1; \
+	fi
+	go vet ./...
+	go test ./...
+
+test:
+	go test ./...
 
 release: clean
 	GOOS=linux   GOARCH=amd64 go build $(LDFLAGS) -o dist/$(BINARY)-linux-amd64 .

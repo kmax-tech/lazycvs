@@ -192,8 +192,12 @@ context. `?` opens the help overlay with the full keymap.
 make build              # local binary
 make release            # cross-compile for linux/mac/windows under dist/
 make clean              # remove ./lazycvs and dist/
-go test ./...           # run unit tests
+make check              # gofmt-clean + go vet + go test — run before committing
 ```
+
+Formatting is plain `gofmt`; `make check` fails on any drift. Pure-formatting
+commits are listed in `.git-blame-ignore-revs` (GitHub's blame view skips them
+automatically; locally: `git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 
 Go 1.24+ required. Stdlib + a small set of `charmbracelet` libraries for
 the TUI; CVS interaction goes through `os/exec` against the system `cvs`

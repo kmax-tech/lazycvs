@@ -1,0 +1,6 @@
+# Commits git blame should skip (pure formatting, no semantic changes).
+# Use locally via:  git config blame.ignoreRevsFile .git-blame-ignore-revs
+# GitHub's blame view picks this file up automatically.
+
+# Mechanical gofmt over the whole repo
+db24db45fbc0dd808201b4f4ba4b781fe1a84d51

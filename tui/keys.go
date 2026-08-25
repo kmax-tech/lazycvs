@@ -20,36 +20,39 @@ type keyMap struct {
 	Help    key.Binding
 
 	// Navigation
-	Up      key.Binding
-	Down    key.Binding
-	Left    key.Binding
-	Right   key.Binding
-	Top     key.Binding
-	Bottom  key.Binding
-	PageUp  key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Left     key.Binding
+	Right    key.Binding
+	Top      key.Binding
+	Bottom   key.Binding
+	PageUp   key.Binding
 	PageDown key.Binding
-	Enter   key.Binding
-	Space   key.Binding
+	Enter    key.Binding
+	Space    key.Binding
 
 	// File actions
-	Diff    key.Binding
-	Commit  key.Binding
-	Revert  key.Binding
-	Restore        key.Binding
-	RestoreBackup  key.Binding
-	Remove         key.Binding
-	Edit    key.Binding
-	EditDiff key.Binding
-	Merge    key.Binding
-	Open    key.Binding
-	Add     key.Binding
-	MarkAll    key.Binding
-	ClearMarks key.Binding
-	Ignore  key.Binding
-	Search  key.Binding
-	Filter key.Binding
-	FavAdd  key.Binding
-	FavDel  key.Binding
+	Diff          key.Binding
+	Commit        key.Binding
+	Revert        key.Binding
+	Restore       key.Binding
+	RestoreBackup key.Binding
+	Remove        key.Binding
+	Edit          key.Binding
+	EditDiff      key.Binding
+	Merge         key.Binding
+	Open          key.Binding
+	Add           key.Binding
+	MarkAll       key.Binding
+	ClearMarks    key.Binding
+	Ignore        key.Binding
+	AltOpen       key.Binding
+	Reveal        key.Binding
+	CopyPath      key.Binding
+	Search        key.Binding
+	Filter        key.Binding
+	FavAdd        key.Binding
+	FavDel        key.Binding
 
 	Recent key.Binding
 
@@ -96,9 +99,9 @@ var keys = keyMap{
 	FocusUp: key.NewBinding(
 		key.WithKeys("ctrl+k", "ctrl+up"),
 		key.WithHelp("C-k", "back to panes")),
-	Status:  key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "status")),
-	Update:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "update")),
-	Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
+	Status: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "status")),
+	Update: key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "update")),
+	Help:   key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
 
 	Up:     key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("k", "up")),
 	Down:   key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("j", "down")),
@@ -112,27 +115,33 @@ var keys = keyMap{
 	PageDown: key.NewBinding(
 		key.WithKeys("pgdown", "ctrl+d", "ctrl+f"),
 		key.WithHelp("pgdn", "page down")),
-	Enter:  key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
-	Space:  key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "mark")),
+	Enter: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "select")),
+	Space: key.NewBinding(key.WithKeys(" "), key.WithHelp("space", "mark")),
 
-	Diff:    key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
-	Commit:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
-	Revert:  key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "revert")),
+	Diff:          key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "diff")),
+	Commit:        key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "commit")),
+	Revert:        key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "revert")),
 	Restore:       key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "restore rev")),
 	RestoreBackup: key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "restore backup")),
 	Remove:        key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "remove")),
-	Edit:    key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "edit")),
-	EditDiff: key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "diff tool")),
-	Merge:   key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "merge tool")),
-	Open:    key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open")),
-	Add:     key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
+	// ctrl+e is a picker-vocabulary alias of e (fzf/yazi-style pickers use
+	// C-e = "open in editor"); the staged-tab commit input consumes ctrl+e
+	// first (multi-line message in $EDITOR), so the alias only fires on files.
+	Edit:       key.NewBinding(key.WithKeys("e", "ctrl+e"), key.WithHelp("e", "edit")),
+	EditDiff:   key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "diff tool")),
+	Merge:      key.NewBinding(key.WithKeys("M"), key.WithHelp("M", "merge tool")),
+	Open:       key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "open")),
+	Add:        key.NewBinding(key.WithKeys("a"), key.WithHelp("a", "add")),
 	MarkAll:    key.NewBinding(key.WithKeys("A"), key.WithHelp("A", "mark all")),
 	ClearMarks: key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "clear marks")),
-	Ignore:  key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "ignore")),
-	Search:  key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
-	Filter: key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "filter")),
-	FavAdd:  key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "add fav")),
-	FavDel:  key.NewBinding(key.WithKeys("-"), key.WithHelp("-", "del fav")),
+	Ignore:     key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "ignore")),
+	AltOpen:    key.NewBinding(key.WithKeys("ctrl+o"), key.WithHelp("C-o", "alt open")),
+	Reveal:     key.NewBinding(key.WithKeys("ctrl+r"), key.WithHelp("C-r", "reveal")),
+	CopyPath:   key.NewBinding(key.WithKeys("ctrl+y"), key.WithHelp("C-y", "copy path")),
+	Search:     key.NewBinding(key.WithKeys("/"), key.WithHelp("/", "search")),
+	Filter:     key.NewBinding(key.WithKeys("F"), key.WithHelp("F", "filter")),
+	FavAdd:     key.NewBinding(key.WithKeys("+"), key.WithHelp("+", "add fav")),
+	FavDel:     key.NewBinding(key.WithKeys("-"), key.WithHelp("-", "del fav")),
 
 	Recent: key.NewBinding(key.WithKeys("H"), key.WithHelp("H", "recent")),
 

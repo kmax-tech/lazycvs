@@ -217,6 +217,10 @@ are marked with `space` — the entire marked set.
 | `i`       | Add to `.cvsignore`. Marked `?` files → bulk; single → dialog with three options (local / global pattern / global exact). |
 | `a`       | `cvs add` (`?` files only)                                   |
 | `o`       | Open with the OS default viewer (`open` / `xdg-open`)        |
+| `Ctrl-e`  | Alias of `e` — same key that fzf/yazi-style pickers use for "open in editor" |
+| `Ctrl-o`  | Open with the configured alternate opener (`[editor] alt_open`, e.g. a GUI editor) — launched detached, the TUI keeps running |
+| `Ctrl-r`  | Reveal in the file manager (Finder `open -R`; elsewhere the containing dir) |
+| `Ctrl-y`  | Copy the file's absolute path to the clipboard               |
 | `p`       | Read-only file preview overlay                               |
 | `d`       | Jump to History tab pre-loaded with this file                |
 | `+` / `-` | Pin the dir under the cursor as favorite / unpin the selected favorite (`-` in Favorites tab only) |
@@ -448,6 +452,10 @@ timeout      = "60s"                       # per-command timeout
 editor       = "vim"                       # also reads $EDITOR
 diff_tool    = "meld"                      # E key
 merge_tool   = "meld"                      # M key (conflict files)
+alt_open     = "emacsclient -n"            # Ctrl-o: alternate opener, launched
+                                           # detached. $FILE marks where the
+                                           # path goes; without it the path is
+                                           # appended. E.g. "code --goto $FILE"
 
 # Built-in presets for diff_tool / merge_tool: vscode, emacs, vimdiff,
 # meld, kdiff3, opendiff, diffuse, bcompare. Or:

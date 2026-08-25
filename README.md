@@ -92,6 +92,7 @@ default_path = "~/work/my-cvs-checkout"   # used when cwd has no CVS metadata
 [editor]
 diff_tool  = "meld"   # 2-way diff for E key
 merge_tool = "meld"   # 3-way merge for M key (only on conflict files)
+alt_open   = "code --goto $FILE"   # Ctrl-o: alternate opener (detached)
 ```
 
 Built-in diff/merge presets: `vscode`, `emacs`, `vimdiff`, `meld`, `opendiff`,
@@ -116,9 +117,12 @@ custom template using `$LEFT`/`$RIGHT` (diff) or `$BASE`/`$LOCAL`/`$REMOTE`/`$ME
 | `c` | commit (universal — `?` files get cvs-add first) |
 | `r` | revert (`cvs update -C`, with backup) |
 | `D` | remove (`cvs remove -f`) |
-| `e` | open in `$EDITOR` |
+| `e` / `Ctrl-e` | open in `$EDITOR` |
 | `E` | open in configured external diff tool |
 | `M` | open in configured external merge tool (conflict files only) |
+| `Ctrl-o` | open with the alternate opener (`[editor] alt_open`), detached |
+| `Ctrl-r` | reveal in the file manager |
+| `Ctrl-y` | copy absolute path to clipboard |
 | `i` | add to `.cvsignore` |
 | `d` | open History tab pre-loaded with this file |
 | `u` | `cvs update` |

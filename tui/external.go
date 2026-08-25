@@ -1,12 +1,13 @@
 package tui
 
 import (
+	"fmt"
 	"lazycvs/config"
 	"lazycvs/cvs"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -401,8 +402,8 @@ func (m *App) launchExternalDiffForCurrent(selectedPath string) tea.Cmd {
 	if m.activeTab != TabHistory {
 		// Working copy vs HEAD — what most users want from outside History.
 		return m.launchExternalDiffFor(selectedPath,
-			diffSide{rev: ""},          // HEAD
-			diffSide{working: true})    // local file
+			diffSide{rev: ""},       // HEAD
+			diffSide{working: true}) // local file
 	}
 
 	path := m.history.Path()
@@ -451,4 +452,125 @@ func openInOS(path string) tea.Cmd {
 		cmd.Start()
 		return nil
 	}
+}
+
+// fileActionDoneMsg reports the outcome of a lightweight file utility
+// (alt-open, reveal, copy path). note is shown green on success; a non-nil
+// err is shown red. Unlike externalDiffMsg this IS consumed by the model —
+// these actions have no other visible effect, so silence would read as
+// "the key is dead".
+type fileActionDoneMsg struct {
+	note string
+	err  error
+}
+
+// altOpenArgv turns the [editor] alt_open template into an argv for the
+// given absolute file path. $FILE is substituted; a template without $FILE
+// gets the path appended. Split on whitespace like the diff/merge templates
+// (no shell quoting). Errors on an empty/unset template.
+func altOpenArgv(tmpl, path string) ([]string, error) {
+	if strings.TrimSpace(tmpl) == "" {
+		return nil, fmt.Errorf("no alternate opener configured (set [editor] alt_open, e.g. \"emacsclient -n\")")
+	}
+	if strings.Contains(tmpl, "$FILE") {
+		parts := strings.Fields(strings.ReplaceAll(tmpl, "$FILE", path))
+		if len(parts) == 0 {
+			return nil, fmt.Errorf("empty alt_open command")
+		}
+		return parts, nil
+	}
+	return append(strings.Fields(tmpl), path), nil
+}
+
+// launchAltOpenFor spawns the configured alternate opener (Ctrl-O) on the
+// file under the cursor, detached. If none is configured, opens a help
+// dialog explaining how to set one — same pattern as diff/merge tools.
+func (m *App) launchAltOpenFor(path string) tea.Cmd {
+	cfg := m.cfgMgr.Get()
+	if strings.TrimSpace(cfg.Editor.AltOpen) == "" {
+		m.dialog.OpenPreview("alt open", "No alternate opener configured.\n\n"+
+			"Ctrl-O opens the file under the cursor with a second tool of\n"+
+			"your choice (a GUI editor, an IDE, …), without leaving lazycvs.\n\n"+
+			"Set [editor] alt_open in your config, e.g.:\n\n"+
+			"  [editor]\n"+
+			"  alt_open = \"emacsclient -n\"\n\n"+
+			"$FILE marks where the path goes; without it the path is\n"+
+			"appended:\n"+
+			"  alt_open = \"code --goto $FILE\"")
+		return nil
+	}
+	fullPath := filepath.Join(m.exec.WorkDir, path)
+	return func() tea.Msg {
+		argv, err := altOpenArgv(cfg.Editor.AltOpen, fullPath)
+		if err != nil {
+			return fileActionDoneMsg{err: err}
+		}
+		cmd := exec.Command(argv[0], argv[1:]...)
+		if err := cmd.Start(); err != nil {
+			return fileActionDoneMsg{err: fmt.Errorf("launch %s: %w", argv[0], err)}
+		}
+		return fileActionDoneMsg{note: "Opened " + filepath.Base(path) + " with " + filepath.Base(argv[0])}
+	}
+}
+
+// revealInOS shows the file in the OS file manager (Ctrl-R): macOS reveals
+// and selects it in Finder (`open -R`); elsewhere we open the containing
+// directory — the closest portable equivalent.
+func revealInOS(path string) tea.Cmd {
+	return func() tea.Msg {
+		var cmd *exec.Cmd
+		switch runtime.GOOS {
+		case "darwin":
+			cmd = exec.Command("open", "-R", path)
+		case "windows":
+			cmd = exec.Command("explorer", "/select,", path)
+		default:
+			cmd = exec.Command("xdg-open", filepath.Dir(path))
+		}
+		if err := cmd.Start(); err != nil {
+			return fileActionDoneMsg{err: fmt.Errorf("reveal %s: %w", filepath.Base(path), err)}
+		}
+		return fileActionDoneMsg{note: "Revealed " + filepath.Base(path)}
+	}
+}
+
+// copyPathCmd puts the absolute path on the system clipboard (Ctrl-Y) via
+// the platform's clipboard tool. Fails loud when no tool is available.
+func copyPathCmd(path string) tea.Cmd {
+	return func() tea.Msg {
+		if err := copyToClipboard(path); err != nil {
+			return fileActionDoneMsg{err: err}
+		}
+		return fileActionDoneMsg{note: "Copied path: " + path}
+	}
+}
+
+// copyToClipboard pipes text into the first available clipboard tool.
+func copyToClipboard(text string) error {
+	type tool struct {
+		bin  string
+		args []string
+	}
+	var tools []tool
+	switch runtime.GOOS {
+	case "darwin":
+		tools = []tool{{"pbcopy", nil}}
+	case "windows":
+		tools = []tool{{"clip", nil}}
+	default:
+		tools = []tool{
+			{"wl-copy", nil},
+			{"xclip", []string{"-selection", "clipboard"}},
+			{"xsel", []string{"--clipboard", "--input"}},
+		}
+	}
+	for _, t := range tools {
+		if _, err := exec.LookPath(t.bin); err != nil {
+			continue
+		}
+		cmd := exec.Command(t.bin, t.args...)
+		cmd.Stdin = strings.NewReader(text)
+		return cmd.Run()
+	}
+	return fmt.Errorf("no clipboard tool found (pbcopy / wl-copy / xclip / xsel)")
 }

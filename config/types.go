@@ -61,4 +61,9 @@ type EditorConfig struct {
 	// working file with conflict markers — most tools save back to here).
 	MergeTool    string `toml:"merge_tool,omitempty" json:"merge_tool,omitempty"`
 	MergeCommand string `toml:"merge_command,omitempty" json:"merge_command,omitempty"`
+	// Alternate opener — invoked by Ctrl-O on the file under the cursor and
+	// launched detached (the TUI keeps running). A command template: $FILE is
+	// replaced with the absolute path; without a $FILE placeholder the path is
+	// appended. E.g. "emacsclient -n", "code --goto", "subl".
+	AltOpen string `toml:"alt_open,omitempty" json:"alt_open,omitempty"`
 }

@@ -1069,6 +1069,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case editorClosedMsg:
 		return m, m.refreshStatusForPaths([]string{msg.path})
 
+	case fileActionDoneMsg:
+		if msg.err != nil {
+			return m, m.setResult("✗ "+msg.err.Error(), false)
+		}
+		return m, m.setResult(msg.note, true)
+
 	case commitMessageEditedMsg:
 		// User came back from $EDITOR. Empty message → abort; otherwise
 		// dispatch the universal commitMsg so the conflict-marker check

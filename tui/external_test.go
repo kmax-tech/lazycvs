@@ -48,3 +48,59 @@ func TestStripCheckoutHeader(t *testing.T) {
 		})
 	}
 }
+
+func TestAltOpenArgv(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		tmpl    string
+		path    string
+		want    []string
+		wantErr bool
+	}{
+		{
+			name: "plain command appends the path",
+			tmpl: "emacsclient -n",
+			path: "/repo/foo.tex",
+			want: []string{"emacsclient", "-n", "/repo/foo.tex"},
+		},
+		{
+			name: "$FILE placeholder is substituted in place",
+			tmpl: "code --goto $FILE",
+			path: "/repo/foo.tex",
+			want: []string{"code", "--goto", "/repo/foo.tex"},
+		},
+		{
+			name:    "empty template errors (fail loud, not a silent no-op)",
+			tmpl:    "",
+			path:    "/repo/foo.tex",
+			wantErr: true,
+		},
+		{
+			name:    "whitespace-only template errors",
+			tmpl:    "   ",
+			path:    "/repo/foo.tex",
+			wantErr: true,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := altOpenArgv(tc.tmpl, tc.path)
+			if tc.wantErr {
+				if err == nil {
+					t.Fatalf("altOpenArgv(%q) expected error, got %v", tc.tmpl, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("altOpenArgv(%q): %v", tc.tmpl, err)
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("altOpenArgv(%q) = %v, want %v", tc.tmpl, got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("altOpenArgv(%q)[%d] = %q, want %q", tc.tmpl, i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}

@@ -351,6 +351,14 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		case key.Matches(msg, keys.Open) && selectedPath != "":
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			return openInOS(fullPath)
+		// Picker-vocabulary Ctrl layer (fzf/yazi-style: C-o/C-r/C-y act on
+		// the hit under the cursor). C-e is folded into keys.Edit above.
+		case key.Matches(msg, keys.AltOpen) && selectedPath != "":
+			return m.launchAltOpenFor(selectedPath)
+		case key.Matches(msg, keys.Reveal) && selectedPath != "":
+			return revealInOS(filepath.Join(m.exec.WorkDir, selectedPath))
+		case key.Matches(msg, keys.CopyPath) && selectedPath != "":
+			return copyPathCmd(filepath.Join(m.exec.WorkDir, selectedPath))
 		case key.Matches(msg, keys.Commit) && m.activeTab == TabStaged:
 			// Staged commit works from either panel: switch to the
 			// in-pane commit input. When nothing qualifies, SAY so —

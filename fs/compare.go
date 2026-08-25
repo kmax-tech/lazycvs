@@ -1,7 +1,7 @@
 package fs
 
 import (
-	"lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/cvs"
 	"os"
 	"path/filepath"
 	"strings"

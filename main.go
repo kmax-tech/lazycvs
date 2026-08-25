@@ -3,9 +3,9 @@ package main
 import (
 	"flag"
 	"fmt"
-	"lazycvs/config"
-	"lazycvs/cvs"
-	"lazycvs/tui"
+	"github.com/kmax-tech/lazycvs/config"
+	"github.com/kmax-tech/lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/tui"
 	"os"
 	"os/exec"
 	"path/filepath"

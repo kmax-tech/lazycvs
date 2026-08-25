@@ -2,8 +2,8 @@ package tui
 
 import (
 	"fmt"
-	"lazycvs/cvs"
-	"lazycvs/fs"
+	"github.com/kmax-tech/lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/fs"
 	"os"
 	"path/filepath"
 	"strings"

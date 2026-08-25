@@ -3,7 +3,7 @@ package tui
 import (
 	"bufio"
 	"fmt"
-	"lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/cvs"
 	"os/exec"
 	"regexp"
 	"strconv"

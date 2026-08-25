@@ -1,4 +1,4 @@
-module lazycvs
+module github.com/kmax-tech/lazycvs
 
 go 1.24.6
 

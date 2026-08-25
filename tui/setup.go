@@ -2,7 +2,7 @@ package tui
 
 import (
 	"fmt"
-	"lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/cvs"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"

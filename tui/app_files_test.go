@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/cvs"
 )
 
 // newListingTestApp builds a minimal App over a real temp working copy.

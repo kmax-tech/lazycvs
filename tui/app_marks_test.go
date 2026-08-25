@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"lazycvs/config"
-	"lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/config"
+	"github.com/kmax-tech/lazycvs/cvs"
 
 	tea "github.com/charmbracelet/bubbletea"
 )

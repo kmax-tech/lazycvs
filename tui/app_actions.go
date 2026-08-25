@@ -2,10 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"github.com/kmax-tech/lazycvs/config"
+	"github.com/kmax-tech/lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/fs"
 	"hash/fnv"
-	"lazycvs/config"
-	"lazycvs/cvs"
-	"lazycvs/fs"
 	"os"
 	"path/filepath"
 	"strings"

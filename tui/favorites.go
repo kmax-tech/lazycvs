@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"lazycvs/config"
+	"github.com/kmax-tech/lazycvs/config"
 	"fmt"
 	"strings"
 

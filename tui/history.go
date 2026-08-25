@@ -265,8 +265,8 @@ func runHistoryStream(executor *cvs.CVSExecutor, path string, requestID uint64, 
 	}()
 
 	parser := newRevisionParser()
-	var pending []cvs.Revision  // accumulated since last flush
-	var emitted []cvs.Revision  // everything we've sent for the final cache fill
+	var pending []cvs.Revision // accumulated since last flush
+	var emitted []cvs.Revision // everything we've sent for the final cache fill
 
 	flush := func() {
 		if len(pending) == 0 {
@@ -534,15 +534,15 @@ func (m *HistoryModel) SwitchTo(path string) {
 // ApplyRevisions pushes a freshly loaded revisions list and the file's
 // working-copy state.
 //
-//   dirty   — the working tree diverges from the base revision
-//             (M / C / A / R). When true, a pseudo "working" row is
-//             exposed at virtual cursor index 0 and the working copy
-//             can be picked for compare like any other row.
-//   baseRev — the revision the on-disk file is checked out to (sticky-
-//             tag aware). When dirty is false and baseRev matches a
-//             revision in the list, that row gets a "(working)" badge.
-//             Note: this is NOT necessarily the repo HEAD — a working
-//             copy can sit on a sticky tag or a branch.
+//	dirty   — the working tree diverges from the base revision
+//	          (M / C / A / R). When true, a pseudo "working" row is
+//	          exposed at virtual cursor index 0 and the working copy
+//	          can be picked for compare like any other row.
+//	baseRev — the revision the on-disk file is checked out to (sticky-
+//	          tag aware). When dirty is false and baseRev matches a
+//	          revision in the list, that row gets a "(working)" badge.
+//	          Note: this is NOT necessarily the repo HEAD — a working
+//	          copy can sit on a sticky tag or a branch.
 func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory, dirty bool, baseRev string) {
 	if history != nil {
 		m.revisions = history.Revisions

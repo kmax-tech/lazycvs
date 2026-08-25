@@ -4,15 +4,15 @@ import "testing"
 
 func TestParseUpdate(t *testing.T) {
 	tests := []struct {
-		name     string
-		stdout   string
-		stderr   string
-		modified int
+		name      string
+		stdout    string
+		stderr    string
+		modified  int
 		conflicts int
 		untracked int
-		updated  int
-		stale    int
-		inTheWay int
+		updated   int
+		stale     int
+		inTheWay  int
 	}{
 		{
 			name:      "empty output",
@@ -36,15 +36,15 @@ func TestParseUpdate(t *testing.T) {
 			conflicts: 1,
 		},
 		{
-			name:      "updated and patched",
-			stdout:    "U text-files/report.tex\nP text-files/analysis.py\n",
-			stderr:    "",
-			updated:   2,
+			name:    "updated and patched",
+			stdout:  "U text-files/report.tex\nP text-files/analysis.py\n",
+			stderr:  "",
+			updated: 2,
 		},
 		{
-			name:   "move away",
-			stdout: "C conflict-test/new-server-file.txt\n",
-			stderr: "cvs update: move away `conflict-test/new-server-file.txt'; it is in the way\n",
+			name:      "move away",
+			stdout:    "C conflict-test/new-server-file.txt\n",
+			stderr:    "cvs update: move away `conflict-test/new-server-file.txt'; it is in the way\n",
 			conflicts: 1,
 			inTheWay:  1,
 		},

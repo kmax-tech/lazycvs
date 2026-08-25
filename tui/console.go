@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"github.com/kmax-tech/lazycvs/cvs"
 	"fmt"
+	"github.com/kmax-tech/lazycvs/cvs"
 	"strings"
 
 	"github.com/charmbracelet/bubbles/key"

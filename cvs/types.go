@@ -27,14 +27,14 @@ type InTheWayEntry struct {
 
 // UpdateResult holds the parsed result of a CVS update operation.
 type UpdateResult struct {
-	Updated   []FileEntry    `json:"updated"`
-	Modified  []FileEntry    `json:"modified"`
-	Conflicts []FileEntry    `json:"conflicts"`
-	Untracked []FileEntry    `json:"untracked"`
+	Updated   []FileEntry     `json:"updated"`
+	Modified  []FileEntry     `json:"modified"`
+	Conflicts []FileEntry     `json:"conflicts"`
+	Untracked []FileEntry     `json:"untracked"`
 	InTheWay  []InTheWayEntry `json:"in_the_way"`
-	StaleDirs []string       `json:"stale_dirs"`
-	Errors    []string       `json:"errors"`
-	Duration  time.Duration  `json:"duration"`
+	StaleDirs []string        `json:"stale_dirs"`
+	Errors    []string        `json:"errors"`
+	Duration  time.Duration   `json:"duration"`
 }
 
 // StatusSummary provides aggregate counts for the dashboard.

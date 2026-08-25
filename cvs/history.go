@@ -13,7 +13,7 @@ import (
 // (added / committed / removed); checkout, tag, and update records are
 // noise for a "what changed recently" view.
 type HistoryEvent struct {
-	Code    string    // "A" added, "M" committed, "R" removed
+	Code    string // "A" added, "M" committed, "R" removed
 	Time    time.Time
 	User    string
 	Rev     string

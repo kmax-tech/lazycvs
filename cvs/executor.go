@@ -22,7 +22,6 @@ type CVSExecutor struct {
 	Timeout time.Duration
 	Log     *CommandLog
 	mu      sync.RWMutex
-
 }
 
 // NewCVSExecutor creates a new executor.

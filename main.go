@@ -373,4 +373,3 @@ func findWorkingCopy(start string) (string, string, bool) {
 		dir = parent
 	}
 }
-

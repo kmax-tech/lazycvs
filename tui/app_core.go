@@ -1,9 +1,9 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/kmax-tech/lazycvs/config"
 	"github.com/kmax-tech/lazycvs/cvs"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,11 +40,11 @@ const (
 // refresh (`s` key). It bundles two complementary CVS calls so both
 // land in the same handler tick — one View() render, atomic state:
 //
-//   result   — `cvs -n update`: server-side U-status, conflicts
-//              that update would surface, and StaleDirs (only this
-//              call sees dirs removed on the server).
-//   statuses — per-partition `cvs status`: per-file WorkingRev
-//              (sticky-tag aware), the only source for baseRevMap.
+//	result   — `cvs -n update`: server-side U-status, conflicts
+//	           that update would surface, and StaleDirs (only this
+//	           call sees dirs removed on the server).
+//	statuses — per-partition `cvs status`: per-file WorkingRev
+//	           (sticky-tag aware), the only source for baseRevMap.
 //
 // Running them sequentially produced two frames; the layout shift
 // between them caused terminal-diff glitches (doubled headers,
@@ -58,15 +58,15 @@ type statusRefreshedMsg struct {
 
 // dirStatusMsg carries the result of a `cvs status` invocation.
 //
-//   recursive == false (default) — `cvs status -l <dir>`, scanning only
-//     the immediate directory. The handler clears statusMap entries
-//     whose immediate parent equals dir, then merges the new statuses.
+//	recursive == false (default) — `cvs status -l <dir>`, scanning only
+//	  the immediate directory. The handler clears statusMap entries
+//	  whose immediate parent equals dir, then merges the new statuses.
 //
-//   recursive == true — recursive `cvs status [scope]`. The handler
-//     clears every entry under dir's subtree, then merges. Used for
-//     the initial scan and for whole-tree refreshes; the targeted
-//     refresh path (refreshStatusForPaths) keeps the per-dir form
-//     because it only touches a small set of directories.
+//	recursive == true — recursive `cvs status [scope]`. The handler
+//	  clears every entry under dir's subtree, then merges. Used for
+//	  the initial scan and for whole-tree refreshes; the targeted
+//	  refresh path (refreshStatusForPaths) keeps the per-dir form
+//	  because it only touches a small set of directories.
 type dirStatusMsg struct {
 	dir       string
 	recursive bool
@@ -578,7 +578,6 @@ func (m *App) refreshStatusUser() tea.Cmd {
 		return statusRefreshedMsg{result: result, statuses: statuses, epoch: epoch}
 	}
 }
-
 
 func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// While the user has the console panel focused, treat any logged errors

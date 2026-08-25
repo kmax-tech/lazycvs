@@ -26,12 +26,12 @@ var warnPatterns = []string{
 
 // CommandLog is a thread-safe ring buffer of console entries with pub/sub for SSE.
 type CommandLog struct {
-	mu            sync.Mutex
-	entries       []ConsoleEntry
-	maxSize       int
-	subscribers   map[chan ConsoleEntry]struct{}
-	unreadErrors  int // failed-command count since last MarkRead()
-	logFile       *os.File // optional append-only session log (EnableFileLog)
+	mu           sync.Mutex
+	entries      []ConsoleEntry
+	maxSize      int
+	subscribers  map[chan ConsoleEntry]struct{}
+	unreadErrors int      // failed-command count since last MarkRead()
+	logFile      *os.File // optional append-only session log (EnableFileLog)
 }
 
 // NewCommandLog creates a new CommandLog with the given max size.

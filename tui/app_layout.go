@@ -1,8 +1,8 @@
 package tui
 
 import (
-	"github.com/kmax-tech/lazycvs/fs"
 	"fmt"
+	"github.com/kmax-tech/lazycvs/fs"
 	"path/filepath"
 	"strings"
 
@@ -431,14 +431,14 @@ func (m App) renderConsole() string {
 
 // renderKeybar returns two lines:
 //
-//   Line 1 — global navigation that's the same on every tab (tabs,
-//   focus switching, help/quit/cancel). Always present so the user
-//   has a stable map of "how do I move around".
+//	Line 1 — global navigation that's the same on every tab (tabs,
+//	focus switching, help/quit/cancel). Always present so the user
+//	has a stable map of "how do I move around".
 //
-//   Line 2 — context-sensitive actions for the active tab. Grouped
-//   with │ separators into [Action] / [View] / [Toggle] so the eye
-//   can find what it needs without scanning the whole row. A merge
-//   hint surfaces here when the cursor sits on a C-status file.
+//	Line 2 — context-sensitive actions for the active tab. Grouped
+//	with │ separators into [Action] / [View] / [Toggle] so the eye
+//	can find what it needs without scanning the whole row. A merge
+//	hint surfaces here when the cursor sits on a C-status file.
 //
 // The two-line shape replaces the previous single-line keybar that
 // truncated off the right edge on most terminals — users couldn't

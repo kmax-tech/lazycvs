@@ -85,7 +85,10 @@ func (m TreeModel) Init() tea.Cmd {
 }
 
 type treeLoadedMsg struct{ nodes []*TreeNode }
-type treeDirLoadedMsg struct{ path string; nodes []*TreeNode }
+type treeDirLoadedMsg struct {
+	path  string
+	nodes []*TreeNode
+}
 
 func (m TreeModel) Update(msg tea.Msg) (TreeModel, tea.Cmd) {
 	switch msg := msg.(type) {

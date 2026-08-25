@@ -11,7 +11,7 @@ import (
 type CompareEntry struct {
 	Path        string         `json:"path"`
 	Name        string         `json:"name"`
-	Type        string         `json:"type"` // "file" or "dir"
+	Type        string         `json:"type"`   // "file" or "dir"
 	Status      string         `json:"status"` // "identical", "modified", "local_only", "server_only", "conflict"
 	StatusLabel string         `json:"status_label"`
 	LocalSize   int64          `json:"local_size,omitempty"`
@@ -21,12 +21,12 @@ type CompareEntry struct {
 }
 
 var statusLabels = map[string]string{
-	"Up-to-date":          "identical",
-	"Locally Modified":    "modified",
-	"Locally Added":       "local_only",
-	"Needs Checkout":      "server_only",
-	"Needs Patch":         "server_only",
-	"Needs Merge":         "conflict",
+	"Up-to-date":                  "identical",
+	"Locally Modified":            "modified",
+	"Locally Added":               "local_only",
+	"Needs Checkout":              "server_only",
+	"Needs Patch":                 "server_only",
+	"Needs Merge":                 "conflict",
 	"File had conflicts on merge": "conflict",
 }
 
@@ -65,11 +65,11 @@ func Compare(workDir string, statuses []cvs.FileStatus) []CompareEntry {
 	// Add root-level files
 	for _, s := range filesByDir["."] {
 		entry := CompareEntry{
-			Path:        s.Path,
-			Name:        s.Path,
-			Type:        "file",
-			Status:      mapStatus(s.Status),
-			Depth:       0,
+			Path:   s.Path,
+			Name:   s.Path,
+			Type:   "file",
+			Status: mapStatus(s.Status),
+			Depth:  0,
 		}
 		entry.StatusLabel = entry.Status
 		if info, err := os.Stat(filepath.Join(workDir, s.Path)); err == nil {

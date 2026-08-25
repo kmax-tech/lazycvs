@@ -50,10 +50,10 @@ const blameRev = "@blame"
 // row when the on-disk state differs from what CVS thinks is the
 // committed content":
 //
-//   M — locally modified
-//   C — has merge conflicts
-//   A — added but not yet committed (no base revision exists)
-//   R — scheduled for removal (file gone or marked deleted)
+//	M — locally modified
+//	C — has merge conflicts
+//	A — added but not yet committed (no base revision exists)
+//	R — scheduled for removal (file gone or marked deleted)
 //
 // All other states (clean, ?, U, P) leave the working copy matching
 // the base revision, so no pseudo-row is shown.

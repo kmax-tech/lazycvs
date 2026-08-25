@@ -4,23 +4,23 @@ import "github.com/charmbracelet/lipgloss"
 
 // ANSI colors — respect user's terminal theme
 var (
-	colorMod       = lipgloss.Color("4") // Blue
-	colorConflict  = lipgloss.Color("1") // Red
-	colorUpdated   = lipgloss.Color("2") // Green
-	colorUntracked = lipgloss.Color("8") // Gray
-	colorStale     = lipgloss.Color("3") // Yellow
-	colorBorder    = lipgloss.Color("8") // Gray
-	colorActive    = lipgloss.Color("4") // Blue
-	colorMuted     = lipgloss.Color("8")  // Gray
+	colorMod       = lipgloss.Color("4")   // Blue
+	colorConflict  = lipgloss.Color("1")   // Red
+	colorUpdated   = lipgloss.Color("2")   // Green
+	colorUntracked = lipgloss.Color("8")   // Gray
+	colorStale     = lipgloss.Color("3")   // Yellow
+	colorBorder    = lipgloss.Color("8")   // Gray
+	colorActive    = lipgloss.Color("4")   // Blue
+	colorMuted     = lipgloss.Color("8")   // Gray
 	colorIgnored   = lipgloss.Color("239") // Dark gray (256-color)
 )
 
 // Status and keys
 var (
-	statusBadge = lipgloss.NewStyle().Width(2).Align(lipgloss.Center)
-	keyStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorActive)
-	helpStyle   = lipgloss.NewStyle().Foreground(colorMuted)
-	titleStyle  = lipgloss.NewStyle().Bold(true)
+	statusBadge  = lipgloss.NewStyle().Width(2).Align(lipgloss.Center)
+	keyStyle     = lipgloss.NewStyle().Bold(true).Foreground(colorActive)
+	helpStyle    = lipgloss.NewStyle().Foreground(colorMuted)
+	titleStyle   = lipgloss.NewStyle().Bold(true)
 	mutedStyle   = lipgloss.NewStyle().Foreground(colorMuted)
 	ignoredStyle = lipgloss.NewStyle().Foreground(colorIgnored).Strikethrough(true)
 )

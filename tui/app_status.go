@@ -335,7 +335,6 @@ func runPartitionScan(executor *cvs.CVSExecutor, scope string) []cvs.FileStatus 
 	return combined
 }
 
-
 // cvsStatusCode maps the long-form status strings emitted by `cvs status`
 // to the single-letter codes used throughout the UI. Returns "" for
 // statuses that don't map to anything actionable (e.g. "Up-to-date").

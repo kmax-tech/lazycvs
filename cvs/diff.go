@@ -194,4 +194,3 @@ func BuildSideBySide(hunks []DiffHunk) []DiffLinePair {
 func copyLine(l DiffLine) *DiffLine {
 	return &l
 }
-

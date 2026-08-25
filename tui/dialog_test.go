@@ -15,12 +15,12 @@ func TestStripCommentLines(t *testing.T) {
 		},
 		{
 			name: "comment header stripped",
-			in: "fix bug\n\n# Commit message\n# Files:\n#   M foo.go\n",
+			in:   "fix bug\n\n# Commit message\n# Files:\n#   M foo.go\n",
 			want: "fix bug",
 		},
 		{
 			name: "multi-line message with trailing comments",
-			in: "subject line\n\nlonger paragraph\nspanning lines\n\n# ignored\n",
+			in:   "subject line\n\nlonger paragraph\nspanning lines\n\n# ignored\n",
 			want: "subject line\n\nlonger paragraph\nspanning lines",
 		},
 		{

@@ -1,9 +1,9 @@
 package tui
 
 import (
+	"fmt"
 	"github.com/kmax-tech/lazycvs/config"
 	"github.com/kmax-tech/lazycvs/cvs"
-	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,18 +39,18 @@ const (
 )
 
 type DialogModel struct {
-	kind     DialogKind
-	path     string
-	files    []string
+	kind  DialogKind
+	path  string
+	files []string
 	// commitStatuses maps path → status code (M/C/A/?/…) for the files in
 	// the current commit dialog, so viewCommit can show real status instead
 	// of hard-coding M for everything. Set by OpenCommit alongside files.
 	commitStatuses map[string]string
-	input    textinput.Model
-	conflict *cvs.ConflictFile
-	preview  viewport.Model
-	width    int
-	height   int
+	input          textinput.Model
+	conflict       *cvs.ConflictFile
+	preview        viewport.Model
+	width          int
+	height         int
 
 	// Restore-revision dialog state.
 	restoreRev    string // the revision the user wants to check out
@@ -505,12 +505,12 @@ func doRestoreRev(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
 //   - "?"            : just delete from disk (CVS doesn't know about it)
 //   - "A"            : `cvs remove -f` un-schedules the add
 //   - "" / M / C / U + on-disk : `cvs remove -f` deletes the working
-//                      file AND schedules removal; status becomes R.
+//     file AND schedules removal; status becomes R.
 //   - "" / M / C / U + missing : `cvs remove` (no -f) only schedules.
-//                      The user already deleted the file with `rm` and
-//                      sees it as `(server)` in the listing; -f would
-//                      then fail trying to delete a file that isn't
-//                      there.
+//     The user already deleted the file with `rm` and
+//     sees it as `(server)` in the listing; -f would
+//     then fail trying to delete a file that isn't
+//     there.
 //   - "R"            : already scheduled — no-op
 //
 // Returns removeDoneMsg with the first error encountered (or nil on success).
@@ -1159,7 +1159,7 @@ func (m DialogModel) viewRestoreRev() string {
 		b.WriteString("  The schedule and your local content will be discarded.\n\n")
 	default:
 		b.WriteString(mutedStyle.Render(
-			"Working copy is clean — the file will simply be\n"+
+			"Working copy is clean — the file will simply be\n" +
 				"replaced with the chosen revision.\n\n"))
 	}
 	b.WriteString(mutedStyle.Render(

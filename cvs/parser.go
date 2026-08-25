@@ -126,4 +126,3 @@ func isIgnorableLine(line string) bool {
 	}
 	return false
 }
-

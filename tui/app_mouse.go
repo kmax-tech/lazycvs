@@ -54,16 +54,19 @@ func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 			return nil
 		}
 
-		// Scroll wheel — scroll the panel under the mouse, regardless of focus
+		// Scroll wheel — scroll the panel under the mouse, regardless of
+		// focus. step is ±1 wheel tick; cursor lists move one row per tick
+		// (so every row is selectable while scrolling), text viewports
+		// multiply it to 3 lines per tick themselves.
 		if msg.Button == tea.MouseButtonWheelUp || msg.Button == tea.MouseButtonWheelDown {
-			delta := 3
+			step := 1
 			if msg.Button == tea.MouseButtonWheelUp {
-				delta = -3
+				step = -1
 			}
 			if x < leftW {
-				return m.scrollLeft(delta)
+				return m.scrollLeft(step)
 			} else {
-				m.scrollRight(delta)
+				m.scrollRight(step)
 			}
 			return nil
 		}
@@ -167,6 +170,8 @@ func (m *App) clickRight(row int) {
 	}
 }
 
+// scrollLeft moves the left panel's cursor by delta rows (one per wheel
+// tick — these are selection lists, not viewports).
 func (m *App) scrollLeft(delta int) tea.Cmd {
 	switch m.activeTab {
 	case TabTree:
@@ -189,15 +194,17 @@ func (m *App) scrollLeft(delta int) tea.Cmd {
 	return nil
 }
 
+// scrollRight scrolls the right panel by delta wheel ticks: cursor lists
+// move one row per tick, text viewports (preview, history diff) 3 lines.
 func (m *App) scrollRight(delta int) {
 	switch m.activeTab {
 	case TabTree:
 		if m.treeMode == TreeViewDetails {
 			if m.previewReady {
 				if delta < 0 {
-					m.previewVP.LineUp(3)
+					m.previewVP.LineUp(-3 * delta)
 				} else {
-					m.previewVP.LineDown(3)
+					m.previewVP.LineDown(3 * delta)
 				}
 			}
 			return
@@ -220,9 +227,9 @@ func (m *App) scrollRight(delta int) {
 		}
 	case TabHistory:
 		if delta < 0 {
-			m.history.viewport.LineUp(3)
+			m.history.viewport.LineUp(-3 * delta)
 		} else {
-			m.history.viewport.LineDown(3)
+			m.history.viewport.LineDown(3 * delta)
 		}
 	}
 }

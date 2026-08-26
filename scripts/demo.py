@@ -458,7 +458,9 @@ Status:
     write(wc / "legacy/leftover.txt", "Old module that was removed server-side.\n")
     cvs("-Q", "add", "legacy", cwd=wc)
     cvs("-Q", "add", "legacy/leftover.txt", cwd=wc)
-    cvs("-Q", "commit", "-m", "add legacy module", cwd=wc)
+    # Scope the commit to legacy/ — an unscoped commit walks the whole WC
+    # and aborts on the conflict file (C status) created above.
+    cvs("-Q", "commit", "-m", "add legacy module", "legacy", cwd=wc)
     legacy_repo_dir = repo / "demo" / "legacy"
     if legacy_repo_dir.exists():
         shutil.rmtree(legacy_repo_dir)

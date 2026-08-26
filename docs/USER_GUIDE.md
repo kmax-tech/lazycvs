@@ -460,7 +460,13 @@ alt_open     = "emacsclient -n"            # Ctrl-o: alternate opener, launched
                                            # appended. E.g. "code --goto $FILE"
 
 # Built-in presets for diff_tool / merge_tool: vscode, emacs, vimdiff,
-# meld, kdiff3, opendiff, diffuse, bcompare. Or:
+# nvimdiff, meld, kdiff3, opendiff, diffuse, bcompare. Terminal tools
+# (vimdiff, nvimdiff) suspend the TUI while open; GUI tools launch
+# detached. The launch mode is inferred from the binary name — override
+# it for wrapper scripts or tools the inference doesn't know:
+# diff_terminal  = true   # force suspend-TUI launch for the diff tool
+# merge_terminal = true   # same for the merge tool
+# Or:
 # diff_command  = "my-tool $LEFT $RIGHT"
 # merge_command = "my-tool $BASE $LOCAL $REMOTE -o $MERGED"
 

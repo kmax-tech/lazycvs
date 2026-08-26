@@ -104,3 +104,68 @@ func TestAltOpenArgv(t *testing.T) {
 		})
 	}
 }
+
+func TestIsTerminalTool(t *testing.T) {
+	for _, tc := range []struct {
+		bin  string
+		want bool
+	}{
+		{"vimdiff", true},
+		{"nvim", true},
+		{"vim", true},
+		{"/usr/local/bin/nvim", true},
+		{"meld", false},
+		{"code", false},
+		{"opendiff", false},
+	} {
+		if got := isTerminalTool(tc.bin); got != tc.want {
+			t.Errorf("isTerminalTool(%q) = %v, want %v", tc.bin, got, tc.want)
+		}
+	}
+}
+
+func TestUseTerminal(t *testing.T) {
+	yes, no := true, false
+	for _, tc := range []struct {
+		name     string
+		argv0    string
+		override *bool
+		want     bool
+	}{
+		{"unset falls back to binary inference (terminal)", "vimdiff", nil, true},
+		{"unset falls back to binary inference (gui)", "meld", nil, false},
+		{"explicit true wins over gui inference", "hx-wrapper", &yes, true},
+		{"explicit false wins over terminal inference", "nvim", &no, false},
+	} {
+		if got := useTerminal(tc.argv0, tc.override); got != tc.want {
+			t.Errorf("%s: useTerminal(%q) = %v, want %v", tc.name, tc.argv0, got, tc.want)
+		}
+	}
+}
+
+func TestExpandTemplate(t *testing.T) {
+	got := expandTemplate("meld $LEFT $RIGHT", map[string]string{
+		"$LEFT":  "/tmp/rev-1.1-my notes.bib",
+		"$RIGHT": "/repo/my notes.bib",
+	})
+	want := []string{"meld", "/tmp/rev-1.1-my notes.bib", "/repo/my notes.bib"}
+	if len(got) != len(want) {
+		t.Fatalf("expandTemplate = %v, want %v", got, want)
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("expandTemplate[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+
+	// Placeholders embedded in a larger token still substitute (emacs preset).
+	got = expandTemplate(`emacs --eval (ediff-files "$LEFT" "$RIGHT")`, map[string]string{
+		"$LEFT": "/a", "$RIGHT": "/b",
+	})
+	want = []string{"emacs", "--eval", "(ediff-files", `"/a"`, `"/b")`}
+	for i := range got {
+		if got[i] != want[i] {
+			t.Errorf("embedded: expandTemplate[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

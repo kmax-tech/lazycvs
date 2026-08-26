@@ -27,10 +27,9 @@ func moduleRoot(executor *cvs.CVSExecutor) (string, error) {
 	return filepath.Clean(strings.TrimSpace(string(data))), nil
 }
 
-// externalDiffMsg reports the result of an external-diff launch attempt. err
-// is non-nil if extraction or spawning failed; otherwise the tool was started
-// in the background. The fields aren't used by the model today — the message
-// exists so callers don't have to ignore the Cmd return.
+// externalDiffMsg reports the result of an external diff/merge launch. err is
+// non-nil if extraction or spawning failed and is surfaced in the result bar;
+// success is silent (the tool appearing is the feedback).
 type externalDiffMsg struct {
 	err error
 }
@@ -150,9 +149,65 @@ func resolveDiffTool(cfg config.Config) (string, error) {
 	return tool, nil
 }
 
+// isTerminalTool reports whether the given argv[0] is a known
+// terminal-based (curses) program. Such tools must take over the terminal
+// via tea.ExecProcess — launching them detached makes them fight the TUI
+// for the terminal and garbles both.
+func isTerminalTool(bin string) bool {
+	switch filepath.Base(bin) {
+	case "vim", "vimdiff", "nvim":
+		return true
+	}
+	return false
+}
+
+// useTerminal decides the launch mode for a tool: the user's explicit
+// config flag wins; unset falls back to the binary-name inference.
+func useTerminal(argv0 string, override *bool) bool {
+	if override != nil {
+		return *override
+	}
+	return isTerminalTool(argv0)
+}
+
+// expandTemplate splits a command template into argv and substitutes the
+// placeholder tokens afterwards — in this order so absolute paths that
+// contain spaces stay one argument.
+func expandTemplate(tmpl string, subs map[string]string) []string {
+	parts := strings.Fields(tmpl)
+	for i, p := range parts {
+		for placeholder, value := range subs {
+			p = strings.ReplaceAll(p, placeholder, value)
+		}
+		parts[i] = p
+	}
+	return parts
+}
+
+// spawnTool runs an already-built argv either detached (GUI tools) or by
+// suspending the TUI (terminal tools). terminalOverride is the user's
+// diff_terminal/merge_terminal config flag; nil means infer from the
+// binary name. Both paths resolve to an externalDiffMsg.
+func spawnTool(argv []string, terminalOverride *bool) tea.Msg {
+	cmd := exec.Command(argv[0], argv[1:]...)
+	if useTerminal(argv[0], terminalOverride) {
+		// tea.ExecProcess wires the tool to the real terminal and restores
+		// the TUI when it exits. Its Cmd just wraps a message the bubbletea
+		// runtime intercepts, so invoking it inside this Cmd is fine.
+		return tea.ExecProcess(cmd, func(err error) tea.Msg {
+			return externalDiffMsg{err: err}
+		})()
+	}
+	if err := cmd.Start(); err != nil {
+		return externalDiffMsg{err: fmt.Errorf("launch %s: %w", argv[0], err)}
+	}
+	return externalDiffMsg{}
+}
+
 // launchExternalDiff spawns the configured diff tool with two file paths,
-// returning a Cmd that produces an externalDiffMsg when done. The tool runs in
-// the background — we don't wait for it.
+// returning a Cmd that produces an externalDiffMsg when done. GUI tools run
+// detached in the background; terminal tools (vimdiff, nvim) suspend the
+// TUI until they exit.
 func launchExternalDiff(cfg config.Config, leftFile, rightFile string) tea.Cmd {
 	return func() tea.Msg {
 		tmpl, err := resolveDiffTool(cfg)
@@ -160,20 +215,14 @@ func launchExternalDiff(cfg config.Config, leftFile, rightFile string) tea.Cmd {
 			return externalDiffMsg{err: err}
 		}
 		// Accept both $LEFT/$RIGHT and the legacy $LOCAL/$SERVER placeholders.
-		cmdStr := strings.ReplaceAll(tmpl, "$LEFT", leftFile)
-		cmdStr = strings.ReplaceAll(cmdStr, "$RIGHT", rightFile)
-		cmdStr = strings.ReplaceAll(cmdStr, "$LOCAL", leftFile)
-		cmdStr = strings.ReplaceAll(cmdStr, "$SERVER", rightFile)
-
-		parts := strings.Fields(cmdStr)
+		parts := expandTemplate(tmpl, map[string]string{
+			"$LEFT": leftFile, "$RIGHT": rightFile,
+			"$LOCAL": leftFile, "$SERVER": rightFile,
+		})
 		if len(parts) == 0 {
 			return externalDiffMsg{err: fmt.Errorf("empty diff tool command")}
 		}
-		cmd := exec.Command(parts[0], parts[1:]...)
-		if err := cmd.Start(); err != nil {
-			return externalDiffMsg{err: fmt.Errorf("launch %s: %w", parts[0], err)}
-		}
-		return externalDiffMsg{}
+		return spawnTool(parts, cfg.Editor.DiffTerminal)
 	}
 }
 
@@ -295,27 +344,21 @@ func extractConflictSides(executor *cvs.CVSExecutor, path string) (base, local, 
 }
 
 // launchExternalMerge spawns the configured 3-way merge tool with the four
-// conflict file paths. Runs in the background.
+// conflict file paths. GUI tools run detached; terminal tools suspend the TUI.
 func launchExternalMerge(cfg config.Config, base, local, remote, merged string) tea.Cmd {
 	return func() tea.Msg {
 		tmpl, err := resolveMergeTool(cfg)
 		if err != nil {
 			return externalDiffMsg{err: err}
 		}
-		cmdStr := strings.ReplaceAll(tmpl, "$BASE", base)
-		cmdStr = strings.ReplaceAll(cmdStr, "$LOCAL", local)
-		cmdStr = strings.ReplaceAll(cmdStr, "$REMOTE", remote)
-		cmdStr = strings.ReplaceAll(cmdStr, "$MERGED", merged)
-
-		parts := strings.Fields(cmdStr)
+		parts := expandTemplate(tmpl, map[string]string{
+			"$BASE": base, "$LOCAL": local,
+			"$REMOTE": remote, "$MERGED": merged,
+		})
 		if len(parts) == 0 {
 			return externalDiffMsg{err: fmt.Errorf("empty merge tool command")}
 		}
-		cmd := exec.Command(parts[0], parts[1:]...)
-		if err := cmd.Start(); err != nil {
-			return externalDiffMsg{err: fmt.Errorf("launch %s: %w", parts[0], err)}
-		}
-		return externalDiffMsg{}
+		return spawnTool(parts, cfg.Editor.MergeTerminal)
 	}
 }
 
@@ -340,8 +383,9 @@ func (m *App) launchExternalDiffFor(path string, left, right diffSide) tea.Cmd {
 			"Set [editor] diff_tool in your config, e.g.:\n\n"+
 			"  [editor]\n"+
 			"  diff_tool = \"meld\"\n\n"+
-			"Built-in presets: vscode, emacs, vimdiff, meld,\n"+
-			"opendiff, kdiff3, diffuse, bcompare.\n\n"+
+			"Built-in presets: vscode, emacs, vimdiff, nvimdiff,\n"+
+			"meld, opendiff, kdiff3, diffuse, bcompare.\n"+
+			"(vimdiff/nvimdiff suspend the TUI while open.)\n\n"+
 			"Or use a custom command template:\n"+
 			"  diff_command = \"my-tool $LEFT $RIGHT\"")
 		return nil
@@ -380,7 +424,7 @@ func (m *App) launchExternalMergeFor(path string) tea.Cmd {
 			"  [editor]\n"+
 			"  merge_tool = \"meld\"\n\n"+
 			"Built-in 3-way presets: meld, kdiff3, vimdiff,\n"+
-			"vscode, opendiff, diffuse, bcompare.\n\n"+
+			"nvimdiff, vscode, opendiff, diffuse, bcompare.\n\n"+
 			"Or use a custom command:\n"+
 			"  merge_command = \"my-tool $BASE $LOCAL $REMOTE -o $MERGED\"")
 		return nil

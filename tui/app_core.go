@@ -1074,6 +1074,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, m.setResult(msg.note, true)
 
+	case externalDiffMsg:
+		// Launch failures used to vanish silently — E/M read as dead keys
+		// when the tool binary was missing. Success stays silent: the tool
+		// window (or the suspend/resume cycle) is the feedback.
+		if msg.err != nil {
+			return m, m.setResult("✗ "+msg.err.Error(), false)
+		}
+		return m, nil
+
 	case commitMessageEditedMsg:
 		// User came back from $EDITOR. Empty message → abort; otherwise
 		// dispatch the universal commitMsg so the conflict-marker check

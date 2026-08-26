@@ -55,12 +55,20 @@ type EditorConfig struct {
 	// 2-way diff tool — invoked by `E` (file vs HEAD, rev vs rev, etc.).
 	DiffTool    string `toml:"diff_tool,omitempty" json:"diff_tool,omitempty"`
 	DiffCommand string `toml:"diff_command,omitempty" json:"diff_command,omitempty"`
+	// DiffTerminal / MergeTerminal force how the tool is launched: true →
+	// suspend the TUI and hand it the terminal (curses tools), false →
+	// detached in the background (GUI tools). Unset → inferred from the
+	// binary name (vim/vimdiff/nvim count as terminal). Set it when using
+	// a wrapper script or a terminal tool the inference doesn't know
+	// (e.g. "hx", "emacs -nw").
+	DiffTerminal *bool `toml:"diff_terminal,omitempty" json:"diff_terminal,omitempty"`
 	// 3-way merge tool — invoked by `M` on conflict (`C`-status) files.
 	// Templates can use $BASE (common ancestor), $LOCAL (your pre-merge
 	// working copy), $REMOTE (the HEAD that conflicted), $MERGED (the on-disk
 	// working file with conflict markers — most tools save back to here).
-	MergeTool    string `toml:"merge_tool,omitempty" json:"merge_tool,omitempty"`
-	MergeCommand string `toml:"merge_command,omitempty" json:"merge_command,omitempty"`
+	MergeTool     string `toml:"merge_tool,omitempty" json:"merge_tool,omitempty"`
+	MergeCommand  string `toml:"merge_command,omitempty" json:"merge_command,omitempty"`
+	MergeTerminal *bool  `toml:"merge_terminal,omitempty" json:"merge_terminal,omitempty"`
 	// Alternate opener — invoked by Ctrl-O on the file under the cursor and
 	// launched detached (the TUI keeps running). A command template: $FILE is
 	// replaced with the absolute path; without a $FILE placeholder the path is

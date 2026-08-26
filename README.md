@@ -128,10 +128,13 @@ merge_tool = "meld"   # 3-way merge for M key (only on conflict files)
 alt_open   = "code --goto $FILE"   # Ctrl-o: alternate opener (detached)
 ```
 
-Built-in diff/merge presets: `vscode`, `emacs`, `vimdiff`, `meld`, `opendiff`,
-`kdiff3`, `diffuse`, `bcompare`. Or set `diff_command` / `merge_command` to a
-custom template using `$LEFT`/`$RIGHT` (diff) or `$BASE`/`$LOCAL`/`$REMOTE`/`$MERGED`
-(merge) placeholders.
+Built-in diff/merge presets: `vscode`, `emacs`, `vimdiff`, `nvimdiff`, `meld`,
+`opendiff`, `kdiff3`, `diffuse`, `bcompare`. Terminal tools (`vimdiff`,
+`nvimdiff`) suspend the TUI while open; GUI tools launch detached — inferred
+from the binary name, overridable with `diff_terminal` / `merge_terminal`
+(for wrapper scripts or tools the inference doesn't know). Or set
+`diff_command` / `merge_command` to a custom template using `$LEFT`/`$RIGHT`
+(diff) or `$BASE`/`$LOCAL`/`$REMOTE`/`$MERGED` (merge) placeholders.
 
 ## Tabs
 

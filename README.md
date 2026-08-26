@@ -6,9 +6,7 @@ Wraps the `cvs` CLI so daily workflows — status, diff, commit, conflict
 resolution, history, blame — happen in a fast keyboard-driven dashboard
 instead of disjoint shell commands.
 
-<!-- TODO: screenshot of the Files tab against the demo repo
-![lazycvs](docs/screenshot.png)
--->
+![lazycvs — Files tab on the demo working copy](docs/screenshot.png)
 
 ## Requirements
 

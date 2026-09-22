@@ -478,7 +478,10 @@ func (m *App) autoLoadPreview() tea.Cmd {
 		m.previewReady = true
 		return nil
 	}
-	if node.Status == "M" || node.Status == "C" {
+	// App.statusMap is the truth; a TreeNode's Status is a copy made
+	// when the tree was last annotated and is empty for rows the tree
+	// only just started showing.
+	if st := m.resolveFileStatus(node.Path); st == "M" || st == "C" {
 		return loadPreviewDiff(m.exec, node.Path)
 	}
 	// No diff needed — mark ready with nil diff
@@ -511,6 +514,12 @@ func (m *App) toggleDiffView(path string) tea.Cmd {
 	}
 	m.tree.showFiles = m.treeMode == TreeViewDetails
 	m.tree.rebuildFlat()
+	// Files appear in the tree only in the diff layout, so they were
+	// never annotated: showing them without this left every file row
+	// badge-less, the diff pane reporting "No local changes" for a
+	// modified file, and the keybar dropping c/r because the context
+	// read a status of "".
+	m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 	return m.revealPath(path)
 }
 
@@ -524,6 +533,7 @@ func (m App) showingDiffFor(path string) bool {
 func (m *App) applyTreeMode() tea.Cmd {
 	m.tree.showFiles = (m.treeMode == TreeViewDetails)
 	m.tree.rebuildFlat()
+	m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 	if m.treeMode == TreeViewDetails {
 		return m.autoLoadPreview()
 	}

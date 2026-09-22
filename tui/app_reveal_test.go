@@ -149,3 +149,27 @@ func TestEscapeClosesTheDiffPane(t *testing.T) {
 		t.Error("esc did not close the diff layout")
 	}
 }
+
+// ExpandToPath loads a directory's children synchronously, so rows can
+// appear that no status pass has seen. Unannotated, they read as clean:
+// the diff pane said "No local changes" for a modified file and the
+// keybar dropped c and r, because both ask the node for its status.
+func TestRevealAnnotatesRowsItJustExpanded(t *testing.T) {
+	app := newRevealTestApp(t)
+	app.activeTab = TabTree
+	app.statusMap["sub/deep/modified.txt"] = "M"
+
+	cmd := app.toggleDiffView("sub/deep/modified.txt")
+	_ = cmd
+
+	node := app.tree.SelectedNode()
+	if node == nil || node.Path != "sub/deep/modified.txt" {
+		t.Fatalf("cursor did not land on the file: %+v", node)
+	}
+	if node.Status != "M" {
+		t.Errorf("row expanded into view carries status %q, want M", node.Status)
+	}
+	if ctx := app.keyContext(); ctx.status != "M" {
+		t.Errorf("keybar context reads status %q, want M", ctx.status)
+	}
+}

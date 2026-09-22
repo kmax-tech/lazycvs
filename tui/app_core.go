@@ -226,10 +226,19 @@ func (m *App) unsavedWork() string {
 	return ""
 }
 
-// bannerIsFailure reports whether the banner currently shows a failure
-// (as opposed to a success, a progress line, or nothing).
-func (m App) bannerIsFailure() bool {
-	return m.notification != "" && !m.notificationOK && !m.bannerInProgress()
+// bannerPointsToConsole reports whether the banner is a failure the
+// console can say more about: a red banner *and* an unread error in
+// the command log.
+//
+// The two halves are both needed. A red banner alone is not proof of
+// console detail — the quit warning ("1 file(s) marked — press q
+// again") is a refusal, not a failed command, and telling the user to
+// go read the console about it would send them to a panel with nothing
+// new in it. Unread errors alone are not proof either: they may be
+// minutes old and unrelated to what the banner says.
+func (m App) bannerPointsToConsole() bool {
+	return m.notification != "" && !m.notificationOK && !m.bannerInProgress() &&
+		m.cmdLog.UnreadErrors() > 0
 }
 
 // focusConsoleOnErrors sends the user to the console with the errors
@@ -686,6 +695,12 @@ func (m *App) revealPath(target string) tea.Cmd {
 	}
 	if m.treeMode == TreeViewDetails {
 		m.tree.ExpandToPath(target)
+		// ExpandToPath loads a directory's children synchronously, so
+		// rows can appear here that no status pass has ever seen.
+		// Annotate after expanding, never before: an unannotated row
+		// reads as "clean" to everything that asks a node for its
+		// status — the keybar context and the diff pane included.
+		m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 		m.focus = PanelLeft
 		return m.autoLoadPreview()
 	}
@@ -697,6 +712,7 @@ func (m *App) revealPath(target string) tea.Cmd {
 		}
 	}
 	m.tree.ExpandToPath(dir)
+	m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 	m.updateFileListForDir(dir)
 	if !isDir && m.filelist.FocusOnFile(target) {
 		m.focus = PanelRight
@@ -792,6 +808,13 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case treeDirLoadedMsg:
 		var cmd tea.Cmd
 		m.tree, cmd = m.tree.Update(msg)
+		// Rows that just arrived carry no status yet. Annotate them
+		// from what we already know instead of leaving them blank
+		// until this directory's background scan comes back: a file
+		// row without a badge is not "clean", it is "not asked yet",
+		// and everything reading a node's Status — the keybar context,
+		// the diff pane — would believe the first reading.
+		m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 		m.updateFileList()
 		m.statusEpoch++
 		statusCmd := backgroundDirScan(m.exec, m.statusEpoch, msg.path)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/kmax-tech/lazycvs/cvs"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -128,19 +129,9 @@ func (m *ConsoleModel) refreshContent() {
 		// an inline hint so the user doesn't need to switch to verbose just
 		// to see what went wrong.
 		if m.filter == ConsoleCompact {
-			ts := consoleTime.Render(e.Timestamp.Format("15:04:05"))
-			cmdStyle := consoleCmd
-			if !e.Success {
-				cmdStyle = consoleErr
-			}
-			fmt.Fprintf(&b, "%s  %s", ts, cmdStyle.Render("$ "+e.Command))
-			if e.Success {
-				fmt.Fprintf(&b, "  %s\n", consoleStatus.Render(fmt.Sprintf("(%s)", e.Duration.Round(1e6))))
-			} else {
-				fmt.Fprintf(&b, "  %s\n", consoleErr.Render(fmt.Sprintf("FAILED %d", e.ExitCode)))
-				if len(e.StderrLines) > 0 {
-					fmt.Fprintf(&b, "    %s\n", consoleErr.Render("→ "+e.StderrLines[0]))
-				}
+			b.WriteString(compactLine(e) + "\n")
+			if !e.Success && len(e.StderrLines) > 0 {
+				fmt.Fprintf(&b, "    %s\n", consoleErr.Render("→ "+e.StderrLines[0]))
 			}
 			continue
 		}
@@ -177,10 +168,19 @@ func (m *ConsoleModel) refreshContent() {
 // terminal width below the main panels, so the App passes the total
 // width via LeftW; RightW is unused.
 func (m *ConsoleModel) SetSize(d PanelDims) {
+	grew := d.Height != m.height
 	m.width = d.LeftW
 	m.height = d.Height
 	m.viewport.Width = d.LeftW
 	m.viewport.Height = d.Height
+	if grew {
+		// The scroll offset was computed for the old height. Collapsed
+		// to one line it sits at the last line of the content; expanded
+		// to six without this, the viewport scrolls past the end and
+		// the panel renders blank — a console that opens empty right
+		// when the user went looking for a failure.
+		m.viewport.GotoBottom()
+	}
 }
 
 func (m ConsoleModel) View() string {
@@ -196,6 +196,23 @@ func (m ConsoleModel) View() string {
 	return m.viewport.View()
 }
 
+// compactLine is one command as the compact filter shows it:
+// timestamp, the command, and either its duration or its exit code.
+// The collapsed panel shows the same line, so the console reads the
+// same whether it is one line tall or six.
+func compactLine(e cvs.ConsoleEntry) string {
+	ts := consoleTime.Render(e.Timestamp.Format("15:04:05"))
+	cmdStyle := consoleCmd
+	if !e.Success {
+		cmdStyle = consoleErr
+	}
+	line := ts + "  " + cmdStyle.Render("$ "+e.Command)
+	if e.Success {
+		return line + "  " + consoleStatus.Render(fmt.Sprintf("(%s)", e.Duration.Round(time.Millisecond)))
+	}
+	return line + "  " + consoleErr.Render(fmt.Sprintf("FAILED %d", e.ExitCode))
+}
+
 // collapsedView is the single line the console shows while it is out of
 // the way: the command that just ran and how it went. The viewport
 // cannot serve this — scrolled to the bottom, its last line is the
@@ -206,18 +223,5 @@ func (m ConsoleModel) collapsedView() string {
 	if len(entries) == 0 {
 		return mutedStyle.Render("  No commands yet")
 	}
-	e := entries[len(entries)-1]
-
-	cmd := e.Command
-	if len(e.Args) > 0 {
-		cmd += " " + strings.Join(e.Args, " ")
-	}
-	line := "  " + consoleTime.Render(e.Timestamp.Format("15:04:05")) + "  "
-	if e.Success {
-		line += cmd + "  " + consoleStatus.Render(e.Duration.String())
-	} else {
-		line += consoleErr.Render(cmd+"  FAILED") + "  " +
-			consoleStatus.Render(e.Duration.String())
-	}
-	return ansi.Truncate(line, max(1, m.width), "…")
+	return ansi.Truncate("  "+compactLine(entries[len(entries)-1]), max(1, m.width), "…")
 }

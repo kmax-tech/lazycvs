@@ -270,10 +270,20 @@ func TestConsoleOpensOnErrorsAfterAFailure(t *testing.T) {
 	app := newListingTestApp(t)
 	app.staged = NewStagedModel()
 	app.history = NewHistoryModel()
+	app.cmdLog.Add(cvs.CommandResult{Command: "cvs commit", ExitCode: 1})
 	app.setResult("✗ Commit failed for docs/notes.txt — see Console", false)
 
-	if !app.bannerIsFailure() {
-		t.Fatal("a failed result should read as a failure banner")
+	if !app.bannerPointsToConsole() {
+		t.Fatal("a failed command plus a red banner should point at the console")
+	}
+
+	// A refusal that logged nothing must not send the user there.
+	quiet := newListingTestApp(t)
+	quiet.staged = NewStagedModel()
+	quiet.history = NewHistoryModel()
+	quiet.setResult("2 file(s) marked — press q again to quit", false)
+	if quiet.bannerPointsToConsole() {
+		t.Error("a warning with nothing in the log should not point at the console")
 	}
 	if _, handled := app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyCtrlJ}); !handled {
 		t.Fatal("C-j should focus the console")

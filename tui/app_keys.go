@@ -76,7 +76,7 @@ var globalBindings = []struct {
 		// errors filter: "see Console" is only useful if the console
 		// then shows the failure rather than the fifty successful
 		// commands that came after it.
-		if m.bannerIsFailure() {
+		if m.bannerPointsToConsole() {
 			m.focusConsoleOnErrors()
 		} else {
 			m.focus = PanelConsole

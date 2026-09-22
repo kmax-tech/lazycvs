@@ -3,6 +3,7 @@ package tui
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -141,5 +142,31 @@ func TestFileListHeaderNamesItsState(t *testing.T) {
 	}
 	if got := head(); strings.Contains(got, "-ign") {
 		t.Errorf("header still carries the old shorthand: %q", got)
+	}
+}
+
+// The console collapses to one line and expands on focus. The viewport's
+// scroll offset is computed for the height it had, so expanding without
+// re-anchoring scrolls past the end: the panel opens blank, exactly when
+// the user went looking for something.
+func TestConsoleShowsContentAfterExpanding(t *testing.T) {
+	log := cvs.NewCommandLog(10)
+	log.Add(cvs.CommandResult{
+		Command:  "cvs status",
+		ExitCode: 0,
+		Duration: 11 * time.Millisecond,
+		Stdout:   "M docs/notes.txt\n",
+	})
+	console := NewConsoleModel(log)
+
+	console.SetSize(PanelDims{LeftW: 80, Height: consoleCollapsed})
+	console, _ = console.Update(nil) // refreshes content from the log
+	if got := ansi.Strip(console.View()); !strings.Contains(got, "cvs status") {
+		t.Fatalf("collapsed console should show the last command, got %q", got)
+	}
+
+	console.SetSize(PanelDims{LeftW: 80, Height: 6})
+	if got := ansi.Strip(console.View()); !strings.Contains(got, "cvs status") {
+		t.Errorf("expanded console is blank: %q", got)
 	}
 }

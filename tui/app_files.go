@@ -304,16 +304,15 @@ func (m *App) updateFileListForDir(dir string) {
 		}
 		rel := strings.TrimPrefix(path, prefix)
 		parts := strings.Split(rel, "/")
-		if len(parts) == 1 {
-			// Direct child of dir. ReadDir listed everything on disk,
-			// so an unseen direct child can only be server-side.
-			files = append(files, cvs.FileEntry{Path: path, Status: status, ServerOnly: true})
-			continue
-		}
-		// Below an immediate subdir (any depth). On disk = a deep
-		// local change (file OR untracked dir — `cvs -n update` reports
-		// whole unknown directories as a single "? dir" line); missing
-		// from disk = genuinely server-side.
+
+		// Whether this is really server-side is a question for the
+		// disk, at any depth. The direct-child case used to answer it
+		// by assumption — "ReadDir listed everything, so an unseen
+		// child can only be server-side" — which is false for
+		// directories: the walk collects them separately from files,
+		// so every untracked top-level directory (`cvs -n update`
+		// reports one as a single "? build" line) was labelled
+		// "(server)" while sitting right there on disk.
 		entry := cvs.FileEntry{Path: path, Status: status, ServerOnly: true}
 		if info, err := os.Stat(filepath.Join(m.exec.WorkDir, path)); err == nil {
 			entry.ServerOnly = false
@@ -322,6 +321,13 @@ func (m *App) updateFileListForDir(dir string) {
 				entry.Size = info.Size()
 				entry.EncodingIssue = m.encodingIssueFor(path)
 			}
+		}
+		if len(parts) == 1 {
+			if status == "?" && matchesIgnore(filepath.Base(path), ignorePatterns) {
+				entry.Ignored = true
+			}
+			files = append(files, entry)
+			continue
 		}
 		// The disk scans run names through the ignore patterns; do the
 		// same for surfaced entries or *.lazycvs-backup and friends leak

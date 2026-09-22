@@ -100,6 +100,11 @@ Statuses you'll see in the file list:
   experiments/           — entire directory is new to CVS (?)
   src/feature.go         — added but uncommitted (A)
   docs/TODO.md           — added but uncommitted (A)
+  docs/Zusammenfassung Größe.txt — a space and umlauts in the name (M)
+  docs/crlf.txt          — Windows line endings (M)
+  docs/no-newline.txt    — no trailing newline (M)
+  docs/empty.txt         — committed and empty
+  src/util.go            — tracked, deleted from the working copy (U)
   docs/notes.txt         — IN CONFLICT (C) after parallel edit
   docs/notes-de.txt      — modified (M), Latin-1 encoded with umlauts
   docs/old-spec.md       — scheduled for removal (R)
@@ -448,6 +453,44 @@ Status:
     (wc / "docs/old-spec.md").unlink()
     cvs("-Q", "remove", "docs/old-spec.md", cwd=wc)
     # Don't commit the removal — leaves it in R status for the demo.
+
+    # === Awkward names and line endings ===
+    # Each of these found a real bug the first time it was tried by hand:
+    #   * a space in the name       → `cvs status` prints "File: <name>\tStatus:",
+    #                                 and the parser cut the name at the space
+    #   * CRLF content              → carriage returns steered the terminal and
+    #                                 tore the panel frame apart
+    #   * no trailing newline       → diff's "\ No newline" annotation was drawn
+    #                                 as a numbered line of the file
+    #   * an empty committed file   → empty content read as "still loading"
+    #   * a tracked file deleted    → `cvs status` says "Needs Checkout", which
+    #     from the working copy       the status table did not know, so the file
+    #                                 vanished from the listing
+    # Keeping them in the demo keeps them exercised.
+    print("==> adding awkward names, line endings and empty content")
+    write(wc / "docs/Zusammenfassung Größe.txt", "Erste Fassung.\nGröße: klein.\n")
+    write(wc / "docs/crlf.txt", "Zeile eins\r\nZeile zwei\r\n")
+    write(wc / "docs/no-newline.txt", "letzte Zeile ohne Umbruch")
+    write(wc / "docs/empty.txt", "")
+    for rel in ("docs/Zusammenfassung Größe.txt", "docs/crlf.txt",
+                "docs/no-newline.txt", "docs/empty.txt"):
+        cvs("-Q", "add", rel, cwd=wc)
+    cvs("-Q", "commit", "-m", "add awkward-name and line-ending samples",
+        "docs/Zusammenfassung Größe.txt", "docs/crlf.txt",
+        "docs/no-newline.txt", "docs/empty.txt", cwd=wc)
+    # Local edits, so each one shows up as M with a diff to look at.
+    write(wc / "docs/Zusammenfassung Größe.txt",
+          "Erste Fassung.\nGröße: mittel.\nNachtrag: lokal geändert.\n")
+    write(wc / "docs/crlf.txt", "Zeile eins\r\nZeile zwei geaendert\r\n")
+    write(wc / "docs/no-newline.txt", "geaenderte letzte Zeile ohne Umbruch")
+
+    # A name long enough to need truncating in the file list.
+    write(wc / "src/ein-sehr-langer-dateiname-der-die-spalte-sprengt-und-weitergeht.go",
+          "package src // untracked, and far too long for the name column\n")
+
+    # Tracked, then deleted by hand: cvs reports it as needing checkout.
+    print("==> deleting a tracked file from the working copy (U status)")
+    (wc / "src/util.go").unlink()
 
     # === Stale directory → cvs update reports "skipping directory" ===
     # Add a directory + file to the repo, then nuke its repo-side RCS files

@@ -92,6 +92,14 @@ type HistoryModel struct {
 	hasWorkingRow      bool
 	workingMatchesBase bool
 
+	// projected is true once a result has been pushed into the right
+	// pane. Emptiness cannot stand in for it: an empty file's content
+	// is "" and a file with no changes has no diff, and both were
+	// rendered as "Loading..." forever — the same confusion between
+	// "nothing yet" and "nothing, and that is the answer" that the
+	// revision list had.
+	projected bool
+
 	// loaded marks the log as finished for this path, and emptyNote is
 	// what to say when it finished with nothing. Without them an empty
 	// result is indistinguishable from a pending one, and a file CVS
@@ -526,6 +534,7 @@ func (m *HistoryModel) SwitchTo(path string) {
 	m.revisions = nil
 	m.loaded = false
 	m.emptyNote = ""
+	m.projected = false
 	m.diffData = nil
 	m.content = ""
 	m.diffFromRev = ""
@@ -727,6 +736,7 @@ func (m *HistoryModel) ApplyDiff(fromRev, toRev string, diff *cvs.DiffResult) {
 	m.diffToRev = toRev
 	m.diffData = diff
 	m.content = ""
+	m.projected = true
 	m.hOffset = 0
 	m.resetViewport()
 	m.setView(m.renderDiffView())
@@ -739,6 +749,7 @@ func (m *HistoryModel) ApplyContent(rev, content string) {
 	m.diffToRev = rev
 	m.diffData = nil
 	m.content = content
+	m.projected = true
 	m.hOffset = 0
 	m.resetViewport()
 	m.setView(content)
@@ -760,6 +771,7 @@ func (m *HistoryModel) ClearProjection() {
 	m.revisions = nil
 	m.diffData = nil
 	m.content = ""
+	m.projected = false
 	m.diffFromRev = ""
 	m.diffToRev = ""
 	m.rawView = ""
@@ -1074,6 +1086,11 @@ func (m HistoryModel) ViewRight() string {
 			// No revisions to show anything about; the left pane
 			// already explains why.
 			return ""
+		}
+		if m.projected {
+			// A result did arrive and it was empty: an empty file, or
+			// a revision that changed nothing here.
+			return mutedStyle.Render("  (empty)")
 		}
 		switch m.mode {
 		case HistoryDiff:

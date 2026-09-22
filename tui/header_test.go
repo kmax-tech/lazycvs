@@ -193,3 +193,30 @@ func TestHistoryEmptyNoteFollowsTheStatus(t *testing.T) {
 		t.Errorf("unexplained note should point at the console: %q", got)
 	}
 }
+
+// The right pane had the same confusion as the revision list: an empty
+// answer read as a pending one. An empty file's content is "", and it
+// sat on "Loading diff..." forever.
+func TestHistoryRightPaneShowsEmptyResults(t *testing.T) {
+	h := NewHistoryModel()
+	h.SetSize(PanelDims{LeftW: 40, RightW: 60, Height: 20})
+	h.SwitchTo("empty.txt")
+	h.ApplyRevisions(&cvs.FileHistory{
+		Path:      "empty.txt",
+		Revisions: []cvs.Revision{{Number: "1.1"}},
+	}, false, "1.1")
+	h.MarkLoaded("")
+
+	if got := ansi.Strip(h.ViewRight()); !strings.Contains(got, "Loading") {
+		t.Fatalf("before the content arrives it is pending: %q", got)
+	}
+
+	h.ApplyContent("1.1", "") // an empty file's content
+	got := ansi.Strip(h.ViewRight())
+	if strings.Contains(got, "Loading") {
+		t.Errorf("an empty result must not read as pending: %q", got)
+	}
+	if !strings.Contains(got, "(empty)") {
+		t.Errorf("the pane should say the result was empty: %q", got)
+	}
+}

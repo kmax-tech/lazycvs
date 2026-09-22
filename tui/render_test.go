@@ -6,6 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/kmax-tech/lazycvs/cvs"
 )
 
 // Columns are measured in display cells. fmt's %-*s pads by bytes, so
@@ -76,5 +77,69 @@ func TestUntrackedIsDistinctFromChrome(t *testing.T) {
 	if colorUntracked == colorIgnored {
 		t.Errorf("untracked (%v) must stay brighter than ignored (%v)",
 			colorUntracked, colorIgnored)
+	}
+}
+
+// The header and the footer of the file pane must report the same
+// total. They used to count differently — the header counted files,
+// the footer counted navigable rows, which include the directory
+// header — so one listing claimed "14 files" and "10 of 15" at once.
+func TestFileListHeaderAndFooterAgree(t *testing.T) {
+	fl := NewFileListModel()
+	fl.width = 60
+	fl.height = 20
+	fl.SetFiles(".", []cvs.FileEntry{
+		{Path: "a.txt", Status: "M"},
+		{Path: "b.txt", Status: "?"},
+		{Path: "c.txt"},
+	}, nil)
+
+	if got := fl.FileCount(); got != 3 {
+		t.Fatalf("FileCount = %d, want 3", got)
+	}
+
+	header := ansi.Strip(fl.View())
+	if !strings.Contains(header, "3 files") {
+		t.Errorf("header does not report 3 files: %q", strings.SplitN(header, "\n", 2)[0])
+	}
+
+	// Cursor on the directory header row: a total, no position.
+	fl.cursor = 0
+	if info := ansi.Strip(fileListInfo(fl)); info != " 3 files " {
+		t.Errorf("footer on the header row = %q, want \" 3 files \"", info)
+	}
+
+	// Cursor on the second file: position among files, same total.
+	fl.cursor = 2
+	if info := ansi.Strip(fileListInfo(fl)); info != " 2 of 3 " {
+		t.Errorf("footer on the second file = %q, want \" 2 of 3 \"", info)
+	}
+}
+
+// The header says what state the list is in, in words. "-ign" said it
+// in three characters that name neither the setting nor its direction.
+func TestFileListHeaderNamesItsState(t *testing.T) {
+	fl := NewFileListModel()
+	fl.width = 80
+	fl.height = 10
+	fl.SetFiles("docs", []cvs.FileEntry{{Path: "docs/a.txt", Status: "M"}}, nil)
+
+	head := func() string {
+		return strings.SplitN(ansi.Strip(fl.View()), "\n", 2)[0]
+	}
+
+	if got := head(); !strings.Contains(got, "ignored:hidden") {
+		t.Errorf("default header should say ignored:hidden: %q", got)
+	}
+	fl.hideIgnored = false
+	if got := head(); !strings.Contains(got, "ignored:shown") {
+		t.Errorf("header should say ignored:shown once they are: %q", got)
+	}
+	fl.filter = "M"
+	if got := head(); !strings.Contains(got, "filter:M") {
+		t.Errorf("header should name the active filter: %q", got)
+	}
+	if got := head(); strings.Contains(got, "-ign") {
+		t.Errorf("header still carries the old shorthand: %q", got)
 	}
 }

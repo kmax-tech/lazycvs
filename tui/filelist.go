@@ -72,6 +72,38 @@ func (m *FileListModel) SetSize(d PanelDims) {
 	m.height = d.Height
 }
 
+// FileCount is how many file rows the listing shows — the number the
+// panel header and the panel footer both report. They used to count
+// separately: the header counted files, the footer counted navigable
+// rows (one more, because of the directory header), so a fourteen-file
+// listing said "14 files" at the top and "10 of 15" at the bottom.
+func (m FileListModel) FileCount() int {
+	n := 0
+	for _, r := range m.rows() {
+		if r.file != nil {
+			n++
+		}
+	}
+	return n
+}
+
+// CursorFileIndex is the cursor's 1-based position among the file rows,
+// and false when the cursor sits on a directory header (which is not a
+// file and has no position among them).
+func (m FileListModel) CursorFileIndex() (int, bool) {
+	n := 0
+	for i, r := range m.rows() {
+		if r.file == nil {
+			continue
+		}
+		n++
+		if i == m.cursor {
+			return n, true
+		}
+	}
+	return 0, false
+}
+
 // rows builds the flat navigable list based on current mode and filter.
 func (m FileListModel) rows() []fileRow {
 	// Main directory header — Space on this toggles all visible files
@@ -379,24 +411,20 @@ func (m FileListModel) View() string {
 			sd := row.subDir
 			if sd.Path == m.dir {
 				// Main directory header
-				info := sd.Name + "/"
-				if mn := m.ViewModeName(); mn != "" {
-					info += fmt.Sprintf(" (%s)", mn)
+				// State as named chips. The old header read
+				// "./ (flat) -ign — 14 files": "-ign" is not a word,
+				// and nothing said which way it pointed.
+				chips := []string{m.ViewModeName()}
+				if m.hideIgnored {
+					chips = append(chips, "ignored:hidden")
+				} else {
+					chips = append(chips, "ignored:shown")
 				}
 				if m.filter != "" {
-					info += fmt.Sprintf(" [%s]", m.filter)
+					chips = append(chips, "filter:"+m.filter)
 				}
-				if m.hideIgnored {
-					info += " -ign"
-				}
-				// Count visible files
-				fileCount := 0
-				for _, r := range rows {
-					if r.file != nil {
-						fileCount++
-					}
-				}
-				info += fmt.Sprintf(" — %d files", fileCount)
+				info := sd.Name + "/ · " + strings.Join(chips, " · ") +
+					fmt.Sprintf(" — %d files", m.FileCount())
 				if len(m.marked) > 0 {
 					info += fmt.Sprintf(", %d marked", len(m.marked))
 				}

@@ -193,6 +193,21 @@ func (m App) renderTabBar() string {
 	return bar + warn
 }
 
+// fileListInfo is the file pane's footer: the cursor's position among
+// the files, or the plain total while the cursor rests on a directory
+// header. It counts what the header counts — the two used to disagree,
+// the footer including the header row in its total.
+func fileListInfo(fl FileListModel) string {
+	total := fl.FileCount()
+	if total == 0 {
+		return ""
+	}
+	if pos, onFile := fl.CursorFileIndex(); onFile {
+		return fmt.Sprintf(" %d of %d ", pos, total)
+	}
+	return fmt.Sprintf(" %d files ", total)
+}
+
 func renderPanel(title, content string, width, height int, active bool, info string) string {
 	if width < 4 {
 		width = 4
@@ -347,17 +362,11 @@ func (m App) renderMainContent() string {
 			}
 		} else {
 			rightTitle = "Files — " + fullDirPath(m.filelist.dir)
-			files := m.filelist.rows()
-			if len(files) > 0 {
-				rightInfo = fmt.Sprintf(" %d of %d ", m.filelist.cursor+1, len(files))
-			}
+			rightInfo = fileListInfo(m.filelist)
 		}
 	case TabFavorites:
 		rightTitle = "Files — " + fullDirPath(m.filelist.dir)
-		files := m.filelist.rows()
-		if len(files) > 0 {
-			rightInfo = fmt.Sprintf(" %d of %d ", m.filelist.cursor+1, len(files))
-		}
+		rightInfo = fileListInfo(m.filelist)
 	case TabStaged:
 		rightTitle = "Commit"
 	case TabHistory:

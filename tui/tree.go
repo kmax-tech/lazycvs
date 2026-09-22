@@ -499,6 +499,21 @@ func findInNodes(nodes []*TreeNode, path string) *TreeNode {
 	return nil
 }
 
+// FocusOnPath moves the cursor onto the row for relPath, reporting
+// whether it found one. Only rows the tree currently shows can be
+// focused — in the dirs-only layout that excludes files, which is why
+// callers switch the layout first.
+func (m *TreeModel) FocusOnPath(relPath string) bool {
+	for i, f := range m.flat {
+		if f.node.Path == relPath {
+			m.cursor = i
+			m.ensureVisible()
+			return true
+		}
+	}
+	return false
+}
+
 func (m TreeModel) View() string {
 	if len(m.flat) == 0 {
 		return mutedStyle.Render("  Loading...")

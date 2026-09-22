@@ -295,17 +295,14 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// its sibling `f` above.
 		m.filelist.SetViewTree()
 		return nil, true
-	case key.Matches(msg, keys.ViewMode):
-		if m.activeTab != TabTree {
-			return nil, false
-		}
-		if m.treeMode == TreeViewFiles {
-			m.treeMode = TreeViewDetails
-		} else {
-			m.treeMode = TreeViewFiles
-		}
-		return m.applyTreeMode(), true
 	case key.Matches(msg, keys.Escape):
+		if m.activeTab == TabTree && m.treeMode == TreeViewDetails {
+			// Esc closes the diff, the same way d does — the two ways
+			// out of a view the user opened deliberately.
+			if path := m.selectedFilePath(); path != "" {
+				return m.toggleDiffView(path), true
+			}
+		}
 		if m.activeTab == TabStaged {
 			if m.staged.mode == StagedCommit {
 				m.staged.mode = StagedActions
@@ -359,8 +356,11 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 
 		switch {
 		case key.Matches(msg, keys.Diff) && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
-			m.activeTab = TabHistory
-			return m.openHistoryFor(selectedPath)
+			// The diff of the file under the cursor, in the pane next
+			// to it. Pressing d again on the same file closes it. From
+			// the Favorites or Staged tab this lands in the Files tab,
+			// which is where the diff layout lives.
+			return m.toggleDiffView(selectedPath)
 		case key.Matches(msg, keys.EditDiff) && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			return m.launchExternalDiffForCurrent(selectedPath)
 		case key.Matches(msg, keys.Merge) && selectedPath != "" && m.statusMap[selectedPath] == "C":

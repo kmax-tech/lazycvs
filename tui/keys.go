@@ -60,7 +60,6 @@ type keyMap struct {
 	Blame          key.Binding
 	SideBySide     key.Binding
 	CompareWorking key.Binding
-	ViewMode       key.Binding
 	ListMode       key.Binding
 	TreeList       key.Binding
 	HideIgnored    key.Binding
@@ -147,7 +146,6 @@ var keys = keyMap{
 	Blame:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "blame")),
 	SideBySide:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "side-by-side")),
 	CompareWorking: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "vs working")),
-	ViewMode:       key.NewBinding(key.WithKeys("v"), key.WithHelp("v", "layout")),
 	ListMode:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "list")),
 	TreeList:       key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "tree list")),
 	HideIgnored:    key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "hide-ign")),

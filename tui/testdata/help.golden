@@ -45,7 +45,7 @@ module from a CVSROOT (TUI prompts for root + module).
 
 File actions
 ────────────
-  d           diff (working vs base revision)
+  d           diff of your changes, in the pane beside the file; d again closes it
   c           commit cursor file (or marked files)
   C-e         commit message in $EDITOR (while input focused)
   a           add cursor file (?-status) to CVS
@@ -68,7 +68,6 @@ File actions
 
 View & filters
 ──────────────
-  v           layout: Files (tree+list) ↔ Detail (tree+preview)
   f           list mode: flat → sub → tree
   F           status filter: all → * → M → C → ? → all
   I           toggle hide-ignored on both panes

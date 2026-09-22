@@ -487,6 +487,40 @@ func (m *App) autoLoadPreview() tea.Cmd {
 	return nil
 }
 
+// toggleDiffView switches the Files tab between its two layouts with
+// the cursor kept on the same file:
+//
+//	list layout   — left: directories, right: the files in one of them
+//	diff layout   — left: the tree including files, right: the diff of
+//	                the file under the cursor
+//
+// `d` used to throw the user into the History tab instead. History
+// answers "who changed this, and when"; `d` asks "what did *I* change",
+// and the answer belongs next to the file, not in another tab with its
+// own navigation. Going back restores the file list on the same file.
+//
+// Both directions route through revealPath, which is also what the
+// fuzzy finder and the command-line path argument use — one landing
+// procedure, so the cursor ends up in the same place however the file
+// was chosen.
+func (m *App) toggleDiffView(path string) tea.Cmd {
+	if m.treeMode == TreeViewDetails {
+		m.treeMode = TreeViewFiles
+	} else {
+		m.treeMode = TreeViewDetails
+	}
+	m.tree.showFiles = m.treeMode == TreeViewDetails
+	m.tree.rebuildFlat()
+	return m.revealPath(path)
+}
+
+// showingDiffFor reports whether the right pane currently holds the
+// diff of path.
+func (m App) showingDiffFor(path string) bool {
+	return m.activeTab == TabTree && m.treeMode == TreeViewDetails &&
+		path != "" && m.previewPath == path
+}
+
 func (m *App) applyTreeMode() tea.Cmd {
 	m.tree.showFiles = (m.treeMode == TreeViewDetails)
 	m.tree.rebuildFlat()

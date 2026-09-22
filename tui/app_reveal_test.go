@@ -1,6 +1,10 @@
 package tui
 
-import "testing"
+import (
+	"testing"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 // revealPath is the single navigation both the fuzzy finder's pick and
 // the command-line path argument go through. A *file* argument has to
@@ -73,5 +77,75 @@ func TestInitialPathLandsOnFile(t *testing.T) {
 	}
 	if got.initialPath != "" {
 		t.Errorf("initialPath = %q, want it consumed", got.initialPath)
+	}
+}
+
+// `d` used to throw the user into the History tab — a different
+// question (who changed this, and when) with its own navigation. It
+// now shows the diff in the pane beside the file, and a second d
+// closes it again, leaving the cursor where it started.
+func TestDiffKeyTogglesTheDiffPaneInPlace(t *testing.T) {
+	app := newRevealTestApp(t)
+	app.activeTab = TabTree
+	app.tree.RefreshStatus(app.statusMap, app.staleDirs)
+	app.updateFileListForDir(".")
+	if !app.filelist.FocusOnFile("top.txt") {
+		t.Fatal("fixture does not list top.txt")
+	}
+	app.focus = PanelRight
+
+	press := func() {
+		app.delegateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	}
+
+	press()
+	if app.activeTab != TabTree {
+		t.Fatalf("d left the Files tab: activeTab = %v", app.activeTab)
+	}
+	if app.treeMode != TreeViewDetails {
+		t.Fatal("d did not open the diff layout")
+	}
+	if app.previewPath != "top.txt" {
+		t.Errorf("diff pane shows %q, want top.txt", app.previewPath)
+	}
+	if node := app.tree.SelectedNode(); node == nil || node.Path != "top.txt" {
+		t.Errorf("cursor did not follow the file into the diff layout: %+v", node)
+	}
+	if app.focus != PanelLeft {
+		t.Errorf("focus = %v, want PanelLeft so j/k moves between files", app.focus)
+	}
+
+	press()
+	if app.treeMode != TreeViewFiles {
+		t.Fatal("a second d did not close the diff layout")
+	}
+	if f := app.filelist.SelectedFile(); f == nil || f.Path != "top.txt" {
+		t.Errorf("closing the diff lost the file: %+v", f)
+	}
+	if app.focus != PanelRight {
+		t.Errorf("focus = %v, want PanelRight (back on the file list)", app.focus)
+	}
+}
+
+// Esc is the other way out of a view the user opened deliberately.
+func TestEscapeClosesTheDiffPane(t *testing.T) {
+	app := newRevealTestApp(t)
+	app.activeTab = TabTree
+	app.staged = NewStagedModel()
+	app.history = NewHistoryModel()
+	app.updateFileListForDir(".")
+	app.filelist.FocusOnFile("top.txt")
+	app.focus = PanelRight
+
+	app.delegateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
+	if app.treeMode != TreeViewDetails {
+		t.Fatal("d did not open the diff layout")
+	}
+
+	if _, handled := app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyEsc}); !handled {
+		t.Fatal("esc should be consumed")
+	}
+	if app.treeMode != TreeViewFiles {
+		t.Error("esc did not close the diff layout")
 	}
 }

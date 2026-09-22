@@ -335,7 +335,8 @@ var keyRegistry = []keyEntry{
 	// are what order the keybar, independently.
 	{binding: keys.Diff, group: groupAct, scope: scopeCursor, tabs: fileTabs,
 		bar: 10, barSegment: "act",
-		section: "File actions", helpDesc: "diff (working vs base revision)", applies: onFile},
+		section:  "File actions",
+		helpDesc: "diff of your changes, in the pane beside the file; d again closes it", applies: onFile},
 	{binding: keys.Commit, group: groupAct, scope: scopeSelection, tabs: fileTabs,
 		bar: 20, barSegment: "act",
 		section: "File actions", helpDesc: "commit cursor file (or marked files)", applies: canCommit},
@@ -395,9 +396,6 @@ var keyRegistry = []keyEntry{
 		bar: 110, barSegment: "act"},
 
 	// ── View & filters ────────────────────────────────────────────────
-	{binding: keys.ViewMode, group: groupView, scope: scopeGlobal, tabs: []Tab{TabTree},
-		bar: 10, barSegment: "view",
-		section: "View & filters", helpDesc: "layout: Files (tree+list) ↔ Detail (tree+preview)"},
 	{binding: keys.ListMode, group: groupView, scope: scopeGlobal, tabs: fileTabs,
 		bar: 20, barSegment: "view",
 		section: "View & filters", helpDesc: "list mode: flat → sub → tree"},

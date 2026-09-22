@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -39,7 +38,13 @@ const (
 )
 
 type DialogModel struct {
-	kind  DialogKind
+	kind DialogKind
+
+	// Help-modal filter: what was typed after "/", and whether the
+	// keys currently belong to it.
+	helpFilter    string
+	helpFiltering bool
+
 	path  string
 	files []string
 	// commitStatuses maps path → status code (M/C/A/?/…) for the files in
@@ -241,12 +246,63 @@ func (m *DialogModel) OpenConflict(path string, conflict *cvs.ConflictFile) {
 	m.conflict = conflict
 }
 
-func (m *DialogModel) OpenHelp() {
+// OpenHelp shows the keymap, scrolled to the section for where the
+// user actually is. A hundred lines of scroll text that always starts
+// at "Navigation" answers the question the user did not ask: pressing ?
+// in the History tab means "what can I do *here*".
+func (m *DialogModel) OpenHelp(section string) {
 	m.kind = DialogHelp
-	w := min(m.width-6, 78)
+	m.helpFilter = ""
+	m.helpFiltering = false
+	// The frame is Width(boxWidth) with Padding(1, 2), and lipgloss
+	// counts padding inside that width: the text area is four columns
+	// narrower than the box. Getting this wrong is what wrapped help
+	// rows twice — once by us, once by the viewport, the second time
+	// back to column zero.
+	w := max(20, dialogBoxWidth(m.width)-4)
 	h := min(m.height-8, 38)
 	m.preview = viewport.New(w, h)
-	m.preview.SetContent(helpContent())
+	body := m.setHelpContent()
+	m.scrollHelpTo(body, section)
+}
+
+// setHelpContent re-renders the body for the current filter and the
+// width of the box it is displayed in, and returns it.
+func (m *DialogModel) setHelpContent() string {
+	body := buildHelpBody(m.helpFilter, m.preview.Width)
+	m.preview.SetContent(body)
+	if m.helpFilter != "" {
+		m.preview.GotoTop()
+	}
+	return body
+}
+
+// scrollHelpTo puts the named section's heading at the top of the
+// viewport. An unknown or empty name leaves the view at the start.
+func (m *DialogModel) scrollHelpTo(body, section string) {
+	if section == "" {
+		return
+	}
+	for i, line := range strings.Split(body, "\n") {
+		if strings.TrimSpace(ansi.Strip(line)) == section {
+			m.preview.SetYOffset(i)
+			return
+		}
+	}
+}
+
+// helpSectionFor maps where the user is to the part of the help that
+// answers it.
+func helpSectionFor(ctx keyContext) string {
+	if ctx.focus == PanelConsole {
+		return "Console"
+	}
+	switch ctx.tab {
+	case TabHistory:
+		return "History tab"
+	default:
+		return "File actions"
+	}
 }
 
 func (m *DialogModel) OpenForceUpdate(paths []string) {
@@ -283,6 +339,12 @@ func (m *DialogModel) Close() {
 // SetSize takes the App's layout envelope. Dialogs are overlays sized to
 // the full terminal, so the App passes the screen size via LeftW and
 // Height; RightW is unused.
+// dialogBoxWidth is the width of every dialog frame. The help modal
+// used to size its viewport to 78 while the frame it lives in was
+// capped at 55, so its text was wrapped for a box twice as wide as the
+// one on screen.
+func dialogBoxWidth(total int) int { return min(total-4, 55) }
+
 func (m *DialogModel) SetSize(d PanelDims) {
 	m.width = d.LeftW
 	m.height = d.Height
@@ -663,7 +725,41 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 			m.preview, cmd = m.preview.Update(msg)
 			return m, cmd
 		case DialogHelp:
+			// While typing a filter the keys belong to the filter:
+			// "q" is a letter there, not quit — the same rule the
+			// commit input follows.
+			if m.helpFiltering {
+				switch {
+				case key.Matches(msg, keys.Escape):
+					m.helpFiltering = false
+					m.helpFilter = ""
+					m.setHelpContent()
+				case key.Matches(msg, keys.Enter):
+					m.helpFiltering = false // keep the result, scroll it
+				case msg.Type == tea.KeyBackspace:
+					if n := len(m.helpFilter); n > 0 {
+						m.helpFilter = m.helpFilter[:n-1]
+						m.setHelpContent()
+					}
+				case msg.Type == tea.KeyRunes:
+					m.helpFilter += string(msg.Runes)
+					m.setHelpContent()
+				}
+				return m, nil
+			}
+			if msg.String() == "/" {
+				m.helpFiltering = true
+				return m, nil
+			}
 			if key.Matches(msg, keys.Escape) || msg.String() == "?" || msg.String() == "q" {
+				if m.helpFilter != "" {
+					// First Esc drops the filter, second closes: the
+					// same "one layer at a time" rule the History tab
+					// uses for its comparison.
+					m.helpFilter = ""
+					m.setHelpContent()
+					return m, nil
+				}
 				m.Close()
 				return m, nil
 			}
@@ -973,7 +1069,7 @@ func (m DialogModel) View() string {
 		return ""
 	}
 
-	boxWidth := min(m.width-4, 55)
+	boxWidth := dialogBoxWidth(m.width)
 	boxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
 		BorderForeground(colorActive).
@@ -1297,40 +1393,56 @@ func (m DialogModel) viewInTheWay() string {
 
 func (m DialogModel) viewHelp() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Keybindings") + "\n\n")
+
+	title := titleStyle.Render("Keybindings")
+	if m.helpFilter != "" || m.helpFiltering {
+		cursor := ""
+		if m.helpFiltering {
+			cursor = "▌"
+		}
+		title += "   " + keyStyle.Render("/") + m.helpFilter + cursor
+	}
+	b.WriteString(title + "\n\n")
 	b.WriteString(m.preview.View())
 
-	pct := m.preview.ScrollPercent()
-	scroll := helpStyle.Render(fmt.Sprintf("  ↑/↓:scroll  %.0f%%", pct*100))
-	b.WriteString("\n" + scroll + "  " + helpStyle.Render("esc:close"))
+	var footer string
+	switch {
+	case m.helpFiltering:
+		footer = helpStyle.Render("  type to filter  ") +
+			keyStyle.Render("enter") + helpStyle.Render(":keep  ") +
+			keyStyle.Render("esc") + helpStyle.Render(":clear")
+	case m.helpFilter != "":
+		footer = helpStyle.Render(fmt.Sprintf("  ↑/↓:scroll  %.0f%%  ", m.preview.ScrollPercent()*100)) +
+			keyStyle.Render("/") + helpStyle.Render(":filter again  ") +
+			keyStyle.Render("esc") + helpStyle.Render(":clear filter")
+	default:
+		footer = helpStyle.Render(fmt.Sprintf("  ↑/↓:scroll  %.0f%%  ", m.preview.ScrollPercent()*100)) +
+			keyStyle.Render("/") + helpStyle.Render(":filter  ") +
+			keyStyle.Render("esc") + helpStyle.Render(":close")
+	}
+	b.WriteString("\n" + footer)
 	return b.String()
 }
 
 // helpRow formats one keybinding row as "<keys>  <description>" with a
 // fixed-width key column so descriptions line up across rows. Keeps the
 // help screen scannable instead of zig-zagging.
-func helpRow(k, desc string) string {
-	return "  " + keyStyle.Render(fmt.Sprintf("%-10s", k)) + "  " + desc
+// helpRowIndent is the width of the key column plus its padding: where
+// a wrapped description has to resume.
+const helpRowIndent = 14
+
+func helpRow(k, desc string, width int) string {
+	lines := strings.Split(ansi.Wordwrap(desc, width, " -/"), "\n")
+	out := "  " + keyStyle.Render(fmt.Sprintf("%-10s", k)) + "  " + lines[0]
+	for _, l := range lines[1:] {
+		out += "\n" + strings.Repeat(" ", helpRowIndent) + strings.TrimLeft(l, " ")
+	}
+	return out
 }
 
 func helpSection(title string) string {
 	return "\n" + titleStyle.Render(title) + "\n" +
 		mutedStyle.Render(strings.Repeat("─", len(title))) + "\n"
-}
-
-var (
-	helpContentOnce sync.Once
-	helpContentText string
-)
-
-// helpContent returns the cached help-modal body. The text is static
-// (no per-state branching) so we build it lazily on first use and
-// reuse the result for every subsequent OpenHelp.
-func helpContent() string {
-	helpContentOnce.Do(func() {
-		helpContentText = buildHelpContent()
-	})
-	return helpContentText
 }
 
 // helpIntro and helpOutro are the prose that frames a section's key
@@ -1364,38 +1476,84 @@ func helpOutro(section string) string {
 	return ""
 }
 
-func buildHelpContent() string {
+// helpGoldenWidth is the content width the golden files pin. The live
+// dialog renders for whatever width it actually has.
+const helpGoldenWidth = 51
+
+func buildHelpContent() string { return buildHelpBody("", helpGoldenWidth) }
+
+// buildHelpBody renders the help. With a filter, only rows whose key or
+// description contain it survive, sections with no surviving row
+// disappear, and the prose between sections is dropped — when you are
+// looking for one key, paragraphs are in the way.
+func buildHelpBody(filter string, width int) string {
 	var b strings.Builder
+	filter = strings.ToLower(strings.TrimSpace(filter))
+	filtering := filter != ""
+	// Descriptions wrap before the dialog does: left to the viewport, a
+	// long one wrapped to column 2 and collided with the key column,
+	// turning the list into prose.
+	descWidth := max(20, width-helpRowIndent)
 
 	// ── Convention banner ─────────────────────────────────────────
-	b.WriteString(mutedStyle.Render(
-		"How the keys work:\n" +
-			"  1. Scope comes from the selection, not from the key. With\n" +
-			"     files marked, an action applies to the marked set;\n" +
-			"     otherwise to the row under the cursor.\n" +
-			"  2. Shift is the same action, sharper: u update → U force\n" +
-			"     update, r revert → R restore a revision.\n" +
-			"  3. External tools (e, E, M, o, C-o, C-r) are their own\n" +
-			"     group, not Shift variants.\n" +
-			"The keybar shows the keys that apply to the current row; this\n" +
-			"list is all of them. Marks are a worklist: a bulk action\n" +
-			"consumes them on success and keeps them on failure (fix +\n" +
-			"retry). `a` (add) keeps them for the follow-up commit, `x`\n" +
-			"clears them all.\n"))
+	if !filtering {
+		b.WriteString(mutedStyle.Render(
+			"How the keys work:\n" +
+				"  1. Scope comes from the selection, not from the key. With\n" +
+				"     files marked, an action applies to the marked set;\n" +
+				"     otherwise to the row under the cursor.\n" +
+				"  2. Shift is the same action, sharper: u update → U force\n" +
+				"     update, r revert → R restore a revision.\n" +
+				"  3. External tools (e, E, M, o, C-o, C-r) are their own\n" +
+				"     group, not Shift variants.\n" +
+				"The keybar shows the keys that apply to the current row; this\n" +
+				"list is all of them. Marks are a worklist: a bulk action\n" +
+				"consumes them on success and keeps them on failure (fix +\n" +
+				"retry). `a` (add) keeps them for the follow-up commit, `x`\n" +
+				"clears them all.\n"))
+	}
 
 	// ── Key sections, straight off the registry ───────────────────
+	matches := 0
 	for _, section := range helpSectionOrder {
+		rows := helpRows(section)
+		if filtering {
+			var kept [][2]string
+			for _, row := range rows {
+				hay := strings.ToLower(row[0] + " " + row[1])
+				if strings.Contains(hay, filter) {
+					kept = append(kept, row)
+				}
+			}
+			rows = kept
+			if len(rows) == 0 {
+				continue
+			}
+		}
+		matches += len(rows)
 		b.WriteString(helpSection(section))
-		if intro := helpIntro[section]; intro != "" {
-			b.WriteString(mutedStyle.Render(intro))
+		if !filtering {
+			if intro := helpIntro[section]; intro != "" {
+				b.WriteString(mutedStyle.Render(intro))
+			}
 		}
-		for _, row := range helpRows(section) {
-			b.WriteString(helpRow(row[0], row[1]) + "\n")
+		for _, row := range rows {
+			b.WriteString(helpRow(row[0], row[1], descWidth) + "\n")
 		}
-		b.WriteString(helpOutro(section))
+		if !filtering {
+			b.WriteString(helpOutro(section))
+		}
+	}
+	if filtering {
+		if matches == 0 {
+			b.WriteString("\n" + mutedStyle.Render("  no key matches "+filter) + "\n")
+		}
+		return b.String()
 	}
 
 	// ── Status codes ──────────────────────────────────────────────
+	// Not part of the filter: it answers "what does this letter mean",
+	// which is not a question about keys.
 	// Not keys: the legend for the status column, which has no place
 	// in a keymap table.
 	b.WriteString(helpSection("Status codes"))

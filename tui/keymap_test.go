@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/bubbles/key"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // bindingID identifies a binding by what it actually binds, so a
@@ -308,4 +309,82 @@ func keysOf(set map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// The help opens where the user is. A hundred lines that always start
+// at "Navigation" answer a question nobody asked: pressing ? in the
+// History tab means "what can I do *here*".
+func TestHelpOpensOnTheRelevantSection(t *testing.T) {
+	cases := []struct {
+		name string
+		ctx  keyContext
+		want string
+	}{
+		{"files", keyContext{tab: TabTree, focus: PanelRight}, "File actions"},
+		{"favorites", keyContext{tab: TabFavorites, focus: PanelLeft}, "File actions"},
+		{"marked", keyContext{tab: TabStaged, focus: PanelLeft}, "File actions"},
+		{"history", keyContext{tab: TabHistory, focus: PanelLeft}, "History tab"},
+		{"console beats the tab", keyContext{tab: TabHistory, focus: PanelConsole}, "Console"},
+	}
+	for _, c := range cases {
+		if got := helpSectionFor(c.ctx); got != c.want {
+			t.Errorf("%s: help opens on %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// Filtering keeps the rows that match and drops the sections and prose
+// that do not — when you are hunting one key, paragraphs are in the way.
+func TestHelpFilter(t *testing.T) {
+	body := buildHelpBody("merge", helpGoldenWidth)
+	if !strings.Contains(body, "merge tool") {
+		t.Errorf("filter dropped the rows it should keep:\n%s", body)
+	}
+	if strings.Contains(body, "fuzzy search files") {
+		t.Errorf("filter kept a row that does not match:\n%s", body)
+	}
+	if strings.Contains(body, "Miller-column") || strings.Contains(body, "How the keys work") {
+		t.Errorf("filter kept prose:\n%s", body)
+	}
+
+	// Matching on the key itself, not only the description.
+	if body := buildHelpBody("C-y", helpGoldenWidth); !strings.Contains(body, "clipboard") {
+		t.Errorf("filtering by key text found nothing:\n%s", body)
+	}
+	// An empty result says so rather than showing an empty frame.
+	if body := buildHelpBody("zzzz", helpGoldenWidth); !strings.Contains(body, "no key matches") {
+		t.Errorf("empty result is silent:\n%s", body)
+	}
+	// Unfiltered output is untouched — the goldens cover its exact text.
+	if buildHelpBody("", helpGoldenWidth) != buildHelpContent() {
+		t.Error("an empty filter must render the full help")
+	}
+}
+
+// The help's own footer has to advertise the filter, or it is a
+// feature only its author knows about.
+func TestHelpFooterAdvertisesTheFilter(t *testing.T) {
+	var d DialogModel
+	d.SetSize(PanelDims{LeftW: 100, Height: 40})
+	d.OpenHelp("File actions")
+
+	idle := ansi.Strip(d.viewHelp())
+	if !strings.Contains(idle, "/:filter") || !strings.Contains(idle, "esc:close") {
+		t.Errorf("idle footer does not offer the filter:\n%s", lastLine(idle))
+	}
+
+	d.helpFiltering = true
+	d.helpFilter = "mer"
+	typing := ansi.Strip(d.viewHelp())
+	if !strings.Contains(typing, "type to filter") || !strings.Contains(typing, "esc:clear") {
+		t.Errorf("filtering footer does not say how to get out:\n%s", lastLine(typing))
+	}
+	if !strings.Contains(typing, "/mer") {
+		t.Errorf("the title does not show what is being filtered:\n%s", typing[:60])
+	}
+}
+
+func lastLine(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	return lines[len(lines)-1]
 }

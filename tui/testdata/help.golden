@@ -19,66 +19,85 @@ Navigation
   right pane), ← goes shallower (fold / walk up; from a right    
   pane it returns to the left). Ctrl+h/l/j/k jump panes directly.
                                                                    j / k       cursor down / up
-  l / →       expand dir; nothing to expand → right pane
-  h / ←       collapse / up (tree); right pane → back left
+  l / →       expand dir; nothing to expand → right
+              pane
+  h / ←       collapse / up (tree); right pane →
+              back left
   ~           collapse all, jump to root (tree)
   g / G       top / bottom
   PgUp/PgDn   scroll page (also C-u / C-d)
-  enter       select + jump to right pane (yazi-style)
+  enter       select + jump to right pane (yazi-
+              style)
   C-h / C-←   focus left pane
   C-l / C-→   focus right pane
   C-j / C-↓   focus console
   C-k / C-↑   back to panes from console
   tab         cycle focused panel
   /           fuzzy search files
-  q           quit lazycvs (inside a dialog: close it)
+  q           quit lazycvs (inside a dialog: close
+              it)
 
 Tabs
 ────
-  1           Files — tree+filelist OR tree+diff preview
+  1           Files — tree+filelist OR tree+diff
+              preview
   2           Favorites — pinned directories
-  3           Marked — the worklist c, r, i and u act on
-  4           History — revisions of the selected file
+  3           Marked — the worklist c, r, i and u
+              act on
+  4           History — revisions of the selected
+              file
 
   Bootstrap: `lazycvs init` in an empty dir to check out a fresh
 module from a CVSROOT (TUI prompts for root + module).        
 
 File actions
 ────────────
-  d           diff of your changes, in the pane beside the file; d again closes it
+  d           diff of your changes, beside the
+              file; d again closes it
   c           commit cursor file (or marked files)
-  C-e         commit message in $EDITOR (while input focused)
+  C-e         commit message in $EDITOR (while
+              input focused)
   a           add cursor file (?-status) to CVS
-  r           revert the cursor file, or every marked M/C file
-  B           restore .lazycvs-backup (marked / dir subtree / cursor)
+  r           revert the cursor file, or every
+              marked M/C file
+  B           restore .lazycvs-backup (marked / dir
+              subtree / cursor)
   D           remove (single file or marked set)
   i           ignore — add pattern to .cvsignore
   e           edit in $EDITOR
   E           external diff tool (config.diff_tool)
   M           external merge tool (conflict files)
   o           open in OS default app
-  C-e         edit in $EDITOR (picker-style alias of e)
-  C-o         alternate opener (config [editor] alt_open)
+  C-e         edit in $EDITOR (picker-style alias
+              of e)
+  C-o         alternate opener (config [editor]
+              alt_open)
   C-r         reveal in Finder / file manager
   C-y         copy absolute path to clipboard
   space       mark/unmark
   A           mark/unmark every changed file in dir
-  x           clear ALL marks (in console: clear log)
+  x           clear ALL marks (in console: clear
+              log)
   + / -       add/remove from favorites
 
 View & filters
 ──────────────
   f           file pane: flat list ↔ directory tree
-  ~           file pane, tree view: fold / unfold every subdirectory
-  F           status filter: all → * → M → C → ? → all
+  ~           tree view: fold / unfold every
+              subdirectory
+  F           status filter: all → * → M → C → ? →
+              all
   I           toggle hide-ignored on both panes
 
 CVS
 ───
-  s           status refresh (dry-run + scan, parallel)
+  s           status refresh (dry-run + scan,
+              parallel)
   u           update (cvs update -d -P)
-  U           force update (cvs update -C — overwrite!)
-  H           recent repo changes for dir + subdirs (all users)
+  U           force update (cvs update -C —
+              overwrite!)
+  H           recent repo changes for dir + subdirs
+              (all users)
              cvs history; window: history_days (default 7d).
              Enter on a row opens that file's History tab.  
 
@@ -89,11 +108,16 @@ History tab
   p           toggle side-by-side diff
   b           blame view
   w           compare vs working copy
-  R           restore selected revision into working copy
-  space       anchor revision for two-rev comparison
-  E           open the selected pair in the external diff tool
-  M           merge the selected pair into the working copy
-  B           restore the file's .lazycvs-backup (e.g. undo a pair merge)
+  R           restore selected revision into
+              working copy
+  space       anchor revision for two-rev
+              comparison
+  E           open the selected pair in the
+              external diff tool
+  M           merge the selected pair into the
+              working copy
+  B           restore this file's .lazycvs-backup
+              (undo a pair merge)
   < / >       horizontal scroll in diff content
   esc         cancel comparison mode
 
@@ -102,9 +126,12 @@ local changes vs repository.
 
 Console
 ───────
-  F           cycle filter: compact → verbose → errors → slow
-  + / -       grow / shrink the console panel (when focused)
-  x           clear panel (session log file keeps everything)
+  F           cycle filter: compact → verbose →
+              errors → slow
+  + / -       grow / shrink the console panel (when
+              focused)
+  x           clear panel (session log file keeps
+              everything)
 
   Every cvs command and file operation (rm / mv / backup) is                 
 also appended to /Users/max/Library/Application Support/lazycvs/lazycvs.log

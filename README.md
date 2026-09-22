@@ -174,7 +174,9 @@ The keybar's second line lists the keys that apply to the row under the
 cursor — `a`/`i` on an untracked file, `M` on a conflict, nothing that
 would be a no-op — and leads with `3 marked ▸` when a worklist exists.
 Keys that do not fit are counted (`+7 (?)`), never cut. `?` opens the
-help overlay with the full keymap and the three rules it follows:
+help overlay — at the section for wherever you are, with `/` to filter
+it by key or description — carrying the full keymap and the three rules
+it follows:
 
 1. Scope comes from the selection, not the key — with files marked, an
    action applies to the marked set, otherwise to the cursor row.

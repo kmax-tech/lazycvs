@@ -92,7 +92,10 @@ var globalBindings = []struct {
 		}
 		return nil
 	}},
-	{keys.Help, func(m *App) tea.Cmd { m.dialog.OpenHelp(); return nil }},
+	{keys.Help, func(m *App) tea.Cmd {
+		m.dialog.OpenHelp(helpSectionFor(m.keyContext()))
+		return nil
+	}},
 	{keys.Search, func(m *App) tea.Cmd { return m.search.Open(m.exec.WorkDir) }},
 }
 

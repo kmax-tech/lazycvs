@@ -131,7 +131,7 @@ useful for the console, which sits outside the axis.
 | `Ctrl-j` `Ctrl-↓`     | Focus console                                     |
 | `Ctrl-k` `Ctrl-↑`     | Back to panes from console                        |
 | `Tab` / `Shift-Tab`   | Cycle focus: left → right → console               |
-| `?`                   | Help overlay                                      |
+| `?`                   | Help overlay, opened at the section for where you are (History tab → History keys, console focused → Console keys). `/` filters the list by key or description; `Esc` clears the filter, `Esc` again closes. |
 | `/`                   | Fuzzy search (jump to file or directory)          |
 | `q`                   | Quit. With files marked or a commit message typed, the first `q` warns and a second one quits; any other key cancels. |
 | `Esc`               | Context-aware back / cancel                     |

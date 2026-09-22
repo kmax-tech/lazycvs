@@ -64,23 +64,38 @@ prior `cvs login`, ext/ssh via your usual ssh-agent or
 ## Layout
 
 ```
-┌─Tabs───────────────────────────────┐  Tabs: 1=Files 2=Fav 3=Staged 4=History
-│ 1:Files | 2:Fav | 3:Staged | 4:Hist│
+┌─Tabs───────────────────────────────┐  Tabs: 1=Files 2=Fav 3=Marked 4=History
+│ 1:Files | 2:Fav | 3:Marked | 4:Hist│
 ├─────────────────────────────────────┤
 │ Left panel        │ Right panel    │  Two main panels per tab.
 │ (tree / list)     │ (file list /   │
-│                   │  diff /        │  Console below shows recent cvs
-│                   │  commit form)  │  invocations + their durations.
+│                   │  diff /        │
+│                   │  commit form)  │
 ├─────────────────────────────────────┤
-│ Console (cvs invocation log)        │
-├─────────────────────────────────────┤
-│ Keybar — context-sensitive actions  │  Keybar always shows what's
-└─────────────────────────────────────┘  available right now.
+│ Console — one line unless focused   │  Expands on focus (Ctrl-J) and
+├─────────────────────────────────────┤  whenever a command fails.
+│ Nav keys (same everywhere)          │
+│ Keys that apply to the current row  │
+└─────────────────────────────────────┘
 ```
 
+The keybar's second line is not a catalogue: it lists the keys that
+apply to the row under the cursor. An untracked file offers `a` and
+`i`, a conflict offers `M`, a clean file offers neither. With files
+marked, the line starts with `3 marked ▸` — because the marks, not the
+cursor, are then what the actions address. When the keys do not fit the
+terminal, the least important go first and the row ends in `+7 (?)`
+rather than being cut mid-word; `?` lists all of them.
+
 The console at the bottom logs every `cvs` command lazycvs runs, with
-durations. A `⚠ N` indicator in the tab bar shows unread errors;
-focusing the console with `Ctrl-J` clears it.
+durations. It stays collapsed to a single line — the command that just
+ran — until you focus it (`Ctrl-J`) or a command fails, and it collapses
+again once you have looked. `+` / `-` set its expanded height while it
+has focus; `[ui] console_height` sets the default.
+
+A `⚠ N` indicator in the tab bar shows unread errors. `Ctrl-J` right
+after a failure opens the console **on the errors filter**, so the
+failure is the first thing in it; the red banner says so too.
 
 While a CVS command is in flight a yellow banner appears above the
 tab bar (`⟳ Committing 3 file(s)…`, `⟳ Refreshing status…`, etc.).
@@ -118,7 +133,7 @@ useful for the console, which sits outside the axis.
 | `Tab` / `Shift-Tab`   | Cycle focus: left → right → console               |
 | `?`                   | Help overlay                                      |
 | `/`                   | Fuzzy search (jump to file or directory)          |
-| `q`                   | Quit                                              |
+| `q`                   | Quit. With files marked or a commit message typed, the first `q` warns and a second one quits; any other key cancels. |
 | `Esc`               | Context-aware back / cancel                     |
 
 Page sizes are scaled per panel — the History revisions list (two lines
@@ -143,6 +158,12 @@ v project-root/  3M 2C 5?
 `M` = locally modified · `C` = conflict · `A` = added · `R` = scheduled
 for removal · `?` = untracked · `U` = needs update from server.
 
+Press `d` on a file to see **your changes to it** in the right pane:
+the tree switches to showing files, the cursor stays on the same file,
+and `j`/`k` then walks from file to file with the diff following. `d`
+again (or `Esc`) brings the file list back, cursor still on that file.
+The tab title says `Diff` while that layout is open.
+
 Right panel shows the **file list** for whichever directory is selected
 in the tree. It has three view modes (cycle with `f`):
 
@@ -158,7 +179,14 @@ directory badge has a selectable file behind it.
 
 `F` filters by status code — each press cycles through:
 all → `*` (anything changed: M/C/?/A/R/U) → `M` → `C` → `?` → all.
-The active filter shows up in the file-list header (e.g. `[*]`).
+
+The file-list header names the state it is in — view mode, whether
+ignored files are hidden, the active filter — and the count of files it
+is showing:
+
+```
+docs/ · flat · ignored:hidden · filter:M — 3 files, 2 marked
+```
 
 `I` toggles whether ignored files (`.cvsignore`-matched and
 default-ignored) are visible.
@@ -179,11 +207,15 @@ tab); `-` unpins the selected favorite. Both persist to the
 `[favorites]` section of the config file, which you can also edit by
 hand (e.g. to set a display name per entry).
 
-### 3 — Staged
+### 3 — Marked
 
-Files you've **marked** with `space`. Press `c` to open the commit
-input; type a message and `Enter` commits everything in this tab as one
-cvs invocation. `?` files get `cvs add`-ed automatically before commit.
+Files you've marked with `space` — the worklist `c`, `r`, `i` and `u`
+act on. CVS has no staging area; this tab is a selection, not an index,
+and opening it never changes what is in it.
+
+Press `c` to open the commit input; type a message and `Enter` commits
+everything in this tab as one cvs invocation. `?` files get
+`cvs add`-ed automatically before commit.
 
 `r` bulk-reverts every marked `M` and `C` file after a confirmation
 dialog; `i` adds marked `?` files to `.cvsignore`; `u` runs
@@ -202,7 +234,7 @@ See [History tab](#history-tab-in-depth) below.
 
 ## File actions
 
-These work in Tree, Favorites, and Staged tabs (with focus on either
+These work in Tree, Favorites, and Marked tabs (with focus on either
 panel). The selected file is the one under the cursor, or — when files
 are marked with `space` — the entire marked set.
 
@@ -223,8 +255,7 @@ are marked with `space` — the entire marked set.
 | `Ctrl-o`  | Open with the configured alternate opener (`[editor] alt_open`, e.g. a GUI editor) — launched detached, the TUI keeps running |
 | `Ctrl-r`  | Reveal in the file manager (Finder `open -R`; elsewhere the containing dir) |
 | `Ctrl-y`  | Copy the file's absolute path to the clipboard               |
-| `p`       | Read-only file preview overlay                               |
-| `d`       | Jump to History tab pre-loaded with this file                |
+| `d`       | Show your changes to this file in the pane beside it (Files tab layout); `d` again or `Esc` closes it |
 | `+` / `-` | Pin the dir under the cursor as favorite / unpin the selected favorite (`-` in Favorites tab only) |
 | `u`       | `cvs update` (selection or whole repo)                       |
 | `U`       | Force update (`cvs update -C`)                               |
@@ -263,10 +294,10 @@ bulk action on it, and the action *consumes* the set when it succeeds.
 
 1. Press `space` on each file you want to act on (or `A` to mark every
    changed file in the current directory + subdirs).
-2. Status counts in the tab bar update: `Staged(3)` means three marked.
-3. Switch to the **Staged** tab (`3`) to review the selection.
-   (If nothing is marked yet, the file under the cursor is seeded
-   automatically so the tab is never pointlessly empty.)
+2. The tab bar counts them: `Marked(3)` means three marked, and the
+   keybar's action line starts with `3 marked ▸`.
+3. Switch to the **Marked** tab (`3`) to review the selection. Opening
+   it changes nothing — looking at a worklist must not edit it.
 4. Press the action key:
    - `c` to commit (opens message input)
    - `r` to revert all marked `M`/`C` files (confirmation dialog)
@@ -446,7 +477,7 @@ Files with status `C`:
 
 ## Backup files (`*.lazycvs-backup`)
 
-Every revert (`r` on a single file or in the Staged tab) writes a
+Every revert (`r` on a single file or in the Marked tab) writes a
 `<file>.lazycvs-backup` next to the file before overwriting it. The
 backup is plain disk content — `mv` it back any time you want the
 pre-revert state.
@@ -496,6 +527,18 @@ expected_encoding = "latin1"               # repo text encoding ("latin1" or
                                            # encoding warning in the file
                                            # list only — commit/diff are
                                            # never affected.
+
+[ui]
+tree_width    = 0                          # left panel width in columns.
+                                           # 0 = a third of the terminal,
+                                           # clamped to 25–40 (the old
+                                           # fixed behaviour). A set value
+                                           # never takes more than half
+                                           # the screen.
+console_height = 6                         # height of the console *when
+                                           # expanded*. It collapses to one
+                                           # line when unfocused with
+                                           # nothing to report.
 
 [editor]
 editor       = "vim"                       # also reads $EDITOR
@@ -554,14 +597,13 @@ dirs = ["src/main", "docs", "tests/integration"]
 
 **Discard local edits + conflicts in bulk** (take server's version for everything)
 
-Stage the files you want to drop (Files tab + `Space` / `A`, or just
-let the staged tab populate them), switch to `3:Staged`, and press
-`r`. lazycvs runs `cvs update -C` over every M and C entry in the
-staged set, replacing each file with the server's revision and
-clearing conflict markers. A backup of each file's pre-revert
-content lands next to it as `<name>.lazycvs-backup`. No
-per-file confirmation prompt — the staged set IS the confirmation,
-so unstage anything you want to keep before pressing `r`.
+Mark the files you want to drop (Files tab + `space` / `A`), switch to
+`3:Marked`, and press `r`. lazycvs runs `cvs update -C` over every M and
+C entry in the marked set, replacing each file with the server's
+revision and clearing conflict markers. A backup of each file's
+pre-revert content lands next to it as `<name>.lazycvs-backup`. No
+per-file confirmation prompt — the marked set IS the confirmation, so
+unmark anything you want to keep before pressing `r`.
 
 **Move files into a new subfolder** (CVS has no `mv`, so it's a remove + add)
 

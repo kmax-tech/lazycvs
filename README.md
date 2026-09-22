@@ -149,7 +149,7 @@ from the binary name, overridable with `diff_terminal` / `merge_terminal`
 |---|---|---|
 | `1` | Files | Tree + file list, status markers, mark for commit |
 | `2` | Favorites | Pinned directories with live status counts |
-| `3` | Staged | Files marked with `space`; `c` opens commit input |
+| `3` | Marked | The worklist `c`, `r`, `i` and `u` act on; `c` opens the commit input |
 | `4` | History | Revisions + working copy as a synthetic top row |
 
 ## Key actions on a file
@@ -167,11 +167,20 @@ from the binary name, overridable with `diff_terminal` / `merge_terminal`
 | `Ctrl-r` | reveal in the file manager |
 | `Ctrl-y` | copy absolute path to clipboard |
 | `i` | add to `.cvsignore` |
-| `d` | open History tab pre-loaded with this file |
+| `d` | show your changes to this file in the pane beside it (`d` again closes) |
 | `u` | `cvs update` |
 
-The keybar at the bottom always shows what's available in the current
-context. `?` opens the help overlay with the full keymap.
+The keybar's second line lists the keys that apply to the row under the
+cursor — `a`/`i` on an untracked file, `M` on a conflict, nothing that
+would be a no-op — and leads with `3 marked ▸` when a worklist exists.
+Keys that do not fit are counted (`+7 (?)`), never cut. `?` opens the
+help overlay with the full keymap and the three rules it follows:
+
+1. Scope comes from the selection, not the key — with files marked, an
+   action applies to the marked set, otherwise to the cursor row.
+2. Shift is the same action, sharper (`u` update → `U` force update).
+3. External tools (`e`, `E`, `M`, `o`, `Ctrl-o`, `Ctrl-r`) are their own
+   group, not Shift variants.
 
 ## Documentation
 

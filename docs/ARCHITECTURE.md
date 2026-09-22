@@ -95,7 +95,9 @@ Key fields:
 
 ```go
 type App struct {
-    activeTab  int                // 0=Tree 1=Fav 2=Staged 3=History
+    activeTab  Tab                // TabTree / TabFavorites / TabStaged / TabHistory
+                                  // (the third tab is called "Marked" in the
+                                  // UI; the identifiers still say staged)
     focus      Panel              // PanelLeft / PanelRight / PanelConsole
 
     // Sub-models — each owns its own panel state.
@@ -126,6 +128,9 @@ type App struct {
 
 `statusMap` is the **single source of truth** for per-file status.
 Tree, FileList, Staged, and History all derive their displays from it.
+`keyContext` (`tui/keymap.go`) is the read-only snapshot of it that the
+keybar and help render against — a value, never the `*App`, so the
+keymap registry's predicates stay pure.
 Anything that needs to know "what is this file's status?" calls
 `m.resolveFileStatus(path)` which checks `statusMap` first, then falls
 back to walking ancestor `CVS/` markers.
@@ -316,7 +321,7 @@ Applied at every loader that pipes file content to the renderer:
 - `loadRevisionDiff` / `loadWorkingDiff`
 - `loadBlame`
 - `loadPreviewDiff`
-- File-preview overlay (`p` key on tree)
+- the text-display dialog (`DialogPreview`, e.g. "no diff tool configured")
 
 Status / log / annotate / update parsers don't need it — their tokens
 are reliably ASCII.

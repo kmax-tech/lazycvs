@@ -43,7 +43,7 @@ func TestActionDoneConsumesMarks(t *testing.T) {
 		app := newMarked()
 		updated, _ := app.Update(actionDoneMsg{paths: []string{"a.txt", "b.txt"}, keepMarks: true})
 		if got := len(updated.(App).filelist.marked); got != 2 {
-			t.Errorf("marks after add = %d, want 2 (staged for commit)", got)
+			t.Errorf("marks after add = %d, want 2 (marked for the follow-up commit)", got)
 		}
 	})
 

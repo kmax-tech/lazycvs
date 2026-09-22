@@ -448,45 +448,45 @@ func (m *App) prefetchAdjacentDiffs(path string) tea.Cmd {
 	return tea.Batch(cmds...)
 }
 
-// --- Tree variant B: inline preview (lives here because it parallels
+// --- The Files tab's diff pane (lives here because it parallels
 // the diff-loading flow used by the History tab proper) ----------------
 
-func loadPreviewDiff(exec *cvs.CVSExecutor, path string) tea.Cmd {
+func loadDiffFor(exec *cvs.CVSExecutor, path string) tea.Cmd {
 	return func() tea.Msg {
 		result, _ := exec.RunReadOnly("diff", "-u", path)
 		if result == nil {
-			return previewMsg{path: path}
+			return diffLoadedMsg{path: path}
 		}
 		parsed := cvs.ParseDiff(cvs.EnsureUTF8(result.Stdout))
-		return previewMsg{path: path, diff: parsed}
+		return diffLoadedMsg{path: path, diff: parsed}
 	}
 }
 
-func (m *App) autoLoadPreview() tea.Cmd {
+func (m *App) autoLoadDiff() tea.Cmd {
 	node := m.tree.SelectedNode()
 	if node == nil || node.IsDir {
-		m.previewReady = false
+		m.diffReady = false
 		return nil
 	}
-	if node.Path == m.previewPath && m.previewReady {
+	if node.Path == m.diffPath && m.diffReady {
 		return nil // already loaded
 	}
-	m.previewPath = node.Path
-	m.previewReady = false
+	m.diffPath = node.Path
+	m.diffReady = false
 	if fs.IsBinary(filepath.Join(m.exec.WorkDir, node.Path)) {
-		m.previewDiff = nil
-		m.previewReady = true
+		m.diffData = nil
+		m.diffReady = true
 		return nil
 	}
 	// App.statusMap is the truth; a TreeNode's Status is a copy made
 	// when the tree was last annotated and is empty for rows the tree
 	// only just started showing.
 	if st := m.resolveFileStatus(node.Path); st == "M" || st == "C" {
-		return loadPreviewDiff(m.exec, node.Path)
+		return loadDiffFor(m.exec, node.Path)
 	}
 	// No diff needed — mark ready with nil diff
-	m.previewDiff = nil
-	m.previewReady = true
+	m.diffData = nil
+	m.diffReady = true
 	return nil
 }
 
@@ -507,12 +507,12 @@ func (m *App) autoLoadPreview() tea.Cmd {
 // procedure, so the cursor ends up in the same place however the file
 // was chosen.
 func (m *App) toggleDiffView(path string) tea.Cmd {
-	if m.treeMode == TreeViewDetails {
-		m.treeMode = TreeViewFiles
+	if m.filesLayout == LayoutDiff {
+		m.filesLayout = LayoutList
 	} else {
-		m.treeMode = TreeViewDetails
+		m.filesLayout = LayoutDiff
 	}
-	m.tree.showFiles = m.treeMode == TreeViewDetails
+	m.tree.showFiles = m.filesLayout == LayoutDiff
 	m.tree.rebuildFlat()
 	// Files appear in the tree only in the diff layout, so they were
 	// never annotated: showing them without this left every file row
@@ -526,17 +526,6 @@ func (m *App) toggleDiffView(path string) tea.Cmd {
 // showingDiffFor reports whether the right pane currently holds the
 // diff of path.
 func (m App) showingDiffFor(path string) bool {
-	return m.activeTab == TabTree && m.treeMode == TreeViewDetails &&
-		path != "" && m.previewPath == path
-}
-
-func (m *App) applyTreeMode() tea.Cmd {
-	m.tree.showFiles = (m.treeMode == TreeViewDetails)
-	m.tree.rebuildFlat()
-	m.tree.RefreshStatus(m.statusMap, m.staleDirs)
-	if m.treeMode == TreeViewDetails {
-		return m.autoLoadPreview()
-	}
-	m.updateFileList()
-	return nil
+	return m.activeTab == TabTree && m.filesLayout == LayoutDiff &&
+		path != "" && m.diffPath == path
 }

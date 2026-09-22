@@ -170,7 +170,7 @@ func TestAddWorksFromTreePane(t *testing.T) {
 func TestUpdateInHistoryExplainsItself(t *testing.T) {
 	app := newListingTestApp(t)
 	app.history = NewHistoryModel()
-	app.staged = NewStagedModel()
+	app.markedTab = NewMarkedTabModel()
 	app.activeTab = TabHistory
 
 	cmd, handled := app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
@@ -190,7 +190,7 @@ func TestUpdateInHistoryExplainsItself(t *testing.T) {
 func TestQuitGuardsUnsavedWork(t *testing.T) {
 	newApp := func(t *testing.T) *App {
 		app := newListingTestApp(t)
-		app.staged = NewStagedModel()
+		app.markedTab = NewMarkedTabModel()
 		app.history = NewHistoryModel()
 		return app
 	}
@@ -240,7 +240,7 @@ func TestQuitGuardsUnsavedWork(t *testing.T) {
 
 	t.Run("an unsent commit message counts as work", func(t *testing.T) {
 		app := newApp(t)
-		app.staged.input.SetValue("fix the parser")
+		app.markedTab.input.SetValue("fix the parser")
 		press(app, 'q')
 		if !app.quitPending {
 			t.Fatal("q threw away a typed commit message")
@@ -268,7 +268,7 @@ func TestQuitGuardsUnsavedWork(t *testing.T) {
 // failure instead of everything that happened after it.
 func TestConsoleOpensOnErrorsAfterAFailure(t *testing.T) {
 	app := newListingTestApp(t)
-	app.staged = NewStagedModel()
+	app.markedTab = NewMarkedTabModel()
 	app.history = NewHistoryModel()
 	app.cmdLog.Add(cvs.CommandResult{Command: "cvs commit", ExitCode: 1})
 	app.setResult("✗ Commit failed for docs/notes.txt — see Console", false)
@@ -279,7 +279,7 @@ func TestConsoleOpensOnErrorsAfterAFailure(t *testing.T) {
 
 	// A refusal that logged nothing must not send the user there.
 	quiet := newListingTestApp(t)
-	quiet.staged = NewStagedModel()
+	quiet.markedTab = NewMarkedTabModel()
 	quiet.history = NewHistoryModel()
 	quiet.setResult("2 file(s) marked — press q again to quit", false)
 	if quiet.bannerPointsToConsole() {
@@ -297,7 +297,7 @@ func TestConsoleOpensOnErrorsAfterAFailure(t *testing.T) {
 
 	// Without a failure, C-j leaves the filter alone.
 	app2 := newListingTestApp(t)
-	app2.staged = NewStagedModel()
+	app2.markedTab = NewMarkedTabModel()
 	app2.history = NewHistoryModel()
 	app2.handleGlobalKey(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	if app2.console.filter != ConsoleCompact {
@@ -311,7 +311,7 @@ func TestConsoleOpensOnErrorsAfterAFailure(t *testing.T) {
 // bulk action then acted on.
 func TestOpeningTheMarkedTabMarksNothing(t *testing.T) {
 	app := newListingTestApp(t)
-	app.staged = NewStagedModel()
+	app.markedTab = NewMarkedTabModel()
 	app.history = NewHistoryModel()
 	app.tree = NewTreeModel(app.exec.WorkDir)
 	app.updateFileListForDir(".")
@@ -319,13 +319,13 @@ func TestOpeningTheMarkedTabMarksNothing(t *testing.T) {
 
 	app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
 
-	if app.activeTab != TabStaged {
+	if app.activeTab != TabMarked {
 		t.Fatalf("3 did not open the marked tab: %v", app.activeTab)
 	}
 	if n := len(app.filelist.marked); n != 0 {
 		t.Errorf("opening the tab marked %d file(s): %v", n, app.filelist.marked)
 	}
-	if n := len(app.staged.files); n != 0 {
+	if n := len(app.markedTab.files); n != 0 {
 		t.Errorf("marked list shows %d file(s) nobody marked", n)
 	}
 }

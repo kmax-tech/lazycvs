@@ -20,13 +20,13 @@ import (
 var updateKeybarGolden = flag.Bool("update", false, "rewrite testdata golden files")
 
 // keybarApp extends the listing fixture with the models renderKeybar
-// reaches into (tree, staged, history). newListingTestApp leaves them
+// reaches into (tree, markedTab, history). newListingTestApp leaves them
 // zero, and a zero HistoryModel would claim compareAnchor 0 = anchored.
 func newKeybarApp(t *testing.T) *App {
 	t.Helper()
 	app := newListingTestApp(t)
 	app.tree = NewTreeModel(app.exec.WorkDir)
-	app.staged = NewStagedModel()
+	app.markedTab = NewMarkedTabModel()
 	app.history = NewHistoryModel()
 	app.width = 200
 	return app
@@ -79,10 +79,10 @@ func keybarCases() []keybarCase {
 			a.filelist.cursor = 1
 		}},
 		{"favorites", func(a *App) { a.activeTab = TabFavorites }},
-		{"staged/empty", func(a *App) { a.activeTab = TabStaged }},
-		{"staged/actions", func(a *App) {
-			a.activeTab = TabStaged
-			a.staged.files = []stagedFile{
+		{"marked/empty", func(a *App) { a.activeTab = TabMarked }},
+		{"marked/actions", func(a *App) {
+			a.activeTab = TabMarked
+			a.markedTab.files = []markedFile{
 				{path: "a.txt", status: "M"},
 				{path: "new.txt", status: "?"},
 			}
@@ -90,11 +90,11 @@ func keybarCases() []keybarCase {
 			a.statusMap["a.txt"] = "M"
 			a.statusMap["new.txt"] = "?"
 		}},
-		{"staged/commit-input", func(a *App) {
-			a.activeTab = TabStaged
+		{"marked/commit-input", func(a *App) {
+			a.activeTab = TabMarked
 			a.focus = PanelRight
-			a.staged.mode = StagedCommit
-			a.staged.input.Focus()
+			a.markedTab.mode = MarkedCommit
+			a.markedTab.input.Focus()
 		}},
 		{"history/revisions", func(a *App) {
 			a.activeTab = TabHistory

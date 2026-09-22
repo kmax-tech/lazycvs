@@ -43,11 +43,11 @@ func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 		contentRow := y - mainTop - 1
 
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
-			// Staged actions mode is a single full-width panel — every
+			// The Marked tab's actions mode is a single full-width panel — every
 			// click belongs to it. Splitting at leftW here used to set
 			// focus to the nonexistent right panel, where action keys
 			// silently died ("clicked the row, pressed c, nothing").
-			if x < leftW || (m.activeTab == TabStaged && m.staged.mode == StagedActions) {
+			if x < leftW || (m.activeTab == TabMarked && m.markedTab.mode == MarkedActions) {
 				m.focus = PanelLeft
 				return m.clickLeft(contentRow)
 			}
@@ -122,11 +122,11 @@ func (m *App) clickLeft(row int) tea.Cmd {
 			m.favorites.cursor = idx
 			m.updateFileList()
 		}
-	case TabStaged:
+	case TabMarked:
 		// One header row at the top, then one row per file.
-		idx := m.staged.offset + row - 1
-		if idx >= 0 && idx < len(m.staged.files) {
-			m.staged.cursor = idx
+		idx := m.markedTab.offset + row - 1
+		if idx >= 0 && idx < len(m.markedTab.files) {
+			m.markedTab.cursor = idx
 		}
 	case TabHistory:
 		prevCursor := m.history.cursor
@@ -146,8 +146,8 @@ func (m *App) clickLeft(row int) tea.Cmd {
 func (m *App) clickRight(row int) {
 	switch m.activeTab {
 	case TabTree:
-		if m.treeMode == TreeViewDetails {
-			return // no click for preview
+		if m.filesLayout == LayoutDiff {
+			return // no click target in the diff pane
 		}
 		idx := m.filelist.offset + row - 1
 		files := m.filelist.rows()
@@ -173,9 +173,9 @@ func (m *App) scrollLeft(delta int) tea.Cmd {
 		m.updateFileList()
 	case TabFavorites:
 		m.favorites.cursor = clamp(m.favorites.cursor+delta, 0, max(0, len(m.favorites.favorites)-1))
-	case TabStaged:
-		m.staged.cursor = clamp(m.staged.cursor+delta, 0, max(0, len(m.staged.files)-1))
-		m.staged.ensureVisible()
+	case TabMarked:
+		m.markedTab.cursor = clamp(m.markedTab.cursor+delta, 0, max(0, len(m.markedTab.files)-1))
+		m.markedTab.ensureVisible()
 	case TabHistory:
 		prevCursor := m.history.cursor
 		m.history.cursor = clamp(m.history.cursor+delta, 0, max(0, m.history.NumRevisions()-1))
@@ -188,16 +188,16 @@ func (m *App) scrollLeft(delta int) tea.Cmd {
 }
 
 // scrollRight scrolls the right panel by delta wheel ticks: cursor lists
-// move one row per tick, text viewports (preview, history diff) 3 lines.
+// move one row per tick, text viewports (diff pane, history) 3 lines.
 func (m *App) scrollRight(delta int) {
 	switch m.activeTab {
 	case TabTree:
-		if m.treeMode == TreeViewDetails {
-			if m.previewReady {
+		if m.filesLayout == LayoutDiff {
+			if m.diffReady {
 				if delta < 0 {
-					m.previewVP.LineUp(-3 * delta)
+					m.diffVP.LineUp(-3 * delta)
 				} else {
-					m.previewVP.LineDown(3 * delta)
+					m.diffVP.LineDown(3 * delta)
 				}
 			}
 			return
@@ -209,14 +209,14 @@ func (m *App) scrollRight(delta int) {
 		files := m.filelist.rows()
 		m.filelist.cursor = clamp(m.filelist.cursor+delta, 0, max(0, len(files)-1))
 		m.filelist.ensureVisible()
-	case TabStaged:
-		// Staged is single-panel full-width in StagedActions; clicking
-		// the "right" half should still scroll the staged list. In
-		// StagedCommit the right pane is the single-line input, which
+	case TabMarked:
+		// The Marked tab is single-panel full-width in MarkedActions;
+		// clicking the "right" half should still scroll its list. In
+		// MarkedCommit the right pane is the single-line input, which
 		// doesn't have anything to scroll.
-		if m.staged.mode == StagedActions {
-			m.staged.cursor = clamp(m.staged.cursor+delta, 0, max(0, len(m.staged.files)-1))
-			m.staged.ensureVisible()
+		if m.markedTab.mode == MarkedActions {
+			m.markedTab.cursor = clamp(m.markedTab.cursor+delta, 0, max(0, len(m.markedTab.files)-1))
+			m.markedTab.ensureVisible()
 		}
 	case TabHistory:
 		if delta < 0 {

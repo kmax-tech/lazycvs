@@ -53,7 +53,7 @@ func validatePaths(exec *cvs.CVSExecutor, paths ...string) error {
 	return nil
 }
 
-// revertPathsCmd is the async bulk revert shared by the staged-tab
+// revertPathsCmd is the async bulk revert shared by the Marked tab
 // dispatch and the confirmation-dialog dispatch — one loop, one
 // backup pass, so the two flows can't drift apart. statuses decides
 // the per-path cvs sequence (see revertOne).
@@ -61,7 +61,7 @@ func revertPathsCmd(exec *cvs.CVSExecutor, paths []string, statuses map[string]s
 	if err := validatePaths(exec, paths...); err != nil {
 		return func() tea.Msg { return actionDoneMsg{paths: paths, err: err} }
 	}
-	stagedBulkPrepareBackups(exec, paths)
+	markedBulkPrepareBackups(exec, paths)
 	return func() tea.Msg {
 		var firstErr error
 		for _, p := range paths {
@@ -141,13 +141,13 @@ func (m *App) toggleDirFiles(dirPath string) {
 	}
 }
 
-// stagedBulkAction runs `cvs add`, `cvs update -C` (revert), or
+// markedBulkAction runs `cvs add`, `cvs update -C` (revert), or
 // `cvs update` (refresh) on the given paths. Marks follow the worklist
 // model: the actionDoneMsg/updateDoneMsg handlers consume them on
 // success and keep them on failure — nothing is unmarked here at
 // dispatch time. `add` keeps its marks even on success (keepMarks) so
-// the just-added files stay staged for the follow-up commit.
-func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
+// the just-added files stay marked for the follow-up commit.
+func (m *App) markedBulkAction(action string, paths []string) tea.Cmd {
 	exec := m.exec
 	switch action {
 	case "add":
@@ -180,7 +180,7 @@ func (m *App) stagedBulkAction(action string, paths []string) tea.Cmd {
 		// — that path clears the marker for both M and C, at the cost
 		// of losing CVS's own `.#file.rev` backup. We already write a
 		// `<file>.lazycvs-backup` next to every reverted file (see
-		// stagedBulkPrepareBackups below), so no actual recovery info
+		// markedBulkPrepareBackups below), so no actual recovery info
 		// is lost.
 		statuses := make(map[string]string, len(paths))
 		for _, p := range paths {
@@ -417,12 +417,12 @@ func revertOne(exec *cvs.CVSExecutor, workDir, path, status string) error {
 	return nil
 }
 
-// stagedBulkPrepareBackups writes a <path>.lazycvs-backup for every
+// markedBulkPrepareBackups writes a <path>.lazycvs-backup for every
 // path that's still on disk *before* the revert goroutine touches it.
 // Mirrors the per-file backup doRevert already writes for the
 // dialog-driven single-file revert, but lifts it out of the goroutine
 // so the backups are guaranteed in place before any `rm` lands.
-func stagedBulkPrepareBackups(exec *cvs.CVSExecutor, paths []string) {
+func markedBulkPrepareBackups(exec *cvs.CVSExecutor, paths []string) {
 	n := 0
 	for _, p := range paths {
 		if writeBackupFile(exec.WorkDir, p) {
@@ -668,7 +668,7 @@ func (m *App) removeFavorite() tea.Cmd {
 	return m.setResult(fmt.Sprintf("✓ Removed %s from favorites", path), true)
 }
 
-func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
+func (m *App) markedBulkIgnore(paths []string) tea.Cmd {
 	written := 0
 	for _, p := range paths {
 		dir := filepath.Dir(p)
@@ -686,7 +686,7 @@ func (m *App) stagedBulkIgnore(paths []string) tea.Cmd {
 	if written > 0 {
 		m.cmdLog.LogFileOp(fmt.Sprintf("echo %d name(s) >> .cvsignore  # ignore bulk", written), nil)
 	}
-	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+	m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 	return m.refreshStatusForPaths(paths)
 }
 

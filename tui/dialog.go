@@ -29,7 +29,7 @@ const (
 	DialogConflict
 	DialogHelp
 	DialogForceUpdate
-	DialogPreview
+	DialogNotice
 	DialogInTheWay
 	DialogRestoreRev
 	DialogCheckoutRoot   // CVSROOT input (lazycvs init)
@@ -53,9 +53,11 @@ type DialogModel struct {
 	commitStatuses map[string]string
 	input          textinput.Model
 	conflict       *cvs.ConflictFile
-	preview        viewport.Model
-	width          int
-	height         int
+	// scroll is the scrollable body shared by the help modal and the
+	// notice dialog — named for what it is, since it serves both.
+	scroll viewport.Model
+	width  int
+	height int
 
 	// Restore-revision dialog state.
 	restoreRev    string // the revision the user wants to check out
@@ -261,7 +263,7 @@ func (m *DialogModel) OpenHelp(section string) {
 	// back to column zero.
 	w := max(20, dialogBoxWidth(m.width)-4)
 	h := min(m.height-8, 38)
-	m.preview = viewport.New(w, h)
+	m.scroll = viewport.New(w, h)
 	body := m.setHelpContent()
 	m.scrollHelpTo(body, section)
 }
@@ -269,10 +271,10 @@ func (m *DialogModel) OpenHelp(section string) {
 // setHelpContent re-renders the body for the current filter and the
 // width of the box it is displayed in, and returns it.
 func (m *DialogModel) setHelpContent() string {
-	body := buildHelpBody(m.helpFilter, m.preview.Width)
-	m.preview.SetContent(body)
+	body := buildHelpBody(m.helpFilter, m.scroll.Width)
+	m.scroll.SetContent(body)
 	if m.helpFilter != "" {
-		m.preview.GotoTop()
+		m.scroll.GotoTop()
 	}
 	return body
 }
@@ -285,7 +287,7 @@ func (m *DialogModel) scrollHelpTo(body, section string) {
 	}
 	for i, line := range strings.Split(body, "\n") {
 		if strings.TrimSpace(ansi.Strip(line)) == section {
-			m.preview.SetYOffset(i)
+			m.scroll.SetYOffset(i)
 			return
 		}
 	}
@@ -322,13 +324,13 @@ func (m *DialogModel) OpenInTheWay(paths []string) {
 	}
 }
 
-func (m *DialogModel) OpenPreview(path, content string) {
-	m.kind = DialogPreview
+func (m *DialogModel) OpenNotice(path, content string) {
+	m.kind = DialogNotice
 	m.path = path
 	w := min(m.width-6, 80)
 	h := min(m.height-10, 30)
-	m.preview = viewport.New(w, h)
-	m.preview.SetContent(content)
+	m.scroll = viewport.New(w, h)
+	m.scroll.SetContent(content)
 }
 
 func (m *DialogModel) Close() {
@@ -368,7 +370,7 @@ type commitMsg struct {
 }
 type revertMsg struct{ path string }
 
-// revertBulkMsg dispatches the bulk-revert flow from the Staged tab.
+// revertBulkMsg dispatches the bulk-revert flow from the Marked tab.
 // Carries per-path statuses so the action handler can pick the right
 // cvs sequence (rm + update for C, cvs update -C for M).
 type revertBulkMsg struct {
@@ -716,13 +718,13 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 			return m.updateForceUpdate(msg)
 		case DialogInTheWay:
 			return m.updateInTheWay(msg)
-		case DialogPreview:
+		case DialogNotice:
 			if key.Matches(msg, keys.Escape) || msg.String() == "q" || msg.String() == "p" {
 				m.Close()
 				return m, nil
 			}
 			var cmd tea.Cmd
-			m.preview, cmd = m.preview.Update(msg)
+			m.scroll, cmd = m.scroll.Update(msg)
 			return m, cmd
 		case DialogHelp:
 			// While typing a filter the keys belong to the filter:
@@ -764,7 +766,7 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 				return m, nil
 			}
 			var cmd tea.Cmd
-			m.preview, cmd = m.preview.Update(msg)
+			m.scroll, cmd = m.scroll.Update(msg)
 			return m, cmd
 		}
 	}
@@ -780,18 +782,18 @@ func (m DialogModel) Update(msg tea.Msg) (DialogModel, tea.Cmd) {
 }
 
 // HandleMouse lets the wheel scroll the scrollable dialogs (help and
-// preview share the viewport; the recent-changes list moves its
+// notice share the viewport; the recent-changes list moves its
 // cursor). Other dialog kinds are single-screen prompts — the mouse is
 // deliberately ignored there so a stray wheel flick over a
 // confirmation can't change anything.
 func (m *DialogModel) HandleMouse(msg tea.MouseMsg) {
 	switch m.kind {
-	case DialogHelp, DialogPreview:
+	case DialogHelp, DialogNotice:
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
-			m.preview.LineUp(3)
+			m.scroll.LineUp(3)
 		case tea.MouseButtonWheelDown:
-			m.preview.LineDown(3)
+			m.scroll.LineDown(3)
 		}
 	case DialogRecent:
 		switch msg.Button {
@@ -891,7 +893,7 @@ func (m DialogModel) updateCommit(msg tea.KeyMsg) (DialogModel, tea.Cmd) {
 		// Universal commit: include untracked (?), added (A), modified (M),
 		// conflict (C), removed (R). The handler runs `cvs add` for ?
 		// files first, then a single `cvs commit` for everything.
-		// Mirrors isCommittable in staging.go.
+		// Mirrors isCommittable in marked.go.
 		var untracked, files []string
 		for _, f := range m.files {
 			s := m.commitStatuses[f]
@@ -1098,8 +1100,8 @@ func (m DialogModel) View() string {
 		content = m.viewForceUpdate()
 	case DialogInTheWay:
 		content = m.viewInTheWay()
-	case DialogPreview:
-		content = m.viewPreview()
+	case DialogNotice:
+		content = m.viewNotice()
 	case DialogHelp:
 		content = m.viewHelp()
 	case DialogRecent:
@@ -1113,7 +1115,7 @@ func (m DialogModel) viewCommit() string {
 	var b strings.Builder
 	// Split marked files by committability so the dialog body can
 	// focus on what will actually be sent to `cvs commit` and report
-	// the skipped count separately. Same predicate as staging.isCommittable.
+	// the skipped count separately. Same predicate as marked.go's isCommittable.
 	var committable, skipped []string
 	for _, f := range m.files {
 		if isCommittable(m.commitStatuses[f]) {
@@ -1349,10 +1351,10 @@ func (m DialogModel) viewConflict() string {
 	return b.String()
 }
 
-func (m DialogModel) viewPreview() string {
+func (m DialogModel) viewNotice() string {
 	var b strings.Builder
-	b.WriteString(titleStyle.Render("Preview — "+m.path) + "\n\n")
-	b.WriteString(m.preview.View())
+	b.WriteString(titleStyle.Render(m.path) + "\n\n")
+	b.WriteString(m.scroll.View())
 	b.WriteString("\n\n" + helpStyle.Render("j/k:scroll  esc:close"))
 	return b.String()
 }
@@ -1403,7 +1405,7 @@ func (m DialogModel) viewHelp() string {
 		title += "   " + keyStyle.Render("/") + m.helpFilter + cursor
 	}
 	b.WriteString(title + "\n\n")
-	b.WriteString(m.preview.View())
+	b.WriteString(m.scroll.View())
 
 	var footer string
 	switch {
@@ -1412,11 +1414,11 @@ func (m DialogModel) viewHelp() string {
 			keyStyle.Render("enter") + helpStyle.Render(":keep  ") +
 			keyStyle.Render("esc") + helpStyle.Render(":clear")
 	case m.helpFilter != "":
-		footer = helpStyle.Render(fmt.Sprintf("  ↑/↓:scroll  %.0f%%  ", m.preview.ScrollPercent()*100)) +
+		footer = helpStyle.Render(fmt.Sprintf("  ↑/↓:scroll  %.0f%%  ", m.scroll.ScrollPercent()*100)) +
 			keyStyle.Render("/") + helpStyle.Render(":filter again  ") +
 			keyStyle.Render("esc") + helpStyle.Render(":clear filter")
 	default:
-		footer = helpStyle.Render(fmt.Sprintf("  ↑/↓:scroll  %.0f%%  ", m.preview.ScrollPercent()*100)) +
+		footer = helpStyle.Render(fmt.Sprintf("  ↑/↓:scroll  %.0f%%  ", m.scroll.ScrollPercent()*100)) +
 			keyStyle.Render("/") + helpStyle.Render(":filter  ") +
 			keyStyle.Render("esc") + helpStyle.Render(":close")
 	}

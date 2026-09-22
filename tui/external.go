@@ -396,11 +396,11 @@ type diffSide struct {
 
 // launchExternalDiffFor extracts both sides to files (or uses the working
 // file directly) and spawns the configured external diff tool. If no tool is
-// configured, opens a preview dialog explaining how to set one.
+// configured, opens a notice dialog explaining how to set one.
 func (m *App) launchExternalDiffFor(path string, left, right diffSide) tea.Cmd {
 	cfg := m.cfgMgr.Get()
 	if cfg.Editor.DiffTool == "" && cfg.Editor.DiffCommand == "" {
-		m.dialog.OpenPreview("external diff", "No diff tool configured.\n\n"+
+		m.dialog.OpenNotice("external diff", "No diff tool configured.\n\n"+
 			"Set [editor] diff_tool in your config, e.g.:\n\n"+
 			"  [editor]\n"+
 			"  diff_tool = \"meld\"\n\n"+
@@ -461,7 +461,7 @@ func (m *App) requireMergeTool() bool {
 	if cfg.Editor.MergeTool != "" || cfg.Editor.MergeCommand != "" {
 		return true
 	}
-	m.dialog.OpenPreview("merge tool", "No merge tool configured.\n\n"+
+	m.dialog.OpenNotice("merge tool", "No merge tool configured.\n\n"+
 		"Set [editor] merge_tool in your config, e.g.:\n\n"+
 		"  [editor]\n"+
 		"  merge_tool = \"meld\"\n\n"+
@@ -587,7 +587,7 @@ func sideForRev(rev string) diffSide {
 
 // launchExternalDiffForCurrent picks left/right based on the active tab and,
 // when on TabHistory, the same selection the Diff view uses. The selectedPath
-// argument is the path under cursor in Tree/Fav/Staged; for TabHistory we use
+// argument is the path under cursor in Tree/Fav/Marked; for TabHistory we use
 // m.history.path.
 //
 // Inside History the pair comes from comparePair, so the compare anchor
@@ -679,7 +679,7 @@ func altOpenArgv(tmpl, path string) ([]string, error) {
 func (m *App) launchAltOpenFor(path string) tea.Cmd {
 	cfg := m.cfgMgr.Get()
 	if strings.TrimSpace(cfg.Editor.AltOpen) == "" {
-		m.dialog.OpenPreview("alt open", "No alternate opener configured.\n\n"+
+		m.dialog.OpenNotice("alt open", "No alternate opener configured.\n\n"+
 			"Ctrl-O opens the file under the cursor with a second tool of\n"+
 			"your choice (a GUI editor, an IDE, …), without leaving lazycvs.\n\n"+
 			"Set [editor] alt_open in your config, e.g.:\n\n"+

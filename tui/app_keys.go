@@ -47,11 +47,11 @@ var globalBindings = []struct {
 		// tab used to mark the file under the cursor whenever nothing
 		// was marked yet — a silent edit to the worklist, triggered by
 		// navigation, that the next bulk action then acted on.
-		m.activeTab = TabStaged
-		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+		m.activeTab = TabMarked
+		m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 		paths := m.filelist.MarkedFiles()
 		if len(paths) > 0 {
-			return refreshStagedFiles(m.exec, paths)
+			return refreshMarkedFiles(m.exec, paths)
 		}
 		return nil
 	}},
@@ -62,12 +62,12 @@ var globalBindings = []struct {
 	}},
 	{keys.FocusL, func(m *App) tea.Cmd { m.focus = PanelLeft; return nil }},
 	{keys.FocusR, func(m *App) tea.Cmd {
-		if m.activeTab == TabStaged && m.staged.mode == StagedActions {
+		if m.activeTab == TabMarked && m.markedTab.mode == MarkedActions {
 			return nil // single-panel tab; nothing to the right
 		}
 		m.focus = PanelRight
-		if m.activeTab == TabStaged {
-			m.staged.input.Focus()
+		if m.activeTab == TabMarked {
+			m.markedTab.input.Focus()
 		}
 		return nil
 	}},
@@ -99,11 +99,11 @@ var globalBindings = []struct {
 	{keys.Search, func(m *App) tea.Cmd { return m.search.Open(m.exec.WorkDir) }},
 }
 
-// handleStagedInput processes a key when the staged-tab commit input is
+// handleCommitInput processes a key when the Marked tab's commit input is
 // focused. Returns (cmd, true) if the input was focused and consumed the key;
 // (nil, false) otherwise so the caller can fall through to the next handler.
-func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
-	if !(m.activeTab == TabStaged && m.focus == PanelRight && m.staged.input.Focused()) {
+func (m *App) handleCommitInput(msg tea.KeyMsg) (tea.Cmd, bool) {
+	if !(m.activeTab == TabMarked && m.focus == PanelRight && m.markedTab.input.Focused()) {
 		return nil, false
 	}
 	switch {
@@ -114,8 +114,8 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// is the explicit "back" key now; Ctrl-h works too via the
 		// global pane-focus handler.
 		m.focus = PanelLeft
-		m.staged.input.Blur()
-		m.staged.mode = StagedActions
+		m.markedTab.input.Blur()
+		m.markedTab.mode = MarkedActions
 		return nil, true
 	case msg.Type == tea.KeyCtrlE:
 		// Ctrl+E: open $EDITOR with the current message + a comment
@@ -123,12 +123,12 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// commit message that wouldn't fit in the single-line input.
 		// On editor close, commitMessageEditedMsg lands and either
 		// commits (non-empty message) or aborts (empty).
-		commitFiles := m.staged.CommittablePaths()
+		commitFiles := m.markedTab.CommittablePaths()
 		if len(commitFiles) == 0 {
 			return m.setResult("Nothing committable marked — statuses must be ?, A, M, C or R", false), true
 		}
 		return openCommitEditor(
-			m.staged.input.Value(),
+			m.markedTab.input.Value(),
 			commitFiles,
 			m.statusesFor(commitFiles),
 		), true
@@ -136,27 +136,27 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// Universal commit: include ? (cvs-add first), A (initial commit),
 		// M and C (content commit), R (commit the deletion). The commitMsg
 		// handler in App.Update centralizes the conflict-marker check and
-		// dispatches doCommit. Both commit paths (Staged Enter, Tree-tab
+		// dispatches doCommit. Both commit paths (Marked-tab Enter, Tree-tab
 		// DialogCommit) emit commitMsg so the check runs in exactly one
 		// place.
-		untracked := m.staged.PathsByStatus("?")
-		commitFiles := m.staged.CommittablePaths()
+		untracked := m.markedTab.PathsByStatus("?")
+		commitFiles := m.markedTab.CommittablePaths()
 		if len(commitFiles) == 0 {
 			// Silent-swallow used to read as "commit is broken" — the
 			// input ate the Enter and nothing happened, nothing said why.
 			return m.setResult("Nothing committable marked — statuses must be ?, A, M, C or R", false), true
 		}
-		message := m.staged.input.Value()
-		m.staged.input.SetValue("")
-		m.staged.input.Blur()
-		m.staged.mode = StagedActions
+		message := m.markedTab.input.Value()
+		m.markedTab.input.SetValue("")
+		m.markedTab.input.Blur()
+		m.markedTab.mode = MarkedActions
 		m.focus = PanelLeft
 		return func() tea.Msg {
 			return commitMsg{message: message, untracked: untracked, files: commitFiles}
 		}, true
 	}
 	var cmd tea.Cmd
-	m.staged.input, cmd = m.staged.input.Update(msg)
+	m.markedTab.input, cmd = m.markedTab.input.Update(msg)
 	return cmd, true
 }
 
@@ -190,10 +190,10 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	// Context-dependent bindings: focus/tab/mode-aware.
 	switch {
 	case key.Matches(msg, keys.Tab):
-		// Cycle focus: Left → Right → Console → Left. The Staged tab in
+		// Cycle focus: Left → Right → Console → Left. The Marked tab in
 		// actions mode renders a single panel, so the cycle skips the
 		// nonexistent right pane there — same guard FocusR applies.
-		singlePanel := m.activeTab == TabStaged && m.staged.mode == StagedActions
+		singlePanel := m.activeTab == TabMarked && m.markedTab.mode == MarkedActions
 		switch m.focus {
 		case PanelLeft:
 			if singlePanel {
@@ -208,7 +208,7 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case key.Matches(msg, keys.BackTab):
-		singlePanel := m.activeTab == TabStaged && m.staged.mode == StagedActions
+		singlePanel := m.activeTab == TabMarked && m.markedTab.mode == MarkedActions
 		switch m.focus {
 		case PanelLeft:
 			m.focus = PanelConsole
@@ -241,7 +241,7 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// the same "clear this" gesture in their context.
 		if len(m.filelist.marked) > 0 {
 			m.filelist.marked = make(map[string]bool)
-			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+			m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 		}
 		return nil, true
 	case key.Matches(msg, keys.Status):
@@ -258,9 +258,9 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			}
 			return m.doUpdateSelected(), true
 		}
-		if m.activeTab == TabStaged {
-			// The Staged tab has its own bulk-update handler in
-			// delegateKey (cvs update over the staged set) — fall
+		if m.activeTab == TabMarked {
+			// The Marked tab has its own bulk-update handler in
+			// delegateKey (cvs update over the marked set) — fall
 			// through so it actually receives the key. Consuming it
 			// here left the keybar's `u:update` advertising a no-op.
 			return nil, false
@@ -278,7 +278,7 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			m.dialog.OpenForceUpdate([]string{target})
 		}
 		return nil, true
-	case key.Matches(msg, keys.ListMode) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
+	case key.Matches(msg, keys.FileView) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		// Switch the file pane between its two views, from either
 		// panel. It used to cycle through three, so landing on the one
 		// you wanted took up to two presses — and `t` existed purely
@@ -296,17 +296,17 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		m.filelist.ToggleExpandAll()
 		return nil, true
 	case key.Matches(msg, keys.Escape):
-		if m.activeTab == TabTree && m.treeMode == TreeViewDetails {
+		if m.activeTab == TabTree && m.filesLayout == LayoutDiff {
 			// Esc closes the diff, the same way d does — the two ways
 			// out of a view the user opened deliberately.
 			if path := m.selectedFilePath(); path != "" {
 				return m.toggleDiffView(path), true
 			}
 		}
-		if m.activeTab == TabStaged {
-			if m.staged.mode == StagedCommit {
-				m.staged.mode = StagedActions
-				m.staged.input.Blur()
+		if m.activeTab == TabMarked {
+			if m.markedTab.mode == MarkedCommit {
+				m.markedTab.mode = MarkedActions
+				m.markedTab.input.Blur()
 				m.focus = PanelLeft
 				return nil, true
 			}
@@ -335,14 +335,14 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		var selectedFile *cvs.FileEntry
 		var selectedPath string
 
-		if m.activeTab == TabStaged {
-			selectedPath = m.staged.SelectedPath()
+		if m.activeTab == TabMarked {
+			selectedPath = m.markedTab.SelectedPath()
 		} else if m.activeTab == TabHistory {
 			// In History the "selected file" is the file whose log is loaded —
 			// regardless of which row the cursor is on, file-actions like E
 			// (external diff) and e (edit) operate on this file.
 			selectedPath = m.history.Path()
-		} else if m.focus == PanelRight && !(m.activeTab == TabTree && m.treeMode == TreeViewDetails) {
+		} else if m.focus == PanelRight && !(m.activeTab == TabTree && m.filesLayout == LayoutDiff) {
 			selectedFile = m.filelist.SelectedFile()
 			if selectedFile != nil {
 				selectedPath = selectedFile.Path
@@ -358,7 +358,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		case key.Matches(msg, keys.Diff) && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			// The diff of the file under the cursor, in the pane next
 			// to it. Pressing d again on the same file closes it. From
-			// the Favorites or Staged tab this lands in the Files tab,
+			// the Favorites or Marked tab this lands in the Files tab,
 			// which is where the diff layout lives.
 			return m.toggleDiffView(selectedPath)
 		case key.Matches(msg, keys.EditDiff) && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
@@ -386,23 +386,23 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			return revealInOS(filepath.Join(m.exec.WorkDir, selectedPath))
 		case key.Matches(msg, keys.CopyPath) && selectedPath != "":
 			return copyPathCmd(filepath.Join(m.exec.WorkDir, selectedPath))
-		case key.Matches(msg, keys.Commit) && m.activeTab == TabStaged:
-			// Staged commit works from either panel: switch to the
+		case key.Matches(msg, keys.Commit) && m.activeTab == TabMarked:
+			// The Marked tab's commit works from either panel: switch to the
 			// in-pane commit input. When nothing qualifies, SAY so —
 			// this used to be a silent no-op and read as "commit is
 			// broken".
-			if paths := m.staged.CommittablePaths(); len(paths) > 0 {
-				m.staged.mode = StagedCommit
+			if paths := m.markedTab.CommittablePaths(); len(paths) > 0 {
+				m.markedTab.mode = MarkedCommit
 				m.focus = PanelRight
-				m.staged.input.Focus()
+				m.markedTab.input.Focus()
 				return nil
 			}
-			return m.setResult(fmt.Sprintf("Nothing committable in %d marked file(s) — need status ?, A, M, C or R", len(m.staged.files)), false)
-		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory && m.activeTab != TabStaged:
+			return m.setResult(fmt.Sprintf("Nothing committable in %d marked file(s) — need status ?, A, M, C or R", len(m.markedTab.files)), false)
+		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory && m.activeTab != TabMarked:
 			return m.openCommitDialog()
-		case key.Matches(msg, keys.Revert) && m.activeTab != TabHistory && m.activeTab != TabStaged:
+		case key.Matches(msg, keys.Revert) && m.activeTab != TabHistory && m.activeTab != TabMarked:
 			// Marked files → ONE bulk confirmation over every revertable
-			// (M/C) marked path, exactly like the Staged tab and like
+			// (M/C) marked path, exactly like the Marked tab and like
 			// `D` (remove). Only without marks does `r` fall back to the
 			// single-file dialog on the cursor row — previously the
 			// cursor file was reverted and the rest of the marked set
@@ -567,7 +567,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				}
 			}
 			if len(untracked) > 0 {
-				return m.stagedBulkIgnore(untracked)
+				return m.markedBulkIgnore(untracked)
 			}
 			if selectedPath != "" && m.statusMap[selectedPath] == "?" {
 				m.dialog.OpenIgnore(selectedPath)
@@ -591,23 +591,23 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			// column.
 			if key.Matches(msg, keys.Right) && (!m.tree.CanExpand() || !m.tree.SelectedHasSubdirs()) {
 				m.focus = PanelRight
-				if m.treeMode == TreeViewDetails {
-					return m.autoLoadPreview()
+				if m.filesLayout == LayoutDiff {
+					return m.autoLoadDiff()
 				}
 				return nil
 			}
 			var cmd tea.Cmd
 			m.tree, cmd = m.tree.Update(msg)
 			if key.Matches(msg, keys.Enter) || key.Matches(msg, keys.Down) || key.Matches(msg, keys.Up) {
-				if m.treeMode == TreeViewDetails {
-					previewCmd := m.autoLoadPreview()
+				if m.filesLayout == LayoutDiff {
+					diffCmd := m.autoLoadDiff()
 					if key.Matches(msg, keys.Enter) {
 						// yazi-style: Enter selects + crosses into the
-						// preview pane so the next keypress acts on
+						// diff pane so the next keypress acts on
 						// what the user just opened.
 						m.focus = PanelRight
 					}
-					return tea.Batch(cmd, previewCmd)
+					return tea.Batch(cmd, diffCmd)
 				}
 				m.updateFileList()
 				if key.Matches(msg, keys.Enter) {
@@ -632,37 +632,37 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				m.updateFileList()
 			}
 			return cmd
-		case TabStaged:
+		case TabMarked:
 			switch {
 			case key.Matches(msg, keys.Down):
-				if m.staged.cursor < len(m.staged.files)-1 {
-					m.staged.cursor++
-					m.staged.ensureVisible()
+				if m.markedTab.cursor < len(m.markedTab.files)-1 {
+					m.markedTab.cursor++
+					m.markedTab.ensureVisible()
 				}
 			case key.Matches(msg, keys.Up):
-				if m.staged.cursor > 0 {
-					m.staged.cursor--
-					m.staged.ensureVisible()
+				if m.markedTab.cursor > 0 {
+					m.markedTab.cursor--
+					m.markedTab.ensureVisible()
 				}
 			case key.Matches(msg, keys.Top):
-				m.staged.cursor = 0
-				m.staged.ensureVisible()
+				m.markedTab.cursor = 0
+				m.markedTab.ensureVisible()
 			case key.Matches(msg, keys.Bottom):
-				m.staged.cursor = max(0, len(m.staged.files)-1)
-				m.staged.ensureVisible()
+				m.markedTab.cursor = max(0, len(m.markedTab.files)-1)
+				m.markedTab.ensureVisible()
 			case key.Matches(msg, keys.PageDown):
-				m.staged.cursor = clamp(m.staged.cursor+m.staged.height-1, 0, max(0, len(m.staged.files)-1))
-				m.staged.ensureVisible()
+				m.markedTab.cursor = clamp(m.markedTab.cursor+m.markedTab.height-1, 0, max(0, len(m.markedTab.files)-1))
+				m.markedTab.ensureVisible()
 			case key.Matches(msg, keys.PageUp):
-				m.staged.cursor = clamp(m.staged.cursor-(m.staged.height-1), 0, max(0, len(m.staged.files)-1))
-				m.staged.ensureVisible()
+				m.markedTab.cursor = clamp(m.markedTab.cursor-(m.markedTab.height-1), 0, max(0, len(m.markedTab.files)-1))
+				m.markedTab.ensureVisible()
 			case key.Matches(msg, keys.Space):
-				if path := m.staged.SelectedPath(); path != "" {
+				if path := m.markedTab.SelectedPath(); path != "" {
 					delete(m.filelist.marked, path)
-					m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+					m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 				}
 			case key.Matches(msg, keys.Revert):
-				// Bulk-revert every M *and* C file in the staged set.
+				// Bulk-revert every M *and* C file in the marked set.
 				// Opens a confirmation dialog first — the action is
 				// destructive (cvs update -C / rm + cvs update,
 				// depending on per-path status), and confirmations are
@@ -670,7 +670,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				// `r` in other tabs. The dialog dispatch carries the
 				// status map across so the action handler picks the
 				// right cvs sequence per file.
-				if paths := m.staged.PathsByStatus("M", "C"); len(paths) > 0 {
+				if paths := m.markedTab.PathsByStatus("M", "C"); len(paths) > 0 {
 					statuses := make(map[string]string, len(paths))
 					for _, p := range paths {
 						statuses[p] = m.resolveFileStatus(p)
@@ -680,28 +680,28 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				}
 			case key.Matches(msg, keys.Ignore):
 				// Ignore: add all ? files to .cvsignore
-				if paths := m.staged.PathsByStatus("?"); len(paths) > 0 {
-					return m.stagedBulkIgnore(paths)
+				if paths := m.markedTab.PathsByStatus("?"); len(paths) > 0 {
+					return m.markedBulkIgnore(paths)
 				}
 			case key.Matches(msg, keys.Update):
 				// Update: cvs update selected files
-				if len(m.staged.files) > 0 {
+				if len(m.markedTab.files) > 0 {
 					var paths []string
-					for _, f := range m.staged.files {
+					for _, f := range m.markedTab.files {
 						paths = append(paths, f.path)
 					}
 					m.setProgress(fmt.Sprintf("⟳ Updating %d file(s)…", len(paths)))
-					return m.stagedBulkAction("update", paths)
+					return m.markedBulkAction("update", paths)
 				}
 			case key.Matches(msg, keys.ForceUpdate):
 				// Force update: cvs update -C (needs confirmation)
-				if paths := m.staged.PathsByStatus("M", "C"); len(paths) > 0 {
+				if paths := m.markedTab.PathsByStatus("M", "C"); len(paths) > 0 {
 					m.dialog.OpenForceUpdate(paths)
 				}
 			case key.Matches(msg, keys.Enter):
-				m.staged.mode = StagedCommit
+				m.markedTab.mode = MarkedCommit
 				m.focus = PanelRight
-				m.staged.input.Focus()
+				m.markedTab.input.Focus()
 			}
 			return nil
 		case TabHistory:
@@ -715,8 +715,8 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 	case PanelRight:
 		// Miller-column axis: ← steps back into the left column from any
 		// right pane — no right pane assigns an in-pane meaning to ←.
-		// (The staged commit input never reaches here while focused;
-		// handleStagedInput consumes its keys, so cursor movement inside
+		// (The commit input never reaches here while focused;
+		// handleCommitInput consumes its keys, so cursor movement inside
 		// the message text is unaffected.)
 		if key.Matches(msg, keys.Left) {
 			m.focus = PanelLeft
@@ -724,10 +724,10 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		}
 		switch m.activeTab {
 		case TabTree:
-			if m.treeMode == TreeViewDetails {
-				if m.previewReady {
+			if m.filesLayout == LayoutDiff {
+				if m.diffReady {
 					var cmd tea.Cmd
-					m.previewVP, cmd = m.previewVP.Update(msg)
+					m.diffVP, cmd = m.diffVP.Update(msg)
 					return cmd
 				}
 				return nil
@@ -739,11 +739,11 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			var cmd tea.Cmd
 			m.filelist, cmd = m.filelist.Update(msg)
 			return cmd
-		case TabStaged:
+		case TabMarked:
 			// Input handling is done by the priority check above
 			// If we get here, input is not focused — Enter focuses it
 			if key.Matches(msg, keys.Enter) {
-				m.staged.input.Focus()
+				m.markedTab.input.Focus()
 			}
 			return nil
 		case TabHistory:

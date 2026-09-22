@@ -41,8 +41,8 @@ func representativeContexts() []struct {
 		{"files/marked", keyContext{tab: TabTree, focus: PanelLeft, marked: 3}},
 		{"files/console-focus", keyContext{tab: TabTree, focus: PanelConsole}},
 		{"favorites", keyContext{tab: TabFavorites, focus: PanelLeft}},
-		{"staged/actions", keyContext{tab: TabStaged, focus: PanelLeft}},
-		{"staged/conflict", keyContext{tab: TabStaged, focus: PanelLeft, status: "C"}},
+		{"marked/actions", keyContext{tab: TabMarked, focus: PanelLeft}},
+		{"marked/conflict", keyContext{tab: TabMarked, focus: PanelLeft, status: "C"}},
 		{"history/plain", keyContext{tab: TabHistory, focus: PanelLeft, histMode: HistoryContent}},
 		{"history/diff", keyContext{tab: TabHistory, focus: PanelLeft, histMode: HistoryDiff}},
 		{"history/compare", keyContext{tab: TabHistory, focus: PanelLeft, histMode: HistoryDiff, compare: true}},
@@ -68,7 +68,7 @@ func TestKeymapEntriesAreWellFormed(t *testing.T) {
 				continue
 			}
 			placed := false
-			for _, tab := range []Tab{TabTree, TabFavorites, TabStaged, TabHistory} {
+			for _, tab := range []Tab{TabTree, TabFavorites, TabMarked, TabHistory} {
 				if !e.inTab(tab) {
 					continue
 				}
@@ -276,8 +276,8 @@ func TestLiveActionsFollowTheCursorRow(t *testing.T) {
 			want: []string{"i", "c", "x"}, unwant: []string{"r"},
 		},
 		{
-			name: "empty staged tab advertises nothing",
-			ctx:  keyContext{tab: TabStaged, focus: PanelLeft},
+			name: "empty marked tab advertises nothing",
+			ctx:  keyContext{tab: TabMarked, focus: PanelLeft},
 			want: []string{}, unwant: []string{"c", "u", "r", "x"},
 		},
 	}
@@ -322,7 +322,7 @@ func TestHelpOpensOnTheRelevantSection(t *testing.T) {
 	}{
 		{"files", keyContext{tab: TabTree, focus: PanelRight}, "File actions"},
 		{"favorites", keyContext{tab: TabFavorites, focus: PanelLeft}, "File actions"},
-		{"marked", keyContext{tab: TabStaged, focus: PanelLeft}, "File actions"},
+		{"marked", keyContext{tab: TabMarked, focus: PanelLeft}, "File actions"},
 		{"history", keyContext{tab: TabHistory, focus: PanelLeft}, "History tab"},
 		{"console beats the tab", keyContext{tab: TabHistory, focus: PanelConsole}, "Console"},
 	}

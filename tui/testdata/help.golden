@@ -39,8 +39,8 @@ Navigation
 
 Tabs
 ────
-  1           Files — tree+filelist OR tree+diff
-              preview
+  1           Files — the tree and its files, or a
+              file and its diff
   2           Favorites — pinned directories
   3           Marked — the worklist c, r, i and u
               act on

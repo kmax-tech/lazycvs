@@ -11,9 +11,9 @@ import (
 )
 
 // CVS status loading. The general flow is:
-//   user action / startup → backgroundDirScan or refreshStagedFiles
-//   → loadDirStatus / refreshStagedFiles dispatched per directory or path
-//   → dirStatusMsg / stagedStatusMsg handlers in app_core.go merge into
+//   user action / startup → backgroundDirScan or refreshMarkedFiles
+//   → loadDirStatus / refreshMarkedFiles dispatched per directory or path
+//   → dirStatusMsg / markedStatusMsg handlers in app_core.go merge into
 //     m.statusMap via m.applyStatuses
 
 // isCVSDir reports whether absDir is part of a CVS working copy, i.e.
@@ -83,22 +83,22 @@ func (m *App) statusesFor(paths []string) map[string]string {
 	return out
 }
 
-// refreshStagedFiles runs `cvs status` for the given file paths. CVS
+// refreshMarkedFiles runs `cvs status` for the given file paths. CVS
 // reports basenames only when status is invoked on individual files,
 // so this remaps basenames back to the caller's full paths before
 // returning the message.
-func refreshStagedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
+func refreshMarkedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
 	return func() tea.Msg {
 		args := append([]string{"status"}, paths...)
 		result, _ := exec.RunReadOnly(args...)
 		if result == nil {
-			return stagedStatusMsg{paths: paths}
+			return markedStatusMsg{paths: paths}
 		}
 		statuses := cvs.ParseStatus(result.Combined)
 		// `cvs status <path>` reports the basename only ("File: notes.txt")
 		// — no "Examining <dir>" prefix to give ParseStatus a directory
 		// context. Remap basenames back to the original input paths so the
-		// stagedStatusMsg handler keys statusMap correctly.
+		// markedStatusMsg handler keys statusMap correctly.
 		byBase := make(map[string]string, len(paths))
 		for _, p := range paths {
 			byBase[filepath.Base(p)] = p
@@ -108,7 +108,7 @@ func refreshStagedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
 				statuses[i].Path = full
 			}
 		}
-		return stagedStatusMsg{paths: paths, statuses: statuses}
+		return markedStatusMsg{paths: paths, statuses: statuses}
 	}
 }
 

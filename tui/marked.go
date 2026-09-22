@@ -9,42 +9,50 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-type StagedMode int
+// The Marked tab: the files the user picked with `space`, and the
+// commit input that acts on them. CVS has no index, so this is a
+// selection, not a staging area — the name says so since issue 044,
+// and the identifiers since the rename that followed it.
+//
+// MarkedTabModel rather than MarkedModel because FileListModel.marked
+// is the set of marks itself: one word for one thing, and these are
+// two things — the marks, and the panel that shows them.
+type MarkedMode int
 
 const (
-	StagedActions StagedMode = iota // show action menu
-	StagedCommit                    // show commit message input
+	MarkedActions MarkedMode = iota // show action menu
+	MarkedCommit                    // show commit message input
 )
 
-type stagedFile struct {
+type markedFile struct {
 	path   string
 	status string
 }
 
-type StagedModel struct {
-	files      []stagedFile
+type MarkedTabModel struct {
+	files      []markedFile
 	cursor     int
 	offset     int
-	mode       StagedMode
+	mode       MarkedMode
 	input      textinput.Model
 	leftWidth  int
 	rightWidth int
 	height     int
 }
 
-func NewStagedModel() StagedModel {
+func NewMarkedTabModel() MarkedTabModel {
 	ti := textinput.New()
 	ti.Placeholder = "Commit message..."
 	ti.CharLimit = 256
-	return StagedModel{input: ti}
+	return MarkedTabModel{input: ti}
 }
 
-// Refresh rebuilds the staged file list from the marked set.
+// Refresh rebuilds the tab's list from the marked set.
 // resolveStatus returns the effective CVS status for a path.
-func (m *StagedModel) Refresh(marked map[string]bool, resolveStatus func(string) string) {
-	var files []stagedFile
+func (m *MarkedTabModel) Refresh(marked map[string]bool, resolveStatus func(string) string) {
+	var files []markedFile
 	for path := range marked {
-		files = append(files, stagedFile{path: path, status: resolveStatus(path)})
+		files = append(files, markedFile{path: path, status: resolveStatus(path)})
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].path < files[j].path })
 	m.files = files
@@ -53,35 +61,35 @@ func (m *StagedModel) Refresh(marked map[string]bool, resolveStatus func(string)
 	}
 }
 
-// SetSize takes the App's layout envelope. Staged fills both panels —
+// SetSize takes the App's layout envelope. The Marked tab fills both panels —
 // file list on the left, commit form on the right — so it reads LeftW,
 // RightW, and Height.
-func (m *StagedModel) SetSize(d PanelDims) {
+func (m *MarkedTabModel) SetSize(d PanelDims) {
 	m.leftWidth = d.LeftW
 	m.rightWidth = d.RightW
 	m.height = d.Height
 	m.input.Width = max(10, d.RightW-4)
 }
 
-// SelectedFile returns the staged row under the cursor, or nil when
+// SelectedFile returns the marked row under the cursor, or nil when
 // the list is empty. The keymap context needs the status alongside the
 // path, and reading it here keeps that lookup off the status map.
-func (m StagedModel) SelectedFile() *stagedFile {
+func (m MarkedTabModel) SelectedFile() *markedFile {
 	if m.cursor >= len(m.files) {
 		return nil
 	}
 	return &m.files[m.cursor]
 }
 
-func (m StagedModel) SelectedPath() string {
+func (m MarkedTabModel) SelectedPath() string {
 	if m.cursor >= len(m.files) {
 		return ""
 	}
 	return m.files[m.cursor].path
 }
 
-// CountByStatus returns how many staged files have each status.
-func (m StagedModel) CountByStatus() map[string]int {
+// CountByStatus returns how many marked files have each status.
+func (m MarkedTabModel) CountByStatus() map[string]int {
 	counts := make(map[string]int)
 	for _, f := range m.files {
 		if f.status == "" {
@@ -93,12 +101,12 @@ func (m StagedModel) CountByStatus() map[string]int {
 	return counts
 }
 
-// CommittablePaths returns the staged paths isCommittable accepts —
+// CommittablePaths returns the marked paths isCommittable accepts —
 // THE single definition of "what can go into a commit" (?, A, M, C,
 // R). Every commit gate uses this instead of restating the status
 // list; a restated list already drifted once (a c-gate without R made
 // deletion-only sets read as "nothing committable").
-func (m StagedModel) CommittablePaths() []string {
+func (m MarkedTabModel) CommittablePaths() []string {
 	var paths []string
 	for _, f := range m.files {
 		if isCommittable(f.status) {
@@ -108,8 +116,8 @@ func (m StagedModel) CommittablePaths() []string {
 	return paths
 }
 
-// PathsByStatus returns staged file paths matching the given statuses.
-func (m StagedModel) PathsByStatus(statuses ...string) []string {
+// PathsByStatus returns marked file paths matching the given statuses.
+func (m MarkedTabModel) PathsByStatus(statuses ...string) []string {
 	set := make(map[string]bool)
 	for _, s := range statuses {
 		set[s] = true
@@ -123,13 +131,13 @@ func (m StagedModel) PathsByStatus(statuses ...string) []string {
 	return paths
 }
 
-func (m *StagedModel) ensureVisible() {
+func (m *MarkedTabModel) ensureVisible() {
 	// One row reserved for the header line.
 	m.offset = ensureCursorVisible(m.cursor, m.offset, m.height-1)
 }
 
-func (m StagedModel) ViewLeft() string {
-	if m.mode == StagedCommit {
+func (m MarkedTabModel) ViewLeft() string {
+	if m.mode == MarkedCommit {
 		return m.viewCommitFiles()
 	}
 
@@ -174,7 +182,7 @@ func (m StagedModel) ViewLeft() string {
 	return strings.Join(lines, "\n")
 }
 
-func (m StagedModel) viewCommitFiles() string {
+func (m MarkedTabModel) viewCommitFiles() string {
 	counts := m.CountByStatus()
 	// Universal commit candidates: ?, A, M, C, R. ? files get cvs-added first.
 	committable := counts["?"] + counts["A"] + counts["M"] + counts["C"] + counts["R"]
@@ -240,16 +248,16 @@ func isCommittable(status string) bool {
 	return false
 }
 
-// ViewRight is only consulted in StagedCommit mode — actions mode is rendered
+// ViewRight is only consulted in MarkedCommit mode — actions mode is rendered
 // single-panel in app_layout.go::renderMainContent.
-func (m StagedModel) ViewRight() string {
-	if m.mode != StagedCommit {
+func (m MarkedTabModel) ViewRight() string {
+	if m.mode != MarkedCommit {
 		return ""
 	}
 	return m.viewCommit()
 }
 
-func (m StagedModel) viewCommit() string {
+func (m MarkedTabModel) viewCommit() string {
 	mc := m.CountByStatus()
 	n := mc["M"] + mc["C"]
 

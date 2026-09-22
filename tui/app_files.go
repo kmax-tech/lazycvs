@@ -157,7 +157,7 @@ func resolveListingStatus(name, status string, tracked map[string]bool, ignorePa
 }
 
 // updateFileList rebuilds the right-pane file list from the active tab's
-// selected directory. No-op for tabs that don't have a file list (Staged,
+// selected directory. No-op for tabs that don't have a file list (Marked,
 // History).
 func (m *App) updateFileList() {
 	var dir string
@@ -363,12 +363,12 @@ func (m *App) updateFileListForDir(dir string) {
 // Mirrors the resolution logic in delegateKey so keybar hints stay in sync.
 func (m App) selectedFilePath() string {
 	switch m.activeTab {
-	case TabStaged:
-		return m.staged.SelectedPath()
+	case TabMarked:
+		return m.markedTab.SelectedPath()
 	case TabHistory:
 		return m.history.Path()
 	case TabTree:
-		if m.focus == PanelRight && m.treeMode != TreeViewDetails {
+		if m.focus == PanelRight && m.filesLayout != LayoutDiff {
 			if f := m.filelist.SelectedFile(); f != nil {
 				return f.Path
 			}

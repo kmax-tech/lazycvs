@@ -16,7 +16,7 @@ import (
 // PanelDims is the layout envelope passed to every sub-model's SetSize.
 // Each model reads only the fields it cares about: a single-panel model
 // (tree, filelist, favorites, console) ignores the side it doesn't fill;
-// a two-panel model (staged, history) reads both LeftW and RightW. Zero
+// a two-panel model (marked, history) reads both LeftW and RightW. Zero
 // values for unread fields are by design — they're never inspected, so
 // no sentinel logic is needed inside the models.
 type PanelDims struct {
@@ -33,15 +33,15 @@ func (m *App) updateSizes() {
 	m.tree.SetSize(PanelDims{LeftW: innerLeftW, Height: contentH})
 	m.filelist.SetSize(PanelDims{RightW: innerRightW, Height: contentH})
 	m.favorites.SetSize(PanelDims{LeftW: innerLeftW, Height: contentH})
-	m.staged.SetSize(PanelDims{LeftW: innerLeftW, RightW: innerRightW, Height: contentH})
+	m.markedTab.SetSize(PanelDims{LeftW: innerLeftW, RightW: innerRightW, Height: contentH})
 	m.history.SetSize(PanelDims{LeftW: innerLeftW, RightW: innerRightW, Height: contentH})
 	m.console.SetSize(PanelDims{LeftW: m.width - 2, Height: consoleH})
 	m.dialog.SetSize(PanelDims{LeftW: m.width, Height: m.height})
 	m.search.width = m.width
 	m.search.height = m.height
-	if m.previewReady {
-		m.previewVP.Width = innerRightW
-		m.previewVP.Height = contentH
+	if m.diffReady {
+		m.diffVP.Width = innerRightW
+		m.diffVP.Height = contentH
 	}
 }
 
@@ -224,7 +224,7 @@ func (m App) renderBanner() string {
 // click target in the other.
 func (m App) tabNames() []string {
 	treeName := "Files"
-	if m.treeMode == TreeViewDetails {
+	if m.filesLayout == LayoutDiff {
 		treeName = "Diff"
 	}
 	// "Staged" promised a CVS index. CVS has none: the tab shows the
@@ -363,8 +363,8 @@ func (m App) renderMainContent() string {
 		leftTitle = "Tree"
 	case TabFavorites:
 		leftTitle = "Favorites"
-	case TabStaged:
-		leftTitle = fmt.Sprintf("Marked (%d)", len(m.staged.files))
+	case TabMarked:
+		leftTitle = fmt.Sprintf("Marked (%d)", len(m.markedTab.files))
 	case TabHistory:
 		if p := m.history.Path(); p != "" {
 			leftTitle = "Revisions — " + p
@@ -374,16 +374,16 @@ func (m App) renderMainContent() string {
 	}
 	lt := " " + lipgloss.NewStyle().Foreground(colorMuted).Bold(true).Render(leftTitle) + " "
 
-	// Staged tab in actions mode is single-panel: the right side would be a
+	// The Marked tab in actions mode is single-panel: the right side would be a
 	// static action overview duplicating the keybar, so we render the file
 	// list full-width instead. The right panel reappears in commit mode
-	// (StagedCommit) below the regular two-panel branch.
-	if m.activeTab == TabStaged && m.staged.mode == StagedActions {
+	// (MarkedCommit) below the regular two-panel branch.
+	if m.activeTab == TabMarked && m.markedTab.mode == MarkedActions {
 		info := ""
-		if len(m.staged.files) > 0 {
-			info = fmt.Sprintf(" %d of %d ", m.staged.cursor+1, len(m.staged.files))
+		if len(m.markedTab.files) > 0 {
+			info = fmt.Sprintf(" %d of %d ", m.markedTab.cursor+1, len(m.markedTab.files))
 		}
-		return renderPanel(lt, m.staged.ViewLeft(), m.width, contentH, m.focus == PanelLeft, info)
+		return renderPanel(lt, m.markedTab.ViewLeft(), m.width, contentH, m.focus == PanelLeft, info)
 	}
 
 	// Left panel info
@@ -397,9 +397,9 @@ func (m App) renderMainContent() string {
 		if len(m.favorites.favorites) > 0 {
 			leftInfo = fmt.Sprintf(" %d of %d ", m.favorites.cursor+1, len(m.favorites.favorites))
 		}
-	case TabStaged:
-		if len(m.staged.files) > 0 {
-			leftInfo = fmt.Sprintf(" %d of %d ", m.staged.cursor+1, len(m.staged.files))
+	case TabMarked:
+		if len(m.markedTab.files) > 0 {
+			leftInfo = fmt.Sprintf(" %d of %d ", m.markedTab.cursor+1, len(m.markedTab.files))
 		}
 	case TabHistory:
 		if m.history.NumRevisions() > 0 {
@@ -424,7 +424,7 @@ func (m App) renderMainContent() string {
 	}
 	switch m.activeTab {
 	case TabTree:
-		if m.treeMode == TreeViewDetails {
+		if m.filesLayout == LayoutDiff {
 			node := m.tree.SelectedNode()
 			if node != nil {
 				if node.IsDir {
@@ -440,7 +440,7 @@ func (m App) renderMainContent() string {
 					}
 				}
 			} else {
-				rightTitle = "Preview"
+				rightTitle = "Diff"
 			}
 		} else {
 			rightTitle = "Files — " + fullDirPath(m.filelist.dir)
@@ -449,7 +449,7 @@ func (m App) renderMainContent() string {
 	case TabFavorites:
 		rightTitle = "Files — " + fullDirPath(m.filelist.dir)
 		rightInfo = fileListInfo(m.filelist)
-	case TabStaged:
+	case TabMarked:
 		rightTitle = "Commit"
 	case TabHistory:
 		switch m.history.mode {
@@ -484,17 +484,17 @@ func (m App) renderMainContent() string {
 	switch m.activeTab {
 	case TabTree:
 		leftContent = m.tree.View()
-		if m.treeMode == TreeViewDetails {
-			rightContent = m.renderPreview()
+		if m.filesLayout == LayoutDiff {
+			rightContent = m.renderDiffPane()
 		} else {
 			rightContent = m.filelist.View()
 		}
 	case TabFavorites:
 		leftContent = m.favorites.View()
 		rightContent = m.filelist.View()
-	case TabStaged:
-		leftContent = m.staged.ViewLeft()
-		rightContent = m.staged.ViewRight()
+	case TabMarked:
+		leftContent = m.markedTab.ViewLeft()
+		rightContent = m.markedTab.ViewRight()
 	case TabHistory:
 		leftContent = m.history.ViewLeft()
 		rightContent = m.history.ViewRight()
@@ -580,7 +580,7 @@ func (m App) actionRow(ctx keyContext) string {
 
 	// The commit input is not a key catalogue: while it has focus the
 	// keys belong to the text field.
-	if ctx.stagedInput {
+	if ctx.commitInput {
 		row := keyStyle.Render("enter") + ":commit" + sep +
 			keyStyle.Render("C-e") + ":editor" + sep +
 			keyStyle.Render("esc") + ":back"
@@ -652,7 +652,7 @@ func (m App) actionRow(ctx keyContext) string {
 	}
 
 	// A blank row reads as a broken UI. When nothing applies — an empty
-	// Staged tab, a cursor on a row with no actions — say so and point
+	// Marked tab, a cursor on a row with no actions — say so and point
 	// at the one key that always works.
 	if len(units) == 0 {
 		return truncateRow(prefix+mutedStyle.Render("no actions for this row — ")+
@@ -712,7 +712,7 @@ func truncateRow(row string, width int) string {
 	return row
 }
 
-func (m App) renderPreview() string {
+func (m App) renderDiffPane() string {
 	node := m.tree.SelectedNode()
 	if node == nil {
 		return mutedStyle.Render("  No selection")
@@ -726,13 +726,13 @@ func (m App) renderPreview() string {
 	if fs.IsBinary(filepath.Join(m.exec.WorkDir, node.Path)) {
 		return mutedStyle.Render("  Binary file — cannot display")
 	}
-	if !m.previewReady || m.previewPath != node.Path {
+	if !m.diffReady || m.diffPath != node.Path {
 		return mutedStyle.Render("  Loading...")
 	}
-	if m.previewDiff == nil || len(m.previewDiff.Hunks) == 0 {
+	if m.diffData == nil || len(m.diffData.Hunks) == 0 {
 		return mutedStyle.Render("  No local changes")
 	}
-	return m.previewVP.View()
+	return m.diffVP.View()
 }
 
 func (m App) overlay(bg, fg string) string {

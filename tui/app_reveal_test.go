@@ -102,11 +102,11 @@ func TestDiffKeyTogglesTheDiffPaneInPlace(t *testing.T) {
 	if app.activeTab != TabTree {
 		t.Fatalf("d left the Files tab: activeTab = %v", app.activeTab)
 	}
-	if app.treeMode != TreeViewDetails {
+	if app.filesLayout != LayoutDiff {
 		t.Fatal("d did not open the diff layout")
 	}
-	if app.previewPath != "top.txt" {
-		t.Errorf("diff pane shows %q, want top.txt", app.previewPath)
+	if app.diffPath != "top.txt" {
+		t.Errorf("diff pane shows %q, want top.txt", app.diffPath)
 	}
 	if node := app.tree.SelectedNode(); node == nil || node.Path != "top.txt" {
 		t.Errorf("cursor did not follow the file into the diff layout: %+v", node)
@@ -116,7 +116,7 @@ func TestDiffKeyTogglesTheDiffPaneInPlace(t *testing.T) {
 	}
 
 	press()
-	if app.treeMode != TreeViewFiles {
+	if app.filesLayout != LayoutList {
 		t.Fatal("a second d did not close the diff layout")
 	}
 	if f := app.filelist.SelectedFile(); f == nil || f.Path != "top.txt" {
@@ -131,21 +131,21 @@ func TestDiffKeyTogglesTheDiffPaneInPlace(t *testing.T) {
 func TestEscapeClosesTheDiffPane(t *testing.T) {
 	app := newRevealTestApp(t)
 	app.activeTab = TabTree
-	app.staged = NewStagedModel()
+	app.markedTab = NewMarkedTabModel()
 	app.history = NewHistoryModel()
 	app.updateFileListForDir(".")
 	app.filelist.FocusOnFile("top.txt")
 	app.focus = PanelRight
 
 	app.delegateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("d")})
-	if app.treeMode != TreeViewDetails {
+	if app.filesLayout != LayoutDiff {
 		t.Fatal("d did not open the diff layout")
 	}
 
 	if _, handled := app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyEsc}); !handled {
 		t.Fatal("esc should be consumed")
 	}
-	if app.treeMode != TreeViewFiles {
+	if app.filesLayout != LayoutList {
 		t.Error("esc did not close the diff layout")
 	}
 }

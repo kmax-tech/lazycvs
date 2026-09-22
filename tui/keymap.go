@@ -52,10 +52,10 @@ type keyContext struct {
 	compare       bool // an anchor is set, or the working copy is pinned in
 	pairMergeable bool // the compared pair is two real revisions
 
-	// stagedInput is true while the commit message field has focus. It
+	// commitInput is true while the commit message field has focus. It
 	// suppresses the action row entirely: the keys belong to the text
 	// input, not to the file list.
-	stagedInput bool
+	commitInput bool
 }
 
 // keyContext is the single adapter from App to context. Everything
@@ -72,18 +72,18 @@ func (m App) keyContext() keyContext {
 	// The keybar re-renders on every frame; it may not read files.
 	switch m.activeTab {
 	case TabTree, TabFavorites:
-		if m.focus == PanelRight && m.treeMode != TreeViewDetails {
+		if m.focus == PanelRight && m.filesLayout != LayoutDiff {
 			if f := m.filelist.SelectedFile(); f != nil {
 				ctx.status, ctx.isFile = f.Status, true
 			}
 		} else if node := m.tree.SelectedNode(); node != nil && !node.IsDir {
 			ctx.status, ctx.isFile = node.Status, true
 		}
-	case TabStaged:
-		if f := m.staged.SelectedFile(); f != nil {
+	case TabMarked:
+		if f := m.markedTab.SelectedFile(); f != nil {
 			ctx.status, ctx.isFile = f.status, true
 		}
-		ctx.stagedInput = m.staged.mode == StagedCommit && m.staged.input.Focused()
+		ctx.commitInput = m.markedTab.mode == MarkedCommit && m.markedTab.input.Focused()
 	case TabHistory:
 		if path := m.history.Path(); path != "" {
 			ctx.status, ctx.isFile = m.statusMap[path], true
@@ -134,7 +134,7 @@ const (
 
 // keyEntry describes one user-facing key. A binding may appear more
 // than once when a tab genuinely gives it a different meaning or rank
-// (space marks in Files and unstages in Staged); the collision test
+// (space marks in Files and unmarks in the Marked tab); the collision test
 // only forbids two entries that are live in the *same* context.
 type keyEntry struct {
 	binding key.Binding
@@ -211,7 +211,7 @@ func onConflict(ctx keyContext) bool { return ctx.status == "C" }
 func onFile(ctx keyContext) bool { return ctx.isFile }
 
 // canCommit: the marked set wins when there is one, exactly as
-// openCommitDialog and the Staged commit gate resolve it.
+// openCommitDialog and the Marked tab's commit gate resolve it.
 func canCommit(ctx keyContext) bool {
 	return ctx.marked > 0 || isCommittable(ctx.status)
 }
@@ -331,7 +331,7 @@ var keyRegistry = []keyEntry{
 	// ── Tabs ──────────────────────────────────────────────────────────
 	{binding: keys.Tab1, group: groupNav, scope: scopeGlobal,
 		bar: 30, barSegment: "nav", barDesc: "files",
-		section: "Tabs", helpDesc: "Files — tree+filelist OR tree+diff preview"},
+		section: "Tabs", helpDesc: "Files — the tree and its files, or a file and its diff"},
 	{binding: keys.Tab2, group: groupNav, scope: scopeGlobal,
 		bar: 40, barSegment: "nav", barDesc: "fav",
 		section: "Tabs", helpDesc: "Favorites — pinned directories"},
@@ -352,7 +352,7 @@ var keyRegistry = []keyEntry{
 	{binding: keys.Commit, group: groupAct, scope: scopeSelection, tabs: fileTabs,
 		bar: 20, barSegment: "act",
 		section: "File actions", helpDesc: "commit cursor file (or marked files)", applies: canCommit},
-	{binding: commitEditorKey, group: groupExternal, scope: scopeGlobal, tabs: []Tab{TabStaged},
+	{binding: commitEditorKey, group: groupExternal, scope: scopeGlobal, tabs: []Tab{TabMarked},
 		section: "File actions", helpDesc: "commit message in $EDITOR (while input focused)"},
 	{binding: keys.Add, group: groupAct, scope: scopeCursor, tabs: []Tab{TabTree},
 		bar: 30, barSegment: "act",
@@ -377,7 +377,7 @@ var keyRegistry = []keyEntry{
 	{binding: keys.EditDiff, group: groupExternal, scope: scopeCursor,
 		section: "File actions", helpDesc: "external diff tool (config.diff_tool)"},
 	{binding: keys.Merge, group: groupExternal, scope: scopeCursor,
-		tabs: []Tab{TabTree, TabFavorites, TabStaged}, applies: onConflict,
+		tabs: []Tab{TabTree, TabFavorites, TabMarked}, applies: onConflict,
 		bar: 10, barSegment: "hint",
 		section: "File actions", helpDesc: "external merge tool (conflict files)"},
 	{binding: keys.Open, group: groupExternal, scope: scopeCursor,
@@ -408,7 +408,7 @@ var keyRegistry = []keyEntry{
 		bar: 110, barSegment: "act"},
 
 	// ── View & filters ────────────────────────────────────────────────
-	{binding: keys.ListMode, group: groupView, scope: scopeGlobal, tabs: fileTabs,
+	{binding: keys.FileView, group: groupView, scope: scopeGlobal, tabs: fileTabs,
 		bar: 20, barSegment: "view",
 		section: "View & filters", helpDesc: "file pane: flat list ↔ directory tree"},
 	{binding: keys.CollapseAll, group: groupView, scope: scopeGlobal, tabs: fileTabs,
@@ -435,22 +435,22 @@ var keyRegistry = []keyEntry{
 		bar: 30, barSegment: "cvs",
 		section: "CVS", helpDesc: "recent repo changes for dir + subdirs (all users)"},
 
-	// ── Staged tab ────────────────────────────────────────────────────
-	{binding: keys.Commit, group: groupAct, scope: scopeSelection, tabs: []Tab{TabStaged},
+	// ── Marked tab ────────────────────────────────────────────────────
+	{binding: keys.Commit, group: groupAct, scope: scopeSelection, tabs: []Tab{TabMarked},
 		bar: 10, barSegment: "act", applies: canCommit},
-	{binding: keys.Revert, group: groupAct, scope: scopeSelection, tabs: []Tab{TabStaged},
+	{binding: keys.Revert, group: groupAct, scope: scopeSelection, tabs: []Tab{TabMarked},
 		bar: 20, barSegment: "act", applies: canRevert},
-	{binding: keys.Ignore, group: groupAct, scope: scopeSelection, tabs: []Tab{TabStaged},
+	{binding: keys.Ignore, group: groupAct, scope: scopeSelection, tabs: []Tab{TabMarked},
 		bar: 30, barSegment: "act", applies: canIgnore},
-	{binding: keys.Diff, group: groupAct, scope: scopeCursor, tabs: []Tab{TabStaged},
+	{binding: keys.Diff, group: groupAct, scope: scopeCursor, tabs: []Tab{TabMarked},
 		bar: 40, barSegment: "act", applies: onFile},
-	{binding: keys.Space, group: groupAct, scope: scopeCursor, tabs: []Tab{TabStaged},
+	{binding: keys.Space, group: groupAct, scope: scopeCursor, tabs: []Tab{TabMarked},
 		bar: 50, barSegment: "act", barDesc: "unmark", applies: onFile},
-	{binding: keys.ClearMarks, group: groupAct, scope: scopeSelection, tabs: []Tab{TabStaged},
+	{binding: keys.ClearMarks, group: groupAct, scope: scopeSelection, tabs: []Tab{TabMarked},
 		bar: 60, barSegment: "act", applies: hasMarks},
-	// The staged bulk update runs over the staged set, so with nothing
-	// staged the key does nothing — stagedBulkAction's own guard.
-	{binding: keys.Update, group: groupCVS, scope: scopeSelection, tabs: []Tab{TabStaged},
+	// The bulk update runs over the marked set, so with nothing marked
+	// the key does nothing — markedBulkAction's own guard.
+	{binding: keys.Update, group: groupCVS, scope: scopeSelection, tabs: []Tab{TabMarked},
 		bar: 10, barSegment: "cvs", applies: hasMarks},
 
 	// ── History tab ───────────────────────────────────────────────────
@@ -517,7 +517,8 @@ var localBindings = []key.Binding{
 // pendingRemoval are bindings that have a handler but no place in the
 // UI — orphans the registry refuses to legitimize by advertising them.
 // Listed here so the completeness test stays strict while a removal is
-// still ahead of us. Empty is the healthy state: keys.Preview, the one
+// still ahead of us. Empty is the healthy state: the preview-modal
+// key, the one
 // entry this list was created for, is gone.
 var pendingRemoval = []key.Binding{}
 
@@ -527,7 +528,7 @@ var pendingRemoval = []key.Binding{}
 // A segment renders only if at least one of its entries is live.
 func barSegmentOrder(tab Tab) []string {
 	switch tab {
-	case TabStaged:
+	case TabMarked:
 		return []string{"act", "cvs", "hint"}
 	case TabHistory:
 		return []string{"act", "anchor", "scroll"}

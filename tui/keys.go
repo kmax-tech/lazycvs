@@ -60,7 +60,7 @@ type keyMap struct {
 	Blame          key.Binding
 	SideBySide     key.Binding
 	CompareWorking key.Binding
-	ListMode       key.Binding
+	FileView       key.Binding
 	HideIgnored    key.Binding
 	ForceUpdate    key.Binding
 	CollapseAll    key.Binding
@@ -122,7 +122,7 @@ var keys = keyMap{
 	RestoreBackup: key.NewBinding(key.WithKeys("B"), key.WithHelp("B", "restore backup")),
 	Remove:        key.NewBinding(key.WithKeys("D"), key.WithHelp("D", "remove")),
 	// ctrl+e is a picker-vocabulary alias of e (fzf/yazi-style pickers use
-	// C-e = "open in editor"); the staged-tab commit input consumes ctrl+e
+	// C-e = "open in editor"); the Marked tab's commit input consumes ctrl+e
 	// first (multi-line message in $EDITOR), so the alias only fires on files.
 	Edit:       key.NewBinding(key.WithKeys("e", "ctrl+e"), key.WithHelp("e", "edit")),
 	EditDiff:   key.NewBinding(key.WithKeys("E"), key.WithHelp("E", "diff tool")),
@@ -145,7 +145,7 @@ var keys = keyMap{
 	Blame:          key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "blame")),
 	SideBySide:     key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "side-by-side")),
 	CompareWorking: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "vs working")),
-	ListMode:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "list")),
+	FileView:       key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "view")),
 	HideIgnored:    key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "hide-ign")),
 	ForceUpdate:    key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "force update")),
 	CollapseAll:    key.NewBinding(key.WithKeys("~"), key.WithHelp("~", "collapse all")),

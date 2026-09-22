@@ -31,15 +31,15 @@ type Tab int
 const (
 	TabTree Tab = iota
 	TabFavorites
-	TabStaged
+	TabMarked
 	TabHistory
 )
 
-type TreeViewMode int
+type FilesLayout int
 
 const (
-	TreeViewFiles   TreeViewMode = iota // Variant A: dirs left, files right
-	TreeViewDetails                     // Variant B: full tree left, diff preview right
+	LayoutList FilesLayout = iota // Variant A: dirs left, files right
+	LayoutDiff                    // tree incl. files left, the cursor file's diff right
 )
 
 // statusRefreshedMsg carries the merged result of the user-triggered
@@ -80,19 +80,19 @@ type dirStatusMsg struct {
 	epoch     uint64
 }
 
-type previewMsg struct {
+type diffLoadedMsg struct {
 	path string
 	diff *cvs.DiffResult
 }
 
-type stagedStatusMsg struct {
+type markedStatusMsg struct {
 	paths    []string         // files that were checked
 	statuses []cvs.FileStatus // results from cvs status
 }
 
 // commitDoneMsg is sent by doCommit when its async cvs add+commit sequence
 // finishes. The handler turns this into a banner notification, drops the
-// committed paths from the marked set (so the Staged view reflects success),
+// committed paths from the marked set (so the Marked tab reflects success),
 // and triggers a status refresh. err is non-nil if any cvs invocation failed.
 type commitDoneMsg struct {
 	files   []string
@@ -214,7 +214,7 @@ func (m App) consoleH() int {
 // quitting costs nothing.
 func (m *App) unsavedWork() string {
 	marks := len(m.filelist.marked)
-	message := strings.TrimSpace(m.staged.input.Value())
+	message := strings.TrimSpace(m.markedTab.input.Value())
 	switch {
 	case marks > 0 && message != "":
 		return fmt.Sprintf("%d file(s) marked and a commit message typed", marks)
@@ -322,15 +322,15 @@ func (m *App) refreshStatusForPaths(paths []string) tea.Cmd {
 const notifyDuration = 3 * time.Second
 
 type App struct {
-	activeTab Tab
-	focus     Panel
-	treeMode  TreeViewMode
+	activeTab   Tab
+	focus       Panel
+	filesLayout FilesLayout
 
 	tree      TreeModel
 	filelist  FileListModel
 	console   ConsoleModel
 	favorites FavoritesModel
-	staged    StagedModel
+	markedTab MarkedTabModel
 	history   HistoryModel
 	search    SearchModel
 	dialog    DialogModel
@@ -401,11 +401,11 @@ type App struct {
 	statusEpoch uint64
 	dirEpoch    map[string]uint64
 
-	// Preview state for Variant B (TreeViewDetails)
-	previewPath  string
-	previewDiff  *cvs.DiffResult
-	previewVP    viewport.Model
-	previewReady bool
+	// Diff-pane state (LayoutDiff)
+	diffPath  string
+	diffData  *cvs.DiffResult
+	diffVP    viewport.Model
+	diffReady bool
 
 	// Transient banner shown above the tab bar (e.g. "✓ Committed 2 file(s)").
 	// Cleared automatically via notificationExpiredMsg after a few seconds.
@@ -470,7 +470,7 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		filelist:      NewFileListModel(),
 		console:       NewConsoleModel(cmdLog),
 		favorites:     NewFavoritesModel(&cfg),
-		staged:        NewStagedModel(),
+		markedTab:     NewMarkedTabModel(),
 		history:       NewHistoryModel(),
 		search:        NewSearchModel(),
 		dialog:        NewDialogModel(),
@@ -510,7 +510,7 @@ func NewSetupApp(cfgMgr *config.ConfigManager, cvsBin, root, sshKey, parentDir s
 		filelist:        NewFileListModel(),
 		console:         NewConsoleModel(cvs.NewCommandLog(1)),
 		favorites:       NewFavoritesModel(&cfg),
-		staged:          NewStagedModel(),
+		markedTab:       NewMarkedTabModel(),
 		history:         NewHistoryModel(),
 		search:          NewSearchModel(),
 		dialog:          NewDialogModel(),
@@ -543,8 +543,8 @@ func (m App) BootstrapResult() string { return m.bootstrapWorkDir }
 
 // applyStatuses removes statusMap entries listed in toClear, then merges
 // the codes parsed from statuses on top, and refreshes the tree and
-// staged panel. Used by both dirStatusMsg (clears a whole directory)
-// and stagedStatusMsg (clears specific paths) so the
+// Marked panel. Used by both dirStatusMsg (clears a whole directory)
+// and markedStatusMsg (clears specific paths) so the
 // clear-then-merge-then-refresh sequence stays in one place.
 //
 // Also threads each file's working revision (the rev the on-disk
@@ -564,7 +564,7 @@ func (m *App) applyStatuses(toClear []string, statuses []cvs.FileStatus) {
 		}
 	}
 	m.tree.RefreshStatus(m.statusMap, m.staleDirs)
-	m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+	m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 	m.refreshHistoryWorkingState()
 }
 
@@ -676,24 +676,24 @@ func (m *App) refreshStatusUser() tea.Cmd {
 //
 // Behavior depends on which left-panel variant is active:
 //
-//	TreeViewFiles (default — left=dirs, right=files):
+//	LayoutList (default — left=dirs, right=files):
 //	  Expand the tree down to the file's parent directory and populate
 //	  the right-pane file list. For a file the filelist cursor lands on
 //	  the file and focus shifts to the right panel so e/E/c/D/d/... work
 //	  immediately. For a dir the tree cursor lands on the dir itself;
 //	  the right pane shows that dir's contents.
 //
-//	TreeViewDetails (variant B — left=full tree+files, right=preview):
+//	LayoutDiff (left=tree incl. files, right=the file's diff):
 //	  Tree shows everything, so the cursor goes directly on the target
 //	  (file or directory). Focus stays on the left panel; the diff
-//	  preview refreshes for the new selection on the next event tick.
+//	  diff refreshes for the new selection on the next event tick.
 func (m *App) revealPath(target string) tea.Cmd {
 	m.activeTab = TabTree
 	isDir := false
 	if info, err := os.Stat(filepath.Join(m.exec.WorkDir, target)); err == nil {
 		isDir = info.IsDir()
 	}
-	if m.treeMode == TreeViewDetails {
+	if m.filesLayout == LayoutDiff {
 		m.tree.ExpandToPath(target)
 		// ExpandToPath loads a directory's children synchronously, so
 		// rows can appear here that no status pass has ever seen.
@@ -702,7 +702,7 @@ func (m *App) revealPath(target string) tea.Cmd {
 		// status — the keybar context and the diff pane included.
 		m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 		m.focus = PanelLeft
-		return m.autoLoadPreview()
+		return m.autoLoadDiff()
 	}
 	dir := target
 	if !isDir {
@@ -722,10 +722,10 @@ func (m *App) revealPath(target string) tea.Cmd {
 	return nil
 }
 
-// handleKey runs the key priority chain: staged commit input →
+// handleKey runs the key priority chain: commit input →
 // overlays (dialog/search) → global keys → focused-panel delegate.
 func (m *App) handleKey(msg tea.KeyMsg) tea.Cmd {
-	if cmd, handled := m.handleStagedInput(msg); handled {
+	if cmd, handled := m.handleCommitInput(msg); handled {
 		return cmd
 	}
 	if cmd, handled := m.handleKeyPriority(msg); handled {
@@ -764,7 +764,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		if m.dialog.Active() {
-			// Wheel scrolls the dialog's own viewport (help / preview);
+			// Wheel scrolls the dialog's own viewport (help / notice);
 			// the panels underneath must not move while covered.
 			m.dialog.HandleMouse(msg)
 			return m, nil
@@ -972,7 +972,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 			m.favorites.UpdateCounts(m.statusMap)
 			m.updateFileList()
-			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+			m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 			m.refreshHistoryWorkingState()
 			changes := len(m.statusMap)
 			notifyCmd := m.setResult(fmt.Sprintf("Status: %d file(s) with changes (dry-run, nothing pulled)", changes), true)
@@ -1017,7 +1017,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, p := range msg.paths {
 				delete(m.filelist.marked, p)
 			}
-			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+			m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 		}
 		invalidateCmd := m.invalidateHistoryCache(msg.paths)
 		return m, tea.Batch(m.refreshStatusForPaths(msg.paths), invalidateCmd)
@@ -1029,7 +1029,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, p := range msg.files {
 				delete(m.filelist.marked, p)
 			}
-			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+			m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 			// Own commits create history events the H cache can't know.
 			m.recentEvents = nil
 		} else {
@@ -1060,7 +1060,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, doRevert(m.exec, msg.path, m.statusMap[msg.path])
 
 	case revertBulkMsg:
-		// Mirror the dispatch in stagedBulkAction("revert", …) but with
+		// Mirror the dispatch in markedBulkAction("revert", …) but with
 		// explicit statuses from the dialog. Marks are consumed by the
 		// actionDoneMsg handler on success — a failed revert keeps the
 		// worklist so the user can retry.
@@ -1085,7 +1085,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				"database. It only exists when history logging is enabled on\n" +
 				"the server (LogHistory in CVSROOT/config) — if it was never\n" +
 				"enabled, there is nothing to query."
-			m.dialog.OpenPreview(title, body)
+			m.dialog.OpenNotice(title, body)
 			return m, nil
 		}
 		m.recentEvents = msg.raw
@@ -1176,7 +1176,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case removeMsg:
 		// Deliberately do NOT touch m.filelist.marked here — let the
 		// removeDoneMsg handler clean up after success, mirroring the
-		// commit path. A failed remove leaves the staging selection
+		// commit path. A failed remove leaves the marked set
 		// intact so the user can retry.
 		m.setProgress(fmt.Sprintf("⟳ Removing %d file(s)…", len(msg.paths)))
 		return m, doRemove(m.exec, msg.paths, msg.statuses)
@@ -1203,7 +1203,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for _, p := range msg.paths {
 				delete(m.filelist.marked, p)
 			}
-			m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+			m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 		}
 		// `cvs update` may pull new server revisions for these paths;
 		// drop the History cache so the next view sees them.
@@ -1228,7 +1228,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, p := range msg.paths {
 			delete(m.filelist.marked, p)
 		}
-		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
+		m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 		m.recentEvents = nil // scheduled removals will show up as R events
 		var notifyCmd tea.Cmd
 		if len(msg.paths) == 1 {
@@ -1285,16 +1285,16 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if message == "" {
 			return m, m.setResult("Commit aborted (empty message)", false)
 		}
-		untracked := m.staged.PathsByStatus("?")
-		commitFiles := m.staged.CommittablePaths()
+		untracked := m.markedTab.PathsByStatus("?")
+		commitFiles := m.markedTab.CommittablePaths()
 		if len(commitFiles) == 0 {
 			return m, nil
 		}
 		// Reset the inline input + mode so the post-commit state matches
 		// what an Enter-based commit would leave behind.
-		m.staged.input.SetValue("")
-		m.staged.input.Blur()
-		m.staged.mode = StagedActions
+		m.markedTab.input.SetValue("")
+		m.markedTab.input.Blur()
+		m.markedTab.mode = MarkedActions
 		m.focus = PanelLeft
 		return m, func() tea.Msg {
 			return commitMsg{message: message, untracked: untracked, files: commitFiles}
@@ -1304,7 +1304,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Navigate to the path the user picked from the fuzzy finder.
 		// Behavior depends on which left-panel variant is active:
 		//
-		//   TreeViewFiles (default — left=dirs, right=files):
+		//   LayoutList (default — left=dirs, right=files):
 		//     Expand the tree down to the file's parent directory and
 		//     populate the right-pane file list. For a file pick the
 		//     filelist cursor lands on the file and focus shifts to
@@ -1312,10 +1312,10 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//     a dir pick the tree cursor lands on the dir itself; the
 		//     right pane shows that dir's contents.
 		//
-		//   TreeViewDetails (variant B — left=full tree+files, right=preview):
+		//   LayoutDiff (left=tree incl. files, right=the file's diff):
 		//     Tree shows everything, so the cursor goes directly on
 		//     the picked path (file or directory). Focus stays on the
-		//     left panel; the diff preview refreshes for the new
+		//     left panel; the diff refreshes for the new
 		//     selection on the next event tick.
 		return m, m.revealPath(msg.path)
 
@@ -1329,24 +1329,24 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		for _, p := range msg.paths {
 			delete(m.filelist.marked, p)
 		}
-		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
-		return m, m.stagedBulkAction("revert", msg.paths)
+		m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
+		return m, m.markedBulkAction("revert", msg.paths)
 
-	case stagedStatusMsg:
+	case markedStatusMsg:
 		m.applyStatuses(msg.paths, msg.statuses)
 		return m, nil
 
-	case previewMsg:
-		m.previewPath = msg.path
-		m.previewDiff = msg.diff
+	case diffLoadedMsg:
+		m.diffPath = msg.path
+		m.diffData = msg.diff
 		_, rightW, contentH, _ := m.layout()
-		m.previewVP = viewport.New(rightW-2, contentH)
+		m.diffVP = viewport.New(rightW-2, contentH)
 		if msg.diff != nil && len(msg.diff.Hunks) > 0 {
-			m.previewVP.SetContent(renderUnifiedDiff(msg.diff.Hunks))
+			m.diffVP.SetContent(renderUnifiedDiff(msg.diff.Hunks))
 		} else {
-			m.previewVP.SetContent(mutedStyle.Render("  No local changes"))
+			m.diffVP.SetContent(mutedStyle.Render("  No local changes"))
 		}
-		m.previewReady = true
+		m.diffReady = true
 		return m, nil
 	}
 

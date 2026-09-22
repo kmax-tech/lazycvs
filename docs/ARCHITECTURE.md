@@ -41,7 +41,7 @@ fit together. Companion to [`USER_GUIDE.md`](USER_GUIDE.md).
               ├── tree.go          (TreeModel — left pane of Tree tab)
               ├── filelist.go      (FileListModel — right pane)
               ├── favorites.go     (FavoritesModel)
-              ├── staging.go       (StagedModel)
+              ├── marked.go        (MarkedTabModel)
               ├── history.go       (HistoryModel)
               ├── console.go       (ConsoleModel)
               ├── dialog.go        (DialogModel — overlays)
@@ -95,13 +95,11 @@ Key fields:
 
 ```go
 type App struct {
-    activeTab  Tab                // TabTree / TabFavorites / TabStaged / TabHistory
-                                  // (the third tab is called "Marked" in the
-                                  // UI; the identifiers still say staged)
+    activeTab  Tab                // TabTree / TabFavorites / TabMarked / TabHistory
     focus      Panel              // PanelLeft / PanelRight / PanelConsole
 
     // Sub-models — each owns its own panel state.
-    tree, filelist, favorites, staged, history, console, dialog, search ModelType
+    tree, filelist, favorites, markedTab, history, console, dialog, search ModelType
 
     // Single source of truth for CVS status. Owned by App, mutated only
     // inside Update() (which Bubble Tea serializes on the main goroutine).
@@ -127,7 +125,7 @@ type App struct {
 ```
 
 `statusMap` is the **single source of truth** for per-file status.
-Tree, FileList, Staged, and History all derive their displays from it.
+Tree, FileList, MarkedTab, and History all derive their displays from it.
 `keyContext` (`tui/keymap.go`) is the read-only snapshot of it that the
 keybar and help render against — a value, never the `*App`, so the
 keymap registry's predicates stay pure.
@@ -206,7 +204,7 @@ User commits a file  →  commitDoneMsg
                             │                      ├─ merge new ones (M/C/?/U/...)
                             │                      ├─ thread WorkingRev → baseRevMap
                             │                      ├─ tree.RefreshStatus()
-                            │                      └─ staged.Refresh()
+                            │                      └─ markedTab.Refresh()
                             │
                             └─→ invalidateHistoryCache([files])
                                    │
@@ -299,7 +297,7 @@ m.console.SetSize(PanelDims{LeftW: m.width - 2, Height: consoleH})
 ```
 
 Each model reads only the fields it cares about. A two-panel model
-(staged, history) reads both `LeftW` and `RightW`; a single-panel
+(markedTab, history) reads both `LeftW` and `RightW`; a single-panel
 model (tree, filelist, favorites, console, dialog) reads one. Unused
 fields are zero-valued and silently ignored — no sentinel logic.
 
@@ -320,8 +318,8 @@ Applied at every loader that pipes file content to the renderer:
 - `loadRevisionContent`
 - `loadRevisionDiff` / `loadWorkingDiff`
 - `loadBlame`
-- `loadPreviewDiff`
-- the text-display dialog (`DialogPreview`, e.g. "no diff tool configured")
+- `loadDiffFor` (the Files tab's diff pane)
+- the text-display dialog (`DialogNotice`, e.g. "no diff tool configured")
 
 Status / log / annotate / update parsers don't need it — their tokens
 are reliably ASCII.
@@ -361,7 +359,7 @@ flag is display-only: commit, add, and diff are never gated on it.
 
 Three layers, in priority order, each handled in `tui/app_keys.go`:
 
-1. **Stage commit input** — when staged tab has focus on the right
+1. **Commit input** — when the Marked tab has focus on the right
    panel and the input is focused, almost every key goes through it.
    `Esc` blurs.
 2. **Global keys (`handleKeyPriority` + `handleGlobalKey`)** — `q`,
@@ -444,7 +442,7 @@ current shape.
 1. **Per-path caches at App level, not in models.** Models are
    ephemeral views; data outlives them.
 2. **`statusMap` is the single source of truth.** Other places (tree
-   counts, file list status column, staging view) read from it; nothing
+   counts, file list status column, Marked tab) read from it; nothing
    maintains its own copy.
 3. **Path-tagged async messages.** Every msg carries the path it was
    for, so cache writes are safe across file switches.

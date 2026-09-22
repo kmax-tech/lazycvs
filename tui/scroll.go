@@ -3,7 +3,7 @@ package tui
 // ensureCursorVisible computes the new viewport offset so that cursor
 // stays inside the visible window of size visibleRows. Each list-view
 // model owns its own translation from panel height to visibleRows
-// (e.g. staged subtracts a header line, history divides by 2 because
+// (e.g. the Marked tab subtracts a header line, history divides by 2 because
 // each entry takes two rows), then delegates the offset math here.
 func ensureCursorVisible(cursor, offset, visibleRows int) int {
 	if visibleRows < 1 {

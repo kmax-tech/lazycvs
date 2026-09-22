@@ -95,3 +95,53 @@ func TestBuildSideBySide(t *testing.T) {
 		t.Errorf("right should be added, got %s", pairs[2].Right.Type)
 	}
 }
+
+// Every diff ends with a newline, and the naive split turned that into
+// a trailing empty "context" line — a numbered blank row at the end of
+// every diff in the app.
+func TestParseDiffDropsTheTrailingEmptyLine(t *testing.T) {
+	res := ParseDiff("@@ -1 +1 @@\n-alt\n+neu\n")
+	if len(res.Hunks) != 1 {
+		t.Fatalf("hunks = %d, want 1", len(res.Hunks))
+	}
+	lines := res.Hunks[0].Lines
+	if len(lines) != 2 {
+		t.Fatalf("lines = %d, want 2: %+v", len(lines), lines)
+	}
+	if lines[0].Type != DiffLineRemoved || lines[1].Type != DiffLineAdded {
+		t.Errorf("unexpected line types: %+v", lines)
+	}
+
+	// A genuinely empty context line inside a hunk survives: unified
+	// diff writes it as a single space, which is not the same thing.
+	res = ParseDiff("@@ -1,3 +1,3 @@\n eins\n \n-alt\n+neu\n")
+	lines = res.Hunks[0].Lines
+	if len(lines) != 4 {
+		t.Fatalf("lines = %d, want 4: %+v", len(lines), lines)
+	}
+	if lines[1].Type != DiffLineContext || lines[1].Content != "" {
+		t.Errorf("the empty context line was lost: %+v", lines[1])
+	}
+}
+
+// "\ No newline at end of file" is diff talking about the line above,
+// not a line of either file: numbering it pushed every later number
+// one too far.
+func TestParseDiffNoNewlineMarker(t *testing.T) {
+	res := ParseDiff("@@ -1 +1 @@\n-alt\n\\ No newline at end of file\n+neu\n\\ No newline at end of file\n")
+	lines := res.Hunks[0].Lines
+	if len(lines) != 4 {
+		t.Fatalf("lines = %d, want 4: %+v", len(lines), lines)
+	}
+	for _, i := range []int{1, 3} {
+		if lines[i].Type != DiffLineNote {
+			t.Errorf("line %d = %q, want a note: %+v", i, lines[i].Type, lines[i])
+		}
+		if lines[i].OldNum != 0 || lines[i].NewNum != 0 {
+			t.Errorf("the annotation carries line numbers: %+v", lines[i])
+		}
+	}
+	if lines[2].NewNum != 1 {
+		t.Errorf("the added line should still be line 1, got %d", lines[2].NewNum)
+	}
+}

@@ -12,6 +12,12 @@ const (
 	DiffLineAdded   DiffLineType = "added"
 	DiffLineRemoved DiffLineType = "removed"
 	DiffLineContext DiffLineType = "context"
+	// DiffLineNote is diff's own annotation about the line above it —
+	// in practice only "\ No newline at end of file". It is not a line
+	// of either file: counting it as context gave it a line number and
+	// pushed every number after it one too far, which is the one thing
+	// a line number must never do.
+	DiffLineNote DiffLineType = "note"
 )
 
 // DiffResult holds a parsed unified diff.
@@ -49,6 +55,13 @@ type DiffLinePair struct {
 func ParseDiff(output string) *DiffResult {
 	result := &DiffResult{}
 	lines := strings.Split(output, "\n")
+	// A diff ends with a newline, so the split leaves a trailing empty
+	// element. Taken as a context line it became a numbered blank row
+	// at the end of every single diff — and it counted, so the last
+	// real line's number was one short of the file's own.
+	if n := len(lines); n > 0 && lines[n-1] == "" {
+		lines = lines[:n-1]
+	}
 
 	var currentHunk *DiffHunk
 	oldNum, newNum := 0, 0
@@ -86,6 +99,11 @@ func ParseDiff(output string) *DiffResult {
 		case strings.HasPrefix(line, "-"):
 			dl = DiffLine{Type: DiffLineRemoved, Content: line[1:], OldNum: oldNum}
 			oldNum++
+		case strings.HasPrefix(line, "\\"):
+			// "\ No newline at end of file" — an annotation, not a
+			// line: no number, and the counters do not move.
+			dl = DiffLine{Type: DiffLineNote, Content: strings.TrimSpace(line[1:])}
+
 		default:
 			// Context line (starts with space or is empty)
 			content := line

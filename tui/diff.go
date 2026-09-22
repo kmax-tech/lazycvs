@@ -13,14 +13,21 @@ func renderUnifiedDiff(hunks []cvs.DiffHunk) string {
 	for _, hunk := range hunks {
 		b.WriteString(diffHunk.Render(hunk.Header) + "\n")
 		for _, line := range hunk.Lines {
+			if line.Type == cvs.DiffLineNote {
+				// diff's annotation about the line above it. It has no
+				// number because it is not a line of either file.
+				b.WriteString(diffLineNum.Render("") + " " +
+					diffContext.Render("  "+line.Content) + "\n")
+				continue
+			}
 			num := diffLineNum.Render(fmt.Sprintf("%d", line.NewNum))
 			if line.NewNum == 0 && line.OldNum > 0 {
 				num = diffLineNum.Render(fmt.Sprintf("%d", line.OldNum))
 			}
 			switch line.Type {
-			case "added":
+			case cvs.DiffLineAdded:
 				b.WriteString(num + " " + diffAdd.Render("+ "+line.Content) + "\n")
-			case "removed":
+			case cvs.DiffLineRemoved:
 				b.WriteString(num + " " + diffDel.Render("- "+line.Content) + "\n")
 			default:
 				b.WriteString(num + " " + diffContext.Render("  "+line.Content) + "\n")
@@ -57,16 +64,14 @@ func renderSideBySideDiff(diff *cvs.DiffResult, width int) string {
 }
 
 func renderSBSLine(line *cvs.DiffLine, width int) string {
-	content := line.Content
-	if len(content) > width-4 {
-		content = content[:width-7] + "..."
-	}
-	padded := fmt.Sprintf("%-*s", width, content)
+	// Display cells, not bytes: slicing a string at a byte offset cuts
+	// umlauts in half, and width-7 goes negative on a narrow pane.
+	padded := padCells(line.Content, width)
 
 	switch line.Type {
-	case "added":
+	case cvs.DiffLineAdded:
 		return diffAdd.Render(padded)
-	case "removed":
+	case cvs.DiffLineRemoved:
 		return diffDel.Render(padded)
 	default:
 		return diffContext.Render(padded)

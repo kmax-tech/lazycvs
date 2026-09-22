@@ -313,7 +313,7 @@ func (m *App) restoreFromBackupBulk(paths []string) tea.Cmd {
 	case missing > 0:
 		notifyCmd = m.setResult(fmt.Sprintf("✓ Restored %d (skipped %d without backup)", restored, missing), true)
 	default:
-		notifyCmd = m.setResult(fmt.Sprintf("✓ Restored %d file(s) from backup", restored), true)
+		notifyCmd = m.setResult(fmt.Sprintf("✓ Restored %s from backup", countLabel(restored, "file")), true)
 	}
 	if len(refreshPaths) == 0 {
 		return notifyCmd
@@ -437,7 +437,7 @@ func markedBulkPrepareBackups(exec *cvs.CVSExecutor, paths []string) {
 	if n > 0 {
 		// One summary line, not one per file — an 18-file bulk revert
 		// shouldn't spend a third of the console on backup notes.
-		exec.Log.LogFileOp(fmt.Sprintf("cp %d file(s) → *.lazycvs-backup  # pre-revert safety copies", n), nil)
+		exec.Log.LogFileOp(fmt.Sprintf("cp %s → *.lazycvs-backup  # pre-revert safety copies", countLabel(n, "file")), nil)
 	}
 }
 

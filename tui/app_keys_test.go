@@ -227,7 +227,7 @@ func TestQuitGuardsUnsavedWork(t *testing.T) {
 		if !app.quitPending {
 			t.Error("quit should be pending after the warning")
 		}
-		if !strings.Contains(app.notification, "2 file(s) marked") ||
+		if !strings.Contains(app.notification, "2 files marked") ||
 			!strings.Contains(app.notification, "press q again") {
 			t.Errorf("banner should name the work and the way out, got %q", app.notification)
 		}

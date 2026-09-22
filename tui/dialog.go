@@ -1163,10 +1163,10 @@ func (m DialogModel) viewCommit() string {
 		b.WriteString(line + "\n")
 	}
 	if truncated > 0 {
-		b.WriteString(mutedStyle.Render(fmt.Sprintf("  … %d more committable file(s)\n", truncated)))
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("  … %s more committable\n", countLabel(truncated, "file"))))
 	}
 	if len(skipped) > 0 {
-		b.WriteString(mutedStyle.Render(fmt.Sprintf("\nSkipped: %d file(s) — clean or up-to-date\n", len(skipped))))
+		b.WriteString(mutedStyle.Render(fmt.Sprintf("\nSkipped: %s — clean or up-to-date\n", countLabel(len(skipped), "file"))))
 	}
 	b.WriteString("\nMessage:\n")
 	b.WriteString(m.input.View() + "\n\n")
@@ -1194,7 +1194,7 @@ func (m DialogModel) viewRevert() string {
 				otherCount++
 			}
 		}
-		fmt.Fprintf(&b, "Revert %d file(s)?\n\n", len(m.files))
+		fmt.Fprintf(&b, "Revert %s?\n\n", countLabel(len(m.files), "file"))
 		if mCount > 0 {
 			fmt.Fprintf(&b, "  %d modified — local edits discarded (cvs update -C)\n", mCount)
 		}
@@ -1302,7 +1302,7 @@ func (m DialogModel) viewRemove() string {
 
 	// Bulk view: list each file with its status code so the user can
 	// review exactly what will happen before confirming.
-	fmt.Fprintf(&b, "Remove %d files?\n\n", len(m.files))
+	fmt.Fprintf(&b, "Remove %s?\n\n", countLabel(len(m.files), "file"))
 	for _, p := range m.files {
 		st := m.commitStatuses[p]
 		marker := " "

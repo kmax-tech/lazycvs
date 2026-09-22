@@ -303,3 +303,23 @@ func TestFoldKeyOnlyOfferedInTheTreeView(t *testing.T) {
 		t.Error("~ offered while the tree pane has focus — that is its own collapse-all")
 	}
 }
+
+// "1 files" is the kind of detail that makes an interface feel like
+// nobody read it.
+func TestCountLabel(t *testing.T) {
+	cases := []struct {
+		n    int
+		noun string
+		want string
+	}{
+		{0, "file", "0 files"},
+		{1, "file", "1 file"},
+		{2, "file", "2 files"},
+		{42, "revision", "42 revisions"},
+	}
+	for _, c := range cases {
+		if got := countLabel(c.n, c.noun); got != c.want {
+			t.Errorf("countLabel(%d, %q) = %q, want %q", c.n, c.noun, got, c.want)
+		}
+	}
+}

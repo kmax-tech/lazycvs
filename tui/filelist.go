@@ -435,7 +435,7 @@ func (m FileListModel) View() string {
 					chips = append(chips, "filter:"+m.filter)
 				}
 				info := sd.Name + "/ · " + strings.Join(chips, " · ") +
-					fmt.Sprintf(" — %d files", m.FileCount())
+					" — " + countLabel(m.FileCount(), "file")
 				if len(m.marked) > 0 {
 					info += fmt.Sprintf(", %d marked", len(m.marked))
 				}

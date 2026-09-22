@@ -370,7 +370,7 @@ func fileListInfo(fl FileListModel) string {
 	if pos, onFile := fl.CursorFileIndex(); onFile {
 		return fmt.Sprintf(" %d of %d ", pos, total)
 	}
-	return fmt.Sprintf(" %d files ", total)
+	return " " + countLabel(total, "file") + " "
 }
 
 func renderPanel(title, content string, width, height int, active bool, info string) string {
@@ -755,6 +755,16 @@ func (m App) actionRow(ctx keyContext) string {
 		}
 		dropped[order[n]] = true
 	}
+}
+
+// countLabel writes a count and its noun, singular when there is one
+// of something. "1 files" is the kind of detail that makes an
+// interface feel like nobody read it.
+func countLabel(n int, noun string) string {
+	if n == 1 {
+		return fmt.Sprintf("1 %s", noun)
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
 }
 
 // padCells truncates s to w display cells and pads it out to exactly w.

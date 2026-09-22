@@ -250,7 +250,7 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	case key.Matches(msg, keys.Update):
 		if m.activeTab == TabTree || m.activeTab == TabFavorites {
 			if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
-				m.setProgress(fmt.Sprintf("⟳ Updating %d file(s)…", len(paths)))
+				m.setProgress(fmt.Sprintf("⟳ Updating %s…", countLabel(len(paths), "file")))
 				return m.doUpdatePaths(paths), true
 			}
 			if target := m.selectedTarget(); target != "" {
@@ -397,7 +397,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				m.markedTab.input.Focus()
 				return nil
 			}
-			return m.setResult(fmt.Sprintf("Nothing committable in %d marked file(s) — need status ?, A, M, C or R", len(m.markedTab.files)), false)
+			return m.setResult(fmt.Sprintf("Nothing committable in %s marked — need status ?, A, M, C or R", countLabel(len(m.markedTab.files), "file")), false)
 		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory && m.activeTab != TabMarked:
 			return m.openCommitDialog()
 		case key.Matches(msg, keys.Revert) && m.activeTab != TabHistory && m.activeTab != TabMarked:
@@ -421,7 +421,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				return nil
 			}
 			if len(marked) > 0 {
-				return m.setResult(fmt.Sprintf("Nothing revertable in %d marked file(s) — need status M or C", len(marked)), false)
+				return m.setResult(fmt.Sprintf("Nothing revertable in %s marked — need status M or C", countLabel(len(marked), "file")), false)
 			}
 			if selectedPath != "" {
 				m.dialog.OpenRevert(selectedPath)
@@ -690,7 +690,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 					for _, f := range m.markedTab.files {
 						paths = append(paths, f.path)
 					}
-					m.setProgress(fmt.Sprintf("⟳ Updating %d file(s)…", len(paths)))
+					m.setProgress(fmt.Sprintf("⟳ Updating %s…", countLabel(len(paths), "file")))
 					return m.markedBulkAction("update", paths)
 				}
 			case key.Matches(msg, keys.ForceUpdate):

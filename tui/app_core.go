@@ -217,9 +217,9 @@ func (m *App) unsavedWork() string {
 	message := strings.TrimSpace(m.markedTab.input.Value())
 	switch {
 	case marks > 0 && message != "":
-		return fmt.Sprintf("%d file(s) marked and a commit message typed", marks)
+		return fmt.Sprintf("%s marked and a commit message typed", countLabel(marks, "file"))
 	case marks > 0:
-		return fmt.Sprintf("%d file(s) marked", marks)
+		return countLabel(marks, "file") + " marked"
 	case message != "":
 		return "commit message not sent"
 	}
@@ -256,7 +256,7 @@ func actionFailure(what, label string, err error) string {
 // the command log.
 //
 // The two halves are both needed. A red banner alone is not proof of
-// console detail — the quit warning ("1 file(s) marked — press q
+// console detail — the quit warning ("2 files marked — press q
 // again") is a refusal, not a failed command, and telling the user to
 // go read the console about it would send them to a panel with nothing
 // new in it. Unread errors alone are not proof either: they may be
@@ -446,7 +446,7 @@ type App struct {
 	diffVP    viewport.Model
 	diffReady bool
 
-	// Transient banner shown above the tab bar (e.g. "✓ Committed 2 file(s)").
+	// Transient banner shown above the tab bar (e.g. "✓ Committed 2 files").
 	// Cleared automatically via notificationExpiredMsg after a few seconds.
 	// notificationInProgress overrides the OK/error palette with a neutral
 	// "running" color and disables auto-expiry — used to surface dispatched
@@ -1045,7 +1045,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 			m.refreshHistoryWorkingState()
 			changes := len(m.statusMap)
-			notifyCmd := m.setResult(fmt.Sprintf("Status: %d file(s) with changes (dry-run, nothing pulled)", changes), true)
+			notifyCmd := m.setResult(fmt.Sprintf("Status: %s with changes (dry-run, nothing pulled)", countLabel(changes, "file")), true)
 			return m, notifyCmd
 		}
 
@@ -1064,7 +1064,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			notifyCmd := m.setResult(fmt.Sprintf("✗ %d %s with unresolved conflict markers — press M to merge first", len(blocked), noun), false)
 			return m, notifyCmd
 		}
-		m.setProgress(fmt.Sprintf("⟳ Committing %d file(s)…", len(msg.files)))
+		m.setProgress(fmt.Sprintf("⟳ Committing %s…", countLabel(len(msg.files), "file")))
 		return m, doCommit(m.exec, msg.message, msg.untracked, msg.files)
 
 	case actionDoneMsg:
@@ -1095,7 +1095,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case commitDoneMsg:
 		var notifyCmd tea.Cmd
 		if msg.err == nil {
-			notifyCmd = m.setResult(fmt.Sprintf("✓ Committed %d file(s): %q", len(msg.files), msg.message), true)
+			notifyCmd = m.setResult(fmt.Sprintf("✓ Committed %s: %q", countLabel(len(msg.files), "file"), msg.message), true)
 			for _, p := range msg.files {
 				delete(m.filelist.marked, p)
 			}
@@ -1134,7 +1134,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// explicit statuses from the dialog. Marks are consumed by the
 		// actionDoneMsg handler on success — a failed revert keeps the
 		// worklist so the user can retry.
-		m.setProgress(fmt.Sprintf("⟳ Reverting %d file(s)…", len(msg.paths)))
+		m.setProgress(fmt.Sprintf("⟳ Reverting %s…", countLabel(len(msg.paths), "file")))
 		return m, revertPathsCmd(m.exec, msg.paths, msg.statuses)
 
 	case recentChangesMsg:
@@ -1248,7 +1248,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// removeDoneMsg handler clean up after success, mirroring the
 		// commit path. A failed remove leaves the marked set
 		// intact so the user can retry.
-		m.setProgress(fmt.Sprintf("⟳ Removing %d file(s)…", len(msg.paths)))
+		m.setProgress(fmt.Sprintf("⟳ Removing %s…", countLabel(len(msg.paths), "file")))
 		return m, doRemove(m.exec, msg.paths, msg.statuses)
 
 	case updateDoneMsg:
@@ -1259,12 +1259,12 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case len(msg.inTheWay) > 0:
 			// CVS held back N files because local files were in the
 			// way; surface that in the banner and open the dialog.
-			notifyCmd = m.setResult(fmt.Sprintf("⚠ %d file(s) blocked by local copies — choose how to resolve", len(msg.inTheWay)), false)
+			notifyCmd = m.setResult(fmt.Sprintf("⚠ %s blocked by local copies — choose how to resolve", countLabel(len(msg.inTheWay), "file")), false)
 			m.dialog.OpenInTheWay(msg.inTheWay)
 		case len(msg.paths) == 1:
 			notifyCmd = m.setResult(fmt.Sprintf("✓ Updated %s", filepath.Base(msg.paths[0])), true)
 		default:
-			notifyCmd = m.setResult(fmt.Sprintf("✓ Updated %d file(s)", len(msg.paths)), true)
+			notifyCmd = m.setResult(fmt.Sprintf("✓ Updated %s", countLabel(len(msg.paths), "file")), true)
 		}
 		// Clean success consumes the worklist. Partial success (in-the-way
 		// paths) keeps it: the blocked files re-run update after the
@@ -1304,7 +1304,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(msg.paths) == 1 {
 			notifyCmd = m.setResult(fmt.Sprintf("✓ Removed %s", filepath.Base(msg.paths[0])), true)
 		} else {
-			notifyCmd = m.setResult(fmt.Sprintf("✓ Removed %d file(s)", len(msg.paths)), true)
+			notifyCmd = m.setResult(fmt.Sprintf("✓ Removed %s", countLabel(len(msg.paths), "file")), true)
 		}
 		// Removed files: their on-disk state changed (R-status / gone)
 		// so any cached working-copy diff is now stale. Tracked files

@@ -189,14 +189,28 @@ func (m *App) currentContentKey() string {
 	return ""
 }
 
-// currentDiffKey returns the (from, to) pair the cursor is asking for, or
-// ("", "") when not in a diff scenario.
+// currentDiffKey returns the (from, to) pair for the right pane, or
+// ("", "") when the pane is not showing a diff. It is the Diff-mode gate
+// around comparePair: the cache and serve path only want a pair when a
+// diff is actually on screen.
+func (m *App) currentDiffKey() (string, string) {
+	if m.history.mode != HistoryDiff {
+		return "", ""
+	}
+	return m.comparePair()
+}
+
+// comparePair resolves which two revisions the History selection points
+// at — the cursor row plus an optional compare anchor (space) and the
+// vs-working toggle (w). Independent of the right pane's mode, so the
+// external diff tool (E) selects the same pair the Diff view shows even
+// when the pane happens to sit in Content or Blame mode.
 //
 // The pair is normalized so the working-copy sentinel is always on the
 // "to" side — that's the only direction `cvs diff` reports, and keeping
 // it canonical means the cache key and the title labels never disagree.
 //
-// Resolution (Diff mode only):
+// Resolution:
 //   - Cursor on the pseudo working-copy row → to = working. From = anchor
 //     (if a real revision) or HEAD.
 //   - Anchor on the pseudo working-copy row, cursor on a real revision →
@@ -204,12 +218,9 @@ func (m *App) currentContentKey() string {
 //   - Otherwise → to = cursor.rev (or working if vsWorking is on).
 //     From = anchor.rev or cursor.rev.PrevNumber.
 //
-// Returns ("", "") when there's nothing to diff: initial revision with
+// Returns ("", "") when there's nothing to compare: initial revision with
 // no anchor, from == to, or working pinned on both sides.
-func (m *App) currentDiffKey() (string, string) {
-	if m.history.mode != HistoryDiff {
-		return "", ""
-	}
+func (m *App) comparePair() (string, string) {
 	cursorIsWorking := m.history.IsWorkingCopyRow()
 	anchorIsWorking := m.history.CompareAnchorIsWorking()
 	if cursorIsWorking && anchorIsWorking {

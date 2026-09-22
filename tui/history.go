@@ -557,7 +557,36 @@ func (m *HistoryModel) ApplyRevisions(history *cvs.FileHistory, dirty bool, base
 // or baseRevMap entries change for the currently-viewed file (e.g. a
 // background dir scan finished after the History tab was opened, or a
 // post-action status refresh updated this path).
+//
+// The revisions list is unchanged here, so when the pseudo working row
+// appears or disappears every revision row shifts by one — cursor and
+// compare anchor are moved along, otherwise a merge or backup restore
+// would silently slide the selection onto a neighbouring revision.
+// (ApplyRevisions deliberately does not shift: there the list itself
+// changed and row indices carry no identity across the reload.)
 func (m *HistoryModel) RefreshWorkingState(dirty bool, baseRev string) {
+	prevWorkingRow := m.hasWorkingRow
+	// Mirrors applyWorkingState's formula; the shift must be decided
+	// before the clamp in there runs.
+	nextWorkingRow := dirty && len(m.revisions) > 0
+	switch {
+	case nextWorkingRow && !prevWorkingRow:
+		m.cursor++
+		if m.compareAnchor >= 0 {
+			m.compareAnchor++
+		}
+	case !nextWorkingRow && prevWorkingRow:
+		if m.cursor > 0 {
+			m.cursor--
+		}
+		switch {
+		case m.compareAnchor == 0:
+			// The anchor sat on the working row, which no longer exists.
+			m.compareAnchor = -1
+		case m.compareAnchor > 0:
+			m.compareAnchor--
+		}
+	}
 	m.applyWorkingState(dirty, baseRev)
 }
 
@@ -921,21 +950,20 @@ func (m HistoryModel) ViewLeft() string {
 	for i := m.offset; i < end; i++ {
 		isCursor := i == m.cursor
 		isAnchor := i == m.compareAnchor
-		// Marker glyph at column 0: cursor wins over anchor on the same
-		// row (reverse-video makes the anchor's identity clear via the
-		// "Compare —" label in the right pane title).
-		marker := " "
+		// Marker glyphs at column 0. Each entry occupies two rows, so
+		// the two markers are chosen separately: the cursor's bar spans
+		// both rows and reads as one continuous block, while the
+		// anchor's arrow points at a single revision and marks only the
+		// header row — repeating it on the message row rendered as two
+		// stacked triangles. Cursor wins over anchor on the same entry
+		// (reverse-video plus the "Compare —" label in the right pane
+		// title keep the anchor's identity clear).
+		markerTop, markerBottom := " ", " "
 		switch {
 		case isCursor:
-			marker = "▌"
+			markerTop, markerBottom = "▌", "▌"
 		case isAnchor:
-			marker = "▸"
-		}
-		var renderedMarker string
-		if isAnchor && !isCursor {
-			renderedMarker = lipgloss.NewStyle().Foreground(colorActive).Render(marker)
-		} else {
-			renderedMarker = marker
+			markerTop = lipgloss.NewStyle().Foreground(colorActive).Render("▸")
 		}
 
 		var line1, line2 string
@@ -943,16 +971,16 @@ func (m HistoryModel) ViewLeft() string {
 			// Pseudo "working" row. Label is consistent with how the
 			// title and the badge spell it elsewhere.
 			line1 = fmt.Sprintf("%s%-6s %-8s %s",
-				renderedMarker,
+				markerTop,
 				lipgloss.NewStyle().Foreground(colorActive).Render("working"),
 				"you",
 				"now")
-			line2 = renderedMarker + "  " + mutedStyle.Render("local changes")
+			line2 = markerBottom + "  " + mutedStyle.Render("local changes")
 		} else {
 			rev := m.revisions[m.revisionIndex(i)]
 			date := rev.Date.Format("Jan 02 06")
 
-			line1 = fmt.Sprintf("%s%-6s %-8s %s", renderedMarker, rev.Number, truncate(rev.Author, 8), date)
+			line1 = fmt.Sprintf("%s%-6s %-8s %s", markerTop, rev.Number, truncate(rev.Author, 8), date)
 			if len(rev.Tags) > 0 {
 				line1 += " " + lipgloss.NewStyle().Foreground(colorStale).Render(truncate(rev.Tags[0], 12))
 			}
@@ -973,7 +1001,7 @@ func (m HistoryModel) ViewLeft() string {
 					lipgloss.NewStyle().Foreground(colorUpdated).Render(fmt.Sprintf("+%d", rev.LinesAdded)),
 					lipgloss.NewStyle().Foreground(colorConflict).Render(fmt.Sprintf("-%d", rev.LinesRemoved)))
 			}
-			line2 = renderedMarker + "  " + mutedStyle.Render(msg) + delta
+			line2 = markerBottom + "  " + mutedStyle.Render(msg) + delta
 		}
 
 		if isCursor {

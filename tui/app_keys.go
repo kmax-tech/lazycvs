@@ -344,7 +344,14 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		case key.Matches(msg, keys.EditDiff) && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
 			return m.launchExternalDiffForCurrent(selectedPath)
 		case key.Matches(msg, keys.Merge) && selectedPath != "" && m.statusMap[selectedPath] == "C":
+			// A real conflict outranks a revision merge: CVS's pre-merge
+			// backup gives a better LOCAL side than any snapshot, and an
+			// unresolved conflict is the more urgent thing to fix.
 			return m.launchExternalMergeFor(selectedPath)
+		case key.Matches(msg, keys.Merge) && m.activeTab == TabHistory:
+			// Merge the selected revision pair into the working copy —
+			// `cvs update -j from -j to`, resolved in the merge tool.
+			return m.launchHistoryMergeForCurrent()
 		case key.Matches(msg, keys.Edit) && selectedPath != "":
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			return openEditor(fullPath)
@@ -411,7 +418,20 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			}
 			m.dialog.OpenRemove(paths, m.statusesFor(paths))
 			return nil
-		case key.Matches(msg, keys.RestoreBackup) && m.activeTab != TabHistory:
+		case key.Matches(msg, keys.RestoreBackup) && m.activeTab == TabHistory:
+			// Only the loaded file's backup. The marked-set and subtree
+			// flows below read the file panels' selection, which History
+			// doesn't show — following them here would restore files the
+			// user can't see. This is also where the pair merge (M) just
+			// wrote its pre-merge safety copy, so B must work without
+			// leaving the tab. Invalidate the History cache so the
+			// vs-working pane reflects the restored content.
+			if selectedPath != "" {
+				return tea.Batch(m.restoreFromBackup(selectedPath),
+					m.invalidateHistoryCache([]string{selectedPath}))
+			}
+			return nil
+		case key.Matches(msg, keys.RestoreBackup):
 			// Three modes, in priority order:
 			//   1. Marked files: explicit "restore these" set.
 			//   2. Cursor on a dir tree node: scan its subtree for

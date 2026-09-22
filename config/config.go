@@ -187,7 +187,10 @@ var DiffToolPresets = map[string]string{
 
 // MergeToolPresets maps preset names to 3-way merge command templates.
 // Placeholders: $BASE, $LOCAL, $REMOTE, $MERGED. The MERGED file is the
-// working copy on disk — most tools save the resolved result back to it.
+// working copy on disk — the tool saves the resolved result back to it.
+// Every preset must carry $MERGED: without it the result has nowhere to
+// land and the launcher rejects the template (diffuse dropped for that
+// reason — it has no output-file flag).
 var MergeToolPresets = map[string]string{
 	"meld":     "meld --auto-merge $LOCAL $BASE $REMOTE --output $MERGED",
 	"kdiff3":   "kdiff3 $BASE $LOCAL $REMOTE -o $MERGED",
@@ -195,7 +198,6 @@ var MergeToolPresets = map[string]string{
 	"nvimdiff": "nvim -d $LOCAL $BASE $REMOTE $MERGED",
 	"vscode":   "code --merge $LOCAL $REMOTE $BASE $MERGED",
 	"opendiff": "opendiff $LOCAL $REMOTE -ancestor $BASE -merge $MERGED",
-	"diffuse":  "diffuse $LOCAL $BASE $REMOTE",
 	"bcompare": "bcompare $LOCAL $REMOTE $BASE $MERGED",
 }
 

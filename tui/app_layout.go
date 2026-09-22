@@ -8,6 +8,7 @@ import (
 	"github.com/kmax-tech/lazycvs/cvs"
 	"github.com/kmax-tech/lazycvs/fs"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -502,8 +503,21 @@ func (m App) renderKeybar() string {
 		hScroll := keyStyle.Render("</>") + ":scroll"
 		switch {
 		case m.history.HasCompare() || m.history.vsWorking:
+			// E and M also work in plain Diff mode (cursor ↔ parent
+			// fallback), but the keybar slot is spent here, where the
+			// user has deliberately picked a pair; elsewhere the help
+			// dialog covers them. M is only advertised when the pair is
+			// two real revisions — with the working copy pinned in,
+			// launchHistoryMergeForCurrent always refuses (the working
+			// copy is already the LOCAL side).
+			pairKeys := []key.Binding{keys.SideBySide, keys.Blame, keys.EditDiff}
+			if from, to := m.comparePair(); from != "" && to != "" &&
+				from != workingRev && to != workingRev {
+				pairKeys = append(pairKeys, keys.Merge)
+			}
+			pairKeys = append(pairKeys, keys.CompareWorking, keys.Escape)
 			actions = mutedStyle.Render("[Compare] ") +
-				keyHelp(keys.SideBySide, keys.Blame, keys.CompareWorking, keys.Escape) + sep +
+				keyHelp(pairKeys...) + sep +
 				spAnchor + sep + hScroll
 		case m.history.mode == HistoryDiff:
 			actions = mutedStyle.Render("[Diff] ") +

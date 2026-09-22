@@ -1137,12 +1137,24 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case externalDiffMsg:
 		// Launch failures used to vanish silently — E/M read as dead keys
-		// when the tool binary was missing. Success stays silent: the tool
-		// window (or the suspend/resume cycle) is the feedback.
+		// when the tool binary was missing. A plain diff stays silent: the
+		// tool window (or the suspend/resume cycle) is the feedback. A merge
+		// carries a note, because the tool writes into the working copy —
+		// and a refreshPath, so the tree status and the vs-working diff
+		// don't keep showing the pre-merge state.
 		if msg.err != nil {
 			return m, m.setResult("✗ "+msg.err.Error(), false)
 		}
-		return m, nil
+		var cmds []tea.Cmd
+		if msg.refreshPath != "" {
+			cmds = append(cmds,
+				m.refreshStatusForPaths([]string{msg.refreshPath}),
+				m.invalidateHistoryCache([]string{msg.refreshPath}))
+		}
+		if msg.note != "" {
+			cmds = append(cmds, m.setResult(msg.note, true))
+		}
+		return m, tea.Batch(cmds...)
 
 	case commitMessageEditedMsg:
 		// User came back from $EDITOR. Empty message → abort; otherwise

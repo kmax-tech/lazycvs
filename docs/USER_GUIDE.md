@@ -215,7 +215,7 @@ are marked with `space` — the entire marked set.
 | `D`       | Remove. Marked set in a list dialog, otherwise single file. Untracked files just get deleted from disk; tracked files are scheduled for removal (status `R`). |
 | `e`       | Open in `$EDITOR`                                            |
 | `E`       | Open the configured external diff tool (working copy vs HEAD) |
-| `M`       | Open the configured external merge tool (conflict files only) |
+| `M`       | Open the configured external merge tool. On a `C` file: the conflict's BASE/LOCAL/REMOTE. In the History tab: merge the selected revision pair into the working copy. |
 | `i`       | Add to `.cvsignore`. Marked `?` files → bulk; single → dialog with three options (local / global pattern / global exact). |
 | `a`       | `cvs add` (`?` files only)                                   |
 | `o`       | Open with the OS default viewer (`open` / `xdg-open`)        |
@@ -372,9 +372,51 @@ horizontally. Mode keys work from either panel.
 | `space` on the working pseudo-row   | Pin working as anchor                                   |
 | `w`                                 | Toggle "compare against working copy" for the cursor row |
 | `Esc`                               | Clear comparison; second `Esc` exits the History tab    |
+| `E`                                 | Open the selected pair in the external diff tool        |
+| `M`                                 | Merge the selected pair into the working copy           |
 
 Title in the right pane reflects the comparison: `Diff — 1.20 ↔ 1.21`,
 `Compare — 1.18 ↔ 1.21`, or `Diff — 1.21 ↔ working`.
+
+`E` and `M` act on exactly the pair the title names — anchor 1.85, cursor
+on 1.90, and both tools see those two revisions. Without an anchor the
+pair is the cursor's revision and its parent.
+
+### Merging two revisions into the working copy
+
+`M` in the History tab is the interactive equivalent of
+`cvs update -j <from> -j <to>`: it feeds the change between the two
+selected revisions to your merge tool instead of writing conflict
+markers into the file.
+
+| Merge-tool side | What it gets                                     |
+|-----------------|--------------------------------------------------|
+| `$BASE`         | the "from" revision (anchor, or cursor's parent)  |
+| `$REMOTE`       | the "to" revision (cursor)                        |
+| `$LOCAL`        | a snapshot of the working copy as it is right now |
+| `$MERGED`       | the working file itself — the tool writes here    |
+
+The result lands in the working copy as an ordinary local modification,
+so you review it and commit it like any other change. A
+`.lazycvs-backup` copy is written before the tool starts (`B` restores
+it), because handing an external tool write access to the working copy
+is destructive by the same standard as `r` and `R`.
+
+Both sides must be real revisions. With `w` active — the working copy
+pinned into the comparison — `M` refuses: the working copy is already
+the `$LOCAL` side.
+
+An unresolved conflict outranks the revision merge: if the file itself
+has status `C`, `M` opens the conflict's BASE/LOCAL/REMOTE instead —
+CVS's pre-merge backup makes a better `$LOCAL` than any snapshot, and
+the conflict is the more urgent thing to fix. Resolve it first, then
+merge revisions.
+
+Note what this is *not* good for: encoding damage. A merge between two
+revisions of the same linear history has the older one as its common
+ancestor, so the merge degenerates to "take the newer". Repairing a
+botched charset conversion is a byte transformation (`iconv`), not a
+merge.
 
 ### Multi-file persistence
 
@@ -393,7 +435,7 @@ Files with status `C`:
 
 - `M` opens the configured external merge tool (3-way: BASE / LOCAL /
   REMOTE / MERGED). Configure via `[editor] merge_tool = "meld"` or any
-  preset (`kdiff3`, `vimdiff`, `vscode`, `opendiff`, `diffuse`,
+  preset (`kdiff3`, `vimdiff`, `nvimdiff`, `vscode`, `opendiff`,
   `bcompare`).
 - The "Merge" dialog (also accessible via `M`) lets you pick local /
   remote / both for individual conflict regions if you don't want to
@@ -449,18 +491,24 @@ Other platforms: `$XDG_CONFIG_HOME/lazycvs/config.toml`
 binary       = "cvs"                       # cvs binary
 default_path = "~/work/my-cvs-checkout"    # fallback when cwd isn't a CVS WC
 timeout      = "60s"                       # per-command timeout
+expected_encoding = "latin1"               # repo text encoding ("latin1" or
+                                           # "utf8"). Steers the yellow "!"
+                                           # encoding warning in the file
+                                           # list only — commit/diff are
+                                           # never affected.
 
 [editor]
 editor       = "vim"                       # also reads $EDITOR
 diff_tool    = "meld"                      # E key
-merge_tool   = "meld"                      # M key (conflict files)
+merge_tool   = "meld"                      # M key (conflicts + revision pairs)
 alt_open     = "emacsclient -n"            # Ctrl-o: alternate opener, launched
                                            # detached. $FILE marks where the
                                            # path goes; without it the path is
                                            # appended. E.g. "code --goto $FILE"
 
-# Built-in presets for diff_tool / merge_tool: vscode, emacs, vimdiff,
-# nvimdiff, meld, kdiff3, opendiff, diffuse, bcompare. Terminal tools
+# Built-in presets for diff_tool: vscode, emacs, vimdiff, nvimdiff,
+# meld, kdiff3, opendiff, diffuse, bcompare. For merge_tool: the same
+# minus emacs and diffuse (no 3-way output file). Terminal tools
 # (vimdiff, nvimdiff) suspend the TUI while open; GUI tools launch
 # detached. The launch mode is inferred from the binary name — override
 # it for wrapper scripts or tools the inference doesn't know:

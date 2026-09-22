@@ -130,12 +130,13 @@ default_path = "~/work/my-cvs-checkout"   # used when cwd has no CVS metadata
 
 [editor]
 diff_tool  = "meld"   # 2-way diff for E key
-merge_tool = "meld"   # 3-way merge for M key (only on conflict files)
+merge_tool = "meld"   # 3-way merge for M key (conflicts, and revision pairs in History)
 alt_open   = "code --goto $FILE"   # Ctrl-o: alternate opener (detached)
 ```
 
-Built-in diff/merge presets: `vscode`, `emacs`, `vimdiff`, `nvimdiff`, `meld`,
-`opendiff`, `kdiff3`, `diffuse`, `bcompare`. Terminal tools (`vimdiff`,
+Built-in diff presets: `vscode`, `emacs`, `vimdiff`, `nvimdiff`, `meld`,
+`opendiff`, `kdiff3`, `diffuse`, `bcompare`. Merge presets: the same minus
+`emacs` and `diffuse` (no 3-way output file). Terminal tools (`vimdiff`,
 `nvimdiff`) suspend the TUI while open; GUI tools launch detached — inferred
 from the binary name, overridable with `diff_terminal` / `merge_terminal`
 (for wrapper scripts or tools the inference doesn't know). Or set
@@ -161,7 +162,7 @@ from the binary name, overridable with `diff_terminal` / `merge_terminal`
 | `D` | remove (`cvs remove -f`) |
 | `e` / `Ctrl-e` | open in `$EDITOR` |
 | `E` | open in configured external diff tool |
-| `M` | open in configured external merge tool (conflict files only) |
+| `M` | open in configured external merge tool — conflict sides on a `C` file, or the selected revision pair in the History tab |
 | `Ctrl-o` | open with the alternate opener (`[editor] alt_open`), detached |
 | `Ctrl-r` | reveal in the file manager |
 | `Ctrl-y` | copy absolute path to clipboard |

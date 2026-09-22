@@ -1388,7 +1388,7 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("i", "ignore — add pattern to .cvsignore") + "\n")
 	b.WriteString(helpRow("e", "edit in $EDITOR") + "\n")
 	b.WriteString(helpRow("E", "external diff tool (config.diff_tool)") + "\n")
-	b.WriteString(helpRow("M", "external merge tool (C-status only)") + "\n")
+	b.WriteString(helpRow("M", "external merge tool (conflict files)") + "\n")
 	b.WriteString(helpRow("o", "open in OS default app") + "\n")
 	b.WriteString(helpRow("C-e", "edit in $EDITOR (picker-style alias of e)") + "\n")
 	b.WriteString(helpRow("C-o", "alternate opener (config [editor] alt_open)") + "\n")
@@ -1425,6 +1425,9 @@ func buildHelpContent() string {
 	b.WriteString(helpRow("w", "compare vs working copy") + "\n")
 	b.WriteString(helpRow("R", "restore selected revision into working copy") + "\n")
 	b.WriteString(helpRow("space", "anchor revision for two-rev comparison") + "\n")
+	b.WriteString(helpRow("E", "open the selected pair in the external diff tool") + "\n")
+	b.WriteString(helpRow("M", "merge the selected pair into the working copy") + "\n")
+	b.WriteString(helpRow("B", "restore the file's .lazycvs-backup (e.g. undo a pair merge)") + "\n")
 	b.WriteString(helpRow("< / >", "horizontal scroll in diff content") + "\n")
 	b.WriteString(helpRow("esc", "cancel comparison mode") + "\n")
 	b.WriteString("\n  " + mutedStyle.Render(

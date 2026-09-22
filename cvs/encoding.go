@@ -2,6 +2,47 @@ package cvs
 
 import "unicode/utf8"
 
+// DisplayText prepares raw bytes from the repository for a terminal:
+// valid UTF-8, and free of the control characters that would steer the
+// terminal instead of appearing in it.
+//
+// The second half is not cosmetic. A file with CRLF line endings — the
+// normal case in any repository shared with Windows — carries a
+// carriage return at the end of every line. Written straight to the
+// screen it moves the cursor back to column 0 mid-row, so the rest of
+// the line overwrites the panel border and whatever sits in the
+// neighbouring pane: opening the diff of one CRLF file tore the whole
+// frame apart.
+func DisplayText(s string) string {
+	return StripControl(EnsureUTF8(s))
+}
+
+// StripControl removes the C0 control characters that a terminal acts
+// on, keeping the two that belong in text: newline and tab. Carriage
+// returns are dropped outright (a lone CR is a cursor command, and a
+// CRLF's CR is a line-ending artifact); escape, backspace and the rest
+// would let repository content repaint the screen.
+func StripControl(s string) string {
+	needs := false
+	for _, r := range s {
+		if r < 0x20 && r != '\n' && r != '\t' || r == 0x7f {
+			needs = true
+			break
+		}
+	}
+	if !needs {
+		return s
+	}
+	out := make([]rune, 0, len(s))
+	for _, r := range s {
+		if r < 0x20 && r != '\n' && r != '\t' || r == 0x7f {
+			continue
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}
+
 // EnsureUTF8 returns s unchanged if it is already valid UTF-8, otherwise
 // treats the bytes as Latin-1 (ISO-8859-1) and transcodes them to UTF-8.
 //

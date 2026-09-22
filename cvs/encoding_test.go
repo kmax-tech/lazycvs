@@ -201,3 +201,41 @@ func TestParseExpectedEncoding(t *testing.T) {
 		}
 	}
 }
+
+// Repository content must not be able to steer the terminal. A CRLF
+// file — the normal case in any repo shared with Windows — carries a
+// carriage return at the end of every line; written to the screen it
+// jumps the cursor to column 0 mid-row, and the rest of the line
+// overwrites the panel border and the pane beside it.
+func TestStripControl(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain text is untouched", "Zeile eins\nZeile zwei\n", "Zeile eins\nZeile zwei\n"},
+		{"CRLF loses the CR", "Zeile eins\r\nZeile zwei\r\n", "Zeile eins\nZeile zwei\n"},
+		{"a lone CR is a cursor command", "links\rrechts", "linksrechts"},
+		{"tabs survive", "a\tb", "a\tb"},
+		{"escape sequences cannot repaint", "before\x1b[2Jafter", "before[2Jafter"},
+		{"backspace and delete go", "a\bb\x7fc", "abc"},
+		{"umlauts are not control characters", "Größe über alles", "Größe über alles"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := StripControl(c.in); got != c.want {
+				t.Errorf("StripControl(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// DisplayText does both jobs in the order that matters: transcode
+// first, then strip — Latin-1 bytes must become runes before anything
+// decides what is a control character.
+func TestDisplayTextTranscodesThenStrips(t *testing.T) {
+	latin1CRLF := "Gr\xf6\xdfe\r\n"
+	if got, want := DisplayText(latin1CRLF), "Größe\n"; got != want {
+		t.Errorf("DisplayText(%q) = %q, want %q", latin1CRLF, got, want)
+	}
+}

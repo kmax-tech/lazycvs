@@ -472,7 +472,7 @@ func loadDiffFor(exec *cvs.CVSExecutor, path string) tea.Cmd {
 		if result == nil {
 			return diffLoadedMsg{path: path}
 		}
-		parsed := cvs.ParseDiff(cvs.EnsureUTF8(result.Stdout))
+		parsed := cvs.ParseDiff(cvs.DisplayText(result.Stdout))
 		return diffLoadedMsg{path: path, diff: parsed}
 	}
 }

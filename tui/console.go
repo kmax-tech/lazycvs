@@ -9,6 +9,7 @@ import (
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type ConsoleFilter int
@@ -189,5 +190,34 @@ func (m ConsoleModel) View() string {
 	if m.lastLen == 0 {
 		return style.Foreground(colorMuted).Render("  No commands yet")
 	}
+	if m.height <= consoleCollapsed {
+		return m.collapsedView()
+	}
 	return m.viewport.View()
+}
+
+// collapsedView is the single line the console shows while it is out of
+// the way: the command that just ran and how it went. The viewport
+// cannot serve this — scrolled to the bottom, its last line is the
+// status ("ok (took 11ms)") with the command itself one line above and
+// out of sight.
+func (m ConsoleModel) collapsedView() string {
+	entries := m.cmdLog.All()
+	if len(entries) == 0 {
+		return mutedStyle.Render("  No commands yet")
+	}
+	e := entries[len(entries)-1]
+
+	cmd := e.Command
+	if len(e.Args) > 0 {
+		cmd += " " + strings.Join(e.Args, " ")
+	}
+	line := "  " + consoleTime.Render(e.Timestamp.Format("15:04:05")) + "  "
+	if e.Success {
+		line += cmd + "  " + consoleStatus.Render(e.Duration.String())
+	} else {
+		line += consoleErr.Render(cmd+"  FAILED") + "  " +
+			consoleStatus.Render(e.Duration.String())
+	}
+	return ansi.Truncate(line, max(1, m.width), "…")
 }

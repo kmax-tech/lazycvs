@@ -45,16 +45,73 @@ func (m *App) updateSizes() {
 	}
 }
 
+// consoleCollapsed is the height of the console when it has nothing to
+// say: one line, carrying the last command.
+const consoleCollapsed = 1
+
+// uiSizes is the TUI's view of the [ui] config section, resolved once
+// at startup so the render path never reads the config manager.
+type uiSizes struct {
+	treeWidth     int // 0 = the automatic third-of-terminal rule
+	consoleHeight int // expanded height
+}
+
+// consoleState is everything the console's height depends on. Keeping
+// it a value (and the height a pure function of it) is what makes the
+// collapse/expand rules testable without a terminal — an
+// auto-collapsing panel is exactly the kind of thing that starts
+// flickering when its rules are scattered across handlers.
+type consoleState struct {
+	focused      bool
+	unreadErrors int // a failure the user has not looked at yet
+	override     int // set by +/-; 0 = use the configured height
+}
+
+// consoleHeight resolves the two states. The "user has seen the error"
+// transition is not tracked here: focusing the console clears the
+// unread counter (App.Update), so the panel collapses on its own once
+// the user has looked.
+func consoleHeight(ui uiSizes, st consoleState) int {
+	expanded := ui.consoleHeight
+	if st.override > 0 {
+		expanded = st.override
+	}
+	if expanded < consoleCollapsed {
+		expanded = consoleCollapsed
+	}
+	if st.focused || st.unreadErrors > 0 {
+		return expanded
+	}
+	return consoleCollapsed
+}
+
+// treeWidth resolves the left panel's width: the configured number of
+// columns, or the automatic third-of-the-terminal rule when unset.
+// Either way it leaves at least half the terminal to the file pane.
+func treeWidth(ui uiSizes, total int) int {
+	w := ui.treeWidth
+	if w == 0 {
+		w = total / 3
+		if w < 25 {
+			w = 25
+		}
+		if w > 40 {
+			w = 40
+		}
+	}
+	if max := total / 2; max > 0 && w > max {
+		w = max
+	}
+	if w < 15 {
+		w = 15
+	}
+	return w
+}
+
 func (m App) layout() (leftWidth, rightWidth, contentHeight, consoleHeight int) {
-	leftWidth = m.width / 3
-	if leftWidth < 25 {
-		leftWidth = 25
-	}
-	if leftWidth > 40 {
-		leftWidth = 40
-	}
+	leftWidth = treeWidth(m.ui, m.width)
 	rightWidth = m.width - leftWidth
-	consoleHeight = m.consoleHeight
+	consoleHeight = m.consoleH()
 	// tabbar(1) + keybar(2: nav row + context row) + main borders(2) +
 	// main padding(1) + console borders(2) + console padding(1)
 	overhead := 9

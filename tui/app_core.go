@@ -186,6 +186,30 @@ func notifyAfter(d time.Duration) tea.Cmd {
 // treats a non-zero notificationExpiry as the result-set signal, so
 // existing handlers don't need to clear notificationInProgress —
 // they just overwrite the banner text and set an expiry as before.
+// uiSizesFrom resolves the [ui] config section, applying the defaults
+// for values left unset.
+func uiSizesFrom(cfg config.Config) uiSizes {
+	ui := uiSizes{
+		treeWidth:     cfg.UI.TreeWidth,
+		consoleHeight: cfg.UI.ConsoleHeight,
+	}
+	if ui.consoleHeight <= 0 {
+		ui.consoleHeight = 6
+	}
+	return ui
+}
+
+// consoleH is the console panel's current height: collapsed to a
+// single line unless it is focused or holds an error the user has not
+// seen.
+func (m App) consoleH() int {
+	return consoleHeight(m.ui, consoleState{
+		focused:      m.focus == PanelConsole,
+		unreadErrors: m.cmdLog.UnreadErrors(),
+		override:     m.consoleOverride,
+	})
+}
+
 // unsavedWork describes what a quit would throw away, or "" when
 // quitting costs nothing.
 func (m *App) unsavedWork() string {
@@ -322,8 +346,11 @@ type App struct {
 	width  int
 	height int
 
-	consoleHeight int
-	initialPath   string // path to navigate to on startup
+	// ui carries the [ui] sizes, read once at startup. consoleOverride
+	// is the height the user dialled in with +/- (0 = use the config).
+	ui              uiSizes
+	consoleOverride int
+	initialPath     string // path to navigate to on startup
 
 	// statusMap is the single source of truth for per-file CVS status codes
 	// (M/A/R/U/C/?). Owned by App and only mutated inside Update(), which
@@ -441,7 +468,7 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		exec:          exec,
 		cmdLog:        cmdLog,
 		cfgMgr:        cfgMgr,
-		consoleHeight: 6,
+		ui:            uiSizesFrom(cfg),
 		initialPath:   initialPath,
 		statusMap:     make(map[string]string),
 		staleDirs:     make(map[string]bool),
@@ -479,7 +506,7 @@ func NewSetupApp(cfgMgr *config.ConfigManager, cvsBin, root, sshKey, parentDir s
 		search:          NewSearchModel(),
 		dialog:          NewDialogModel(),
 		cfgMgr:          cfgMgr,
-		consoleHeight:   6,
+		ui:              uiSizesFrom(cfg),
 		statusMap:       make(map[string]string),
 		staleDirs:       make(map[string]bool),
 		baseRevMap:      make(map[string]string),
@@ -679,6 +706,30 @@ func (m *App) revealPath(target string) tea.Cmd {
 	return nil
 }
 
+// handleKey runs the key priority chain: staged commit input →
+// overlays (dialog/search) → global keys → focused-panel delegate.
+func (m *App) handleKey(msg tea.KeyMsg) tea.Cmd {
+	if cmd, handled := m.handleStagedInput(msg); handled {
+		return cmd
+	}
+	if cmd, handled := m.handleKeyPriority(msg); handled {
+		return cmd
+	}
+	if cmd, handled := m.handleGlobalKey(msg); handled {
+		return cmd
+	}
+	return m.delegateKey(msg)
+}
+
+// resizeOnFocusChange re-lays-out when focus moved, because the console
+// expands on focus and collapses when it loses it: the panels around it
+// change height with it, and their models have to hear about it.
+func (m *App) resizeOnFocusChange(prevFocus Panel) {
+	if m.focus != prevFocus {
+		m.updateSizes()
+	}
+}
+
 func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// While the user has the console panel focused, treat any logged errors
 	// as "seen" — clear the unread counter so the ⚠ indicator in the tab
@@ -703,7 +754,10 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		if !m.search.active {
-			return m, m.handleMouse(msg)
+			prevFocus := m.focus
+			cmd := m.handleMouse(msg)
+			m.resizeOnFocusChange(prevFocus)
+			return m, cmd
 		}
 		return m, nil
 
@@ -715,18 +769,10 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.quitPending = false
 		}
 
-		// Priority chain: staged commit input → overlays (dialog/search) →
-		// global keys → focused-panel delegate.
-		if cmd, handled := m.handleStagedInput(msg); handled {
-			return m, cmd
-		}
-		if cmd, handled := m.handleKeyPriority(msg); handled {
-			return m, cmd
-		}
-		if cmd, handled := m.handleGlobalKey(msg); handled {
-			return m, cmd
-		}
-		return m, m.delegateKey(msg)
+		prevFocus := m.focus
+		cmd := m.handleKey(msg)
+		m.resizeOnFocusChange(prevFocus)
+		return m, cmd
 
 	case treeLoadedMsg:
 		var cmd tea.Cmd

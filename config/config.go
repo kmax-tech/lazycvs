@@ -79,6 +79,9 @@ func DefaultConfig() *Config {
 			SyncCvsignore:  true,
 			GlobalPatterns: []string{".DS_Store"},
 		},
+		UI: UIConfig{
+			ConsoleHeight: 6,
+		},
 	}
 }
 

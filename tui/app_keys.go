@@ -762,15 +762,18 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			return cmd
 		}
 	case PanelConsole:
-		// Console resize
+		// Console resize. +/- set the *expanded* height for the rest
+		// of the session (the panel still collapses when it loses
+		// focus with nothing to report); starting from the height
+		// currently in effect keeps the first press a small step
+		// rather than a jump back to the configured size.
 		switch msg.String() {
 		case "+", "=":
-			maxH := m.height / 2
-			m.consoleHeight = min(m.consoleHeight+3, maxH)
+			m.consoleOverride = min(m.consoleH()+3, max(consoleCollapsed, m.height/2))
 			m.updateSizes()
 			return nil
 		case "-", "_":
-			m.consoleHeight = max(m.consoleHeight-3, 3)
+			m.consoleOverride = max(m.consoleH()-3, 3)
 			m.updateSizes()
 			return nil
 		}

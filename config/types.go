@@ -3,6 +3,7 @@ package config
 // Config is the top-level configuration for lazycvs.
 type Config struct {
 	CVS       CVSConfig       `toml:"cvs" json:"cvs"`
+	UI        UIConfig        `toml:"ui" json:"ui"`
 	Favorites FavoritesConfig `toml:"favorites" json:"favorites"`
 	Ignore    IgnoreConfig    `toml:"ignore" json:"ignore"`
 	Editor    EditorConfig    `toml:"editor" json:"editor"`
@@ -35,6 +36,20 @@ type CVSConfig struct {
 	// the encoding warning flag in the file list; reading, writing, and
 	// committing are never affected.
 	ExpectedEncoding string `toml:"expected_encoding,omitempty" json:"expected_encoding,omitempty"`
+}
+
+// UIConfig holds layout sizes the TUI used to hard-code.
+type UIConfig struct {
+	// TreeWidth is the left panel's width in columns. 0 keeps the
+	// automatic third-of-the-terminal rule (clamped 25–40), which is
+	// what every version before this one did unconditionally — on a
+	// 200-column terminal that left the tree at 40 while the file list
+	// took 160.
+	TreeWidth int `toml:"tree_width,omitempty" json:"tree_width,omitempty"`
+	// ConsoleHeight is how tall the console panel is *when expanded*.
+	// It collapses to a single line when it is neither focused nor
+	// showing an unread error. 0 means 6.
+	ConsoleHeight int `toml:"console_height,omitempty" json:"console_height,omitempty"`
 }
 
 // FavoritesConfig holds the list of favorite directories.

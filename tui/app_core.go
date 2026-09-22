@@ -226,6 +226,31 @@ func (m *App) unsavedWork() string {
 	return ""
 }
 
+// actionFailure phrases a failed action for the banner. It carries the
+// reason rather than pointing at the console: "see Console" is only an
+// answer when the console has something to say, and a refusal that
+// never reached cvs (a path escaping the working copy, say) leaves it
+// empty. Long cvs errors are cut — the console has the full text.
+func actionFailure(what, label string, err error) string {
+	msg := fmt.Sprintf("✗ %s failed for %s", what, label)
+	if err == nil {
+		return msg + " — see Console"
+	}
+	reason := strings.TrimSpace(strings.SplitN(err.Error(), "\n", 2)[0])
+	if reason == "" {
+		return msg + " — see Console"
+	}
+	if len(reason) > 80 {
+		reason = reason[:77] + "…"
+	}
+	if strings.Contains(reason, label) {
+		// The reason already names the file; saying it twice reads
+		// like a stutter.
+		return fmt.Sprintf("✗ %s failed: %s", what, reason)
+	}
+	return msg + ": " + reason
+}
+
 // bannerPointsToConsole reports whether the banner is a failure the
 // console can say more about: a red banner *and* an unread error in
 // the command log.
@@ -1053,7 +1078,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(msg.paths) == 1 {
 				label = filepath.Base(msg.paths[0])
 			}
-			notifyCmd := m.setResult(fmt.Sprintf("✗ Action failed for %s — see Console", label), false)
+			notifyCmd := m.setResult(actionFailure("Action", label, msg.err), false)
 			invalidateCmd := m.invalidateHistoryCache(msg.paths)
 			return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths), invalidateCmd)
 		}
@@ -1267,7 +1292,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(msg.paths) == 1 {
 				label = filepath.Base(msg.paths[0])
 			}
-			notifyCmd := m.setResult(fmt.Sprintf("✗ Remove failed for %s — see Console", label), false)
+			notifyCmd := m.setResult(actionFailure("Remove", label, msg.err), false)
 			return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths))
 		}
 		for _, p := range msg.paths {

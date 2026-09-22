@@ -47,6 +47,11 @@ func writeBackupFile(workDir, path string) bool {
 func validatePaths(exec *cvs.CVSExecutor, paths ...string) error {
 	for _, p := range paths {
 		if err := exec.ValidatePath(p); err != nil {
+			// A refusal happens before any cvs command runs, so
+			// without this the console — which the failure banner
+			// tells the user to consult — had nothing to show. The
+			// action was correctly refused and the reason was lost.
+			exec.Log.LogFileOp("refused "+p, err)
 			return err
 		}
 	}

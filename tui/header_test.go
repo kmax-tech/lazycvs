@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -218,5 +219,40 @@ func TestHistoryRightPaneShowsEmptyResults(t *testing.T) {
 	}
 	if !strings.Contains(got, "(empty)") {
 		t.Errorf("the pane should say the result was empty: %q", got)
+	}
+}
+
+// "see Console" is only an answer when the console has something to
+// say. A refusal that never reached cvs — a path escaping the working
+// copy — left it empty, and the banner sent the user there anyway.
+func TestActionFailureCarriesTheReason(t *testing.T) {
+	cases := []struct {
+		name  string
+		what  string
+		label string
+		err   error
+		want  string
+	}{
+		{"no error falls back to the console", "Remove", "a.txt", nil,
+			"✗ Remove failed for a.txt — see Console"},
+		{"the reason replaces the pointer", "Action", "a.txt", errors.New("disk full"),
+			"✗ Action failed for a.txt: disk full"},
+		{"a reason naming the file does not stutter", "Remove", "escape-link.txt",
+			errors.New("path escapes working copy: escape-link.txt"),
+			"✗ Remove failed: path escapes working copy: escape-link.txt"},
+		{"only the first line", "Action", "a.txt", errors.New("first line\nsecond line"),
+			"✗ Action failed for a.txt: first line"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := actionFailure(c.what, c.label, c.err); got != c.want {
+				t.Errorf("got  %q\nwant %q", got, c.want)
+			}
+		})
+	}
+
+	long := errors.New(strings.Repeat("x", 200))
+	if got := actionFailure("Action", "a.txt", long); len(got) > 110 {
+		t.Errorf("a long cvs error should be cut, got %d chars", len(got))
 	}
 }

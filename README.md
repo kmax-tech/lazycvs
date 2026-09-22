@@ -39,13 +39,20 @@ make release        # or: cross-compile for linux/mac/windows under dist/
 ## Quick start
 
 ```bash
-lazycvs             # opens the TUI in the current working copy
-lazycvs ~/work/repo # or at an explicit path
-lazycvs init        # bootstrap: check out a fresh module into an empty dir
+lazycvs                 # opens the TUI in the current working copy
+lazycvs ~/work/repo     # or at an explicit path
+lazycvs src/parser.go   # a file: opens its working copy, landing on the file
+lazycvs init            # bootstrap: check out a fresh module into an empty dir
 ```
 
 `lazycvs` looks at your current directory first; if it isn't a CVS working
 copy and you set `[cvs] default_path` in your config, it falls back there.
+
+A path argument may point anywhere inside a checkout — lazycvs walks up to
+the `CVS/Root` marker and opens there, then selects what you named: a
+directory in the tree pane, a file in the file pane (ready for `d`, `c`,
+`e`). That is the same navigation the fuzzy finder performs, which makes
+`lazycvs <file>` the natural way to call it from an editor.
 
 ## Optional: shell function for the from-source workflow
 
@@ -82,6 +89,7 @@ Behavior:
 | `lcvs build`                     | `go build` in the repo, binary lands at `$LAZYCVS_REPO/lazycvs` |
 | `lcvs`                           | TUI opens in the current working directory |
 | `lcvs ~/work/repo`               | TUI opens at the explicit path             |
+| `lcvs src/parser.go`             | TUI opens at its working copy, on that file |
 | `lcvs -cvs /opt/cvs/bin/cvs`     | flags pass through to the binary           |
 | `lcvs -config /tmp/cfg.toml`     | dito                                       |
 

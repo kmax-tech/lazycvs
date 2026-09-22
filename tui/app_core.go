@@ -591,6 +591,52 @@ func (m *App) refreshStatusUser() tea.Cmd {
 	}
 }
 
+// revealPath moves the selection onto target, a path relative to the
+// working copy, and returns any command the move needs. Shared by the
+// fuzzy finder's pick and by the path given on the command line, so
+// both land in the same place.
+//
+// Behavior depends on which left-panel variant is active:
+//
+//	TreeViewFiles (default — left=dirs, right=files):
+//	  Expand the tree down to the file's parent directory and populate
+//	  the right-pane file list. For a file the filelist cursor lands on
+//	  the file and focus shifts to the right panel so e/E/c/D/d/... work
+//	  immediately. For a dir the tree cursor lands on the dir itself;
+//	  the right pane shows that dir's contents.
+//
+//	TreeViewDetails (variant B — left=full tree+files, right=preview):
+//	  Tree shows everything, so the cursor goes directly on the target
+//	  (file or directory). Focus stays on the left panel; the diff
+//	  preview refreshes for the new selection on the next event tick.
+func (m *App) revealPath(target string) tea.Cmd {
+	m.activeTab = TabTree
+	isDir := false
+	if info, err := os.Stat(filepath.Join(m.exec.WorkDir, target)); err == nil {
+		isDir = info.IsDir()
+	}
+	if m.treeMode == TreeViewDetails {
+		m.tree.ExpandToPath(target)
+		m.focus = PanelLeft
+		return m.autoLoadPreview()
+	}
+	dir := target
+	if !isDir {
+		dir = filepath.Dir(target)
+		if dir == "" {
+			dir = "."
+		}
+	}
+	m.tree.ExpandToPath(dir)
+	m.updateFileListForDir(dir)
+	if !isDir && m.filelist.FocusOnFile(target) {
+		m.focus = PanelRight
+	} else {
+		m.focus = PanelLeft
+	}
+	return nil
+}
+
 func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// While the user has the console panel focused, treat any logged errors
 	// as "seen" — clear the unread counter so the ⚠ indicator in the tab
@@ -637,12 +683,15 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		m.tree, cmd = m.tree.Update(msg)
 		if m.initialPath != "" {
-			m.tree.ExpandToPath(m.initialPath)
-			m.updateFileList()
+			// A path was passed on the command line (`lazycvs
+			// path/to/file`). Same navigation the fuzzy finder
+			// does, so a file argument lands on the file and not
+			// merely in its directory.
+			revealCmd := m.revealPath(m.initialPath)
 			m.initialPath = ""
-		} else {
-			m.updateFileListForDir(".")
+			return m, tea.Batch(cmd, revealCmd)
 		}
+		m.updateFileListForDir(".")
 		return m, cmd
 
 	case treeDirLoadedMsg:
@@ -1138,32 +1187,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		//     the picked path (file or directory). Focus stays on the
 		//     left panel; the diff preview refreshes for the new
 		//     selection on the next event tick.
-		m.activeTab = TabTree
-		target := msg.path
-		isDir := false
-		if info, err := os.Stat(filepath.Join(m.exec.WorkDir, target)); err == nil {
-			isDir = info.IsDir()
-		}
-		if m.treeMode == TreeViewDetails {
-			m.tree.ExpandToPath(target)
-			m.focus = PanelLeft
-			return m, m.autoLoadPreview()
-		}
-		dir := target
-		if !isDir {
-			dir = filepath.Dir(target)
-			if dir == "" {
-				dir = "."
-			}
-		}
-		m.tree.ExpandToPath(dir)
-		m.updateFileListForDir(dir)
-		if !isDir && m.filelist.FocusOnFile(target) {
-			m.focus = PanelRight
-		} else {
-			m.focus = PanelLeft
-		}
-		return m, nil
+		return m, m.revealPath(msg.path)
 
 	case ignoreMsg:
 		return m, m.handleIgnore(msg)

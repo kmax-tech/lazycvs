@@ -16,6 +16,7 @@ stdlib only.
 """
 from __future__ import annotations
 
+import os
 import shutil
 import subprocess
 import sys
@@ -105,6 +106,12 @@ Statuses you'll see in the file list:
   docs/no-newline.txt    — no trailing newline (M)
   docs/empty.txt         — committed and empty
   src/util.go            — tracked, deleted from the working copy (U)
+  -dashfile.txt          — name cvs wants to read as flags (?)
+  escape-link.txt        — symlink out of the working copy: actions refused
+  docs/alte Entwürfe/    — directory with a space in its name (M inside)
+  tief/a/b/c/d/          — five levels of untracked nesting
+  src/big.txt            — 5000 lines, changed in the middle (M)
+  src/longline.txt       — one 8000-character line (M), needs < / > to read
   docs/notes.txt         — IN CONFLICT (C) after parallel edit
   docs/notes-de.txt      — modified (M), Latin-1 encoded with umlauts
   docs/old-spec.md       — scheduled for removal (R)
@@ -491,6 +498,50 @@ Status:
     # Tracked, then deleted by hand: cvs reports it as needing checkout.
     print("==> deleting a tracked file from the working copy (U status)")
     (wc / "src/util.go").unlink()
+
+    # === Names and shapes that argument handling gets wrong ===
+    # Round two of the same exercise, and three more bugs:
+    #   * a name starting with "-" → cvs read it as options
+    #                                ("add: illegal option -- d") and every
+    #                                action on the file did nothing
+    #   * a symlink out of the copy → correctly refused, but the refusal was
+    #                                never logged, so the failure banner
+    #                                pointed at an empty console
+    #   * a directory with a space  → parsed fine; kept as a guard
+    #   * deep nesting              → the tree's lazy loading walks it
+    print("==> adding a dash-named file, an escaping symlink, spaces and depth")
+    write(wc / "-dashfile.txt", "A file whose name cvs wants to read as flags.\n")
+
+    # The symlink points at a file beside the working copy — outside it, but
+    # always present, so the escape check has something real to refuse.
+    outside = wc.parent / "outside-the-copy.txt"
+    write(outside, "Lives next to the working copy. Nothing in here may touch it.\n")
+    link = wc / "escape-link.txt"
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(os.path.relpath(outside, wc))
+
+    write(wc / "docs/alte Entwürfe/Konzept v1.txt", "Erste Skizze.\n")
+    cvs("-Q", "add", "docs/alte Entwürfe", cwd=wc)
+    cvs("-Q", "add", "docs/alte Entwürfe/Konzept v1.txt", cwd=wc)
+    cvs("-Q", "commit", "-m", "add a directory whose name has a space",
+        "docs/alte Entwürfe/Konzept v1.txt", cwd=wc)
+    write(wc / "docs/alte Entwürfe/Konzept v1.txt", "Erste Skizze.\nZweiter Absatz.\n")
+
+    write(wc / "tief/a/b/c/d/ganz-unten.txt", "Five levels down, untracked.\n")
+
+    # A file big enough to page through, changed in the middle so the diff
+    # lands nowhere near the top; and one line long enough to need </>.
+    print("==> adding a large file and an 8000-character line")
+    big = "\n".join(f"Zeile {i} mit etwas Text darin" for i in range(1, 5001)) + "\n"
+    write(wc / "src/big.txt", big)
+    write(wc / "src/longline.txt", "A" * 8000 + "\nkurze Zeile\n")
+    cvs("-Q", "add", "src/big.txt", "src/longline.txt", cwd=wc)
+    cvs("-Q", "commit", "-m", "add a large file and a very long line",
+        "src/big.txt", "src/longline.txt", cwd=wc)
+    write(wc / "src/big.txt", big.replace("Zeile 2500 mit etwas Text darin",
+                                          "Zeile 2500 GEAENDERT"))
+    write(wc / "src/longline.txt", "B" * 8000 + "\nkurze Zeile\n")
 
     # === Stale directory → cvs update reports "skipping directory" ===
     # Add a directory + file to the repo, then nuke its repo-side RCS files

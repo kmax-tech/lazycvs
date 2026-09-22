@@ -34,6 +34,11 @@ type keyContext struct {
 	status string // status of the cursor row: "", "M", "C", "?", "A", "R"
 	isFile bool   // a file sits under the cursor (not a directory, not nothing)
 
+	// listMode is the file pane's view. Folding subdirectories only
+	// means something in the tree view, and a key that means nothing
+	// here must not be offered here.
+	listMode FileViewMode
+
 	// The marked set, counted the way the bulk handlers slice it: a
 	// bulk revert takes M/C, a bulk ignore takes ?. Counting here is
 	// what lets the keybar promise a bulk action only when one would
@@ -57,8 +62,9 @@ type keyContext struct {
 // downstream works on the value.
 func (m App) keyContext() keyContext {
 	ctx := keyContext{
-		tab:   m.activeTab,
-		focus: m.focus,
+		tab:      m.activeTab,
+		focus:    m.focus,
+		listMode: m.filelist.viewMode,
 	}
 
 	// Status comes from the row the user is looking at, which already
@@ -252,6 +258,12 @@ func historyComparePair(ctx keyContext) bool {
 // something.
 func hasMarks(ctx keyContext) bool { return ctx.marked > 0 && ctx.focus != PanelConsole }
 
+// canFoldSubdirs: ~ folds the file pane's subdirectories, which the
+// flat view does not have.
+func canFoldSubdirs(ctx keyContext) bool {
+	return ctx.focus == PanelRight && ctx.listMode == FileViewTree
+}
+
 func inConsole(ctx keyContext) bool { return ctx.focus == PanelConsole }
 
 func outsideConsole(ctx keyContext) bool { return ctx.focus != PanelConsole }
@@ -398,15 +410,17 @@ var keyRegistry = []keyEntry{
 	// ── View & filters ────────────────────────────────────────────────
 	{binding: keys.ListMode, group: groupView, scope: scopeGlobal, tabs: fileTabs,
 		bar: 20, barSegment: "view",
-		section: "View & filters", helpDesc: "list mode: flat → sub → tree"},
+		section: "View & filters", helpDesc: "file pane: flat list ↔ directory tree"},
+	{binding: keys.CollapseAll, group: groupView, scope: scopeGlobal, tabs: fileTabs,
+		bar: 25, barSegment: "view", barDesc: "fold all", applies: canFoldSubdirs,
+		section:  "View & filters",
+		helpDesc: "file pane, tree view: fold / unfold every subdirectory"},
 	{binding: keys.Filter, group: groupView, scope: scopeGlobal, tabs: fileTabs,
 		bar: 30, barSegment: "view", applies: outsideConsole,
 		section: "View & filters", helpDesc: "status filter: all → * → M → C → ? → all"},
 	{binding: keys.HideIgnored, group: groupView, scope: scopeGlobal, tabs: []Tab{TabTree},
 		bar: 40, barSegment: "view",
 		section: "View & filters", helpDesc: "toggle hide-ignored on both panes"},
-	{binding: keys.TreeList, group: groupView, scope: scopeGlobal, tabs: fileTabs,
-		section: "View & filters", helpDesc: "jump list to tree mode"},
 
 	// ── CVS ───────────────────────────────────────────────────────────
 	{binding: keys.Status, group: groupCVS, scope: scopeGlobal, tabs: fileTabs,

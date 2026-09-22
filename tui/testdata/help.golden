@@ -68,10 +68,10 @@ File actions
 
 View & filters
 ──────────────
-  f           list mode: flat → sub → tree
+  f           file pane: flat list ↔ directory tree
+  ~           file pane, tree view: fold / unfold every subdirectory
   F           status filter: all → * → M → C → ? → all
   I           toggle hide-ignored on both panes
-  t           jump list to tree mode
 
 CVS
 ───

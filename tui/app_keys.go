@@ -276,16 +276,21 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		}
 		return nil, true
 	case key.Matches(msg, keys.ListMode) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
-		// Cycle the filelist's flat → sub → tree view mode regardless of
-		// which panel is focused. Previously this only worked when the
-		// right pane was focused; users with the cursor on the tree pane
-		// pressed `f`, saw nothing happen, and had to switch focus first.
-		m.filelist.CycleViewMode()
+		// Switch the file pane between its two views, from either
+		// panel. It used to cycle through three, so landing on the one
+		// you wanted took up to two presses — and `t` existed purely
+		// to shortcut that cycle.
+		m.filelist.ToggleViewMode()
 		return nil, true
-	case key.Matches(msg, keys.TreeList) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
-		// `t` jumps straight to tree mode — same focus-agnostic rule as
-		// its sibling `f` above.
-		m.filelist.SetViewTree()
+	case key.Matches(msg, keys.CollapseAll) && m.focus == PanelRight &&
+		(m.activeTab == TabTree || m.activeTab == TabFavorites) &&
+		m.filelist.viewMode == FileViewTree:
+		// In the file pane, ~ folds or unfolds every subdirectory at
+		// once — the same "all of it" gesture the tree pane gives this
+		// key, applied to the column the cursor is in. This is the old
+		// sub mode: tree-with-everything-open, which used to pretend
+		// to be a third view.
+		m.filelist.ToggleExpandAll()
 		return nil, true
 	case key.Matches(msg, keys.Escape):
 		if m.activeTab == TabTree && m.treeMode == TreeViewDetails {

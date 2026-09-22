@@ -202,3 +202,104 @@ func TestConsoleRendersAtTheHeightItIsDrawnAt(t *testing.T) {
 		t.Errorf("expanded console does not say why it failed: %q", expanded)
 	}
 }
+
+// The file pane answers two questions — "what changed here" and "let me
+// walk the directories" — so it has two views. The old third one, sub,
+// was the tree with every subdirectory unfolded: the same code path,
+// differing in one boolean. It is a fold state now, not a mode.
+func TestFileListViewsAndFolding(t *testing.T) {
+	newList := func() FileListModel {
+		fl := NewFileListModel()
+		fl.width = 60
+		fl.height = 20
+		fl.SetFiles(".", []cvs.FileEntry{{Path: "top.txt", Status: "M"}},
+			[]SubDirGroup{{
+				Name:  "docs",
+				Path:  "docs",
+				Files: []cvs.FileEntry{{Path: "docs/a.txt", Status: "M"}, {Path: "docs/b.txt"}},
+			}})
+		return fl
+	}
+
+	t.Run("f toggles between exactly two views", func(t *testing.T) {
+		fl := newList()
+		if fl.viewMode != FileViewFlat {
+			t.Fatalf("default view = %v, want flat", fl.viewMode)
+		}
+		fl.ToggleViewMode()
+		if fl.viewMode != FileViewTree {
+			t.Fatalf("after one press = %v, want tree", fl.viewMode)
+		}
+		fl.ToggleViewMode()
+		if fl.viewMode != FileViewFlat {
+			t.Errorf("after two presses = %v, want flat again", fl.viewMode)
+		}
+	})
+
+	t.Run("tree starts folded and ~ unfolds everything", func(t *testing.T) {
+		fl := newList()
+		fl.ToggleViewMode()
+
+		if got := fl.FileCount(); got != 1 {
+			t.Errorf("folded tree shows %d files, want 1 (the top-level one)", got)
+		}
+		fl.ToggleExpandAll()
+		if got := fl.FileCount(); got != 3 {
+			t.Errorf("unfolded tree shows %d files, want 3", got)
+		}
+		fl.ToggleExpandAll()
+		if got := fl.FileCount(); got != 1 {
+			t.Errorf("folding again shows %d files, want 1", got)
+		}
+	})
+
+	t.Run("the fold state survives a directory change", func(t *testing.T) {
+		fl := newList()
+		fl.ToggleViewMode()
+		fl.ToggleExpandAll()
+
+		// Walking into another directory must not refold what the user
+		// just unfolded — the one thing the old sub mode did well.
+		fl.SetFiles("src", nil, []SubDirGroup{{
+			Name:  "deep",
+			Path:  "src/deep",
+			Files: []cvs.FileEntry{{Path: "src/deep/x.go", Status: "M"}},
+		}})
+		if got := fl.FileCount(); got != 1 {
+			t.Errorf("new directory shows %d files, want its subdir unfolded", got)
+		}
+	})
+
+	t.Run("the header names the fold state", func(t *testing.T) {
+		fl := newList()
+		if got := fl.ViewModeName(); got != "flat" {
+			t.Errorf("chip = %q, want flat", got)
+		}
+		fl.ToggleViewMode()
+		if got := fl.ViewModeName(); got != "tree" {
+			t.Errorf("chip = %q, want tree", got)
+		}
+		fl.ToggleExpandAll()
+		if got := fl.ViewModeName(); got != "tree · all open" {
+			t.Errorf("chip = %q, want the open state named", got)
+		}
+	})
+}
+
+// A key that means nothing here is not offered here: folding
+// subdirectories needs subdirectories on screen.
+func TestFoldKeyOnlyOfferedInTheTreeView(t *testing.T) {
+	flat := keyContext{tab: TabTree, focus: PanelRight, listMode: FileViewFlat}
+	tree := keyContext{tab: TabTree, focus: PanelRight, listMode: FileViewTree}
+	onTreePane := keyContext{tab: TabTree, focus: PanelLeft, listMode: FileViewTree}
+
+	if liveKeys(flat)["~"] {
+		t.Error("~ offered in the flat view, where there is nothing to fold")
+	}
+	if !liveKeys(tree)["~"] {
+		t.Error("~ not offered in the tree view")
+	}
+	if liveKeys(onTreePane)["~"] {
+		t.Error("~ offered while the tree pane has focus — that is its own collapse-all")
+	}
+}

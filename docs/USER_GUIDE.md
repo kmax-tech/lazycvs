@@ -165,16 +165,19 @@ again (or `Esc`) brings the file list back, cursor still on that file.
 The tab title says `Diff` while that layout is open.
 
 Right panel shows the **file list** for whichever directory is selected
-in the tree. It has three view modes (cycle with `f`):
+in the tree. It has two views, toggled with `f`, because there are two
+questions:
 
-- `flat` — files in the selected directory, plus every *changed* file
-  from deeper subdirectories as a dir-relative path (clean deep files
-  stay hidden)
-- `sub`  — files grouped under each immediate subdirectory
-- `tree` — expandable subdirs (press `Enter` on a subdir header to expand)
+- `flat` — *what changed here?* The selected directory's files, plus
+  every **changed** file from deeper subdirectories as a dir-relative
+  path. Clean files further down stay hidden.
+- `tree` — *let me walk the directories.* Subdirectories as foldable
+  rows; `Enter` opens one, `~` folds or unfolds all of them at once.
+  The fold state sticks, so the next directory opens the way this one
+  does — the header says `tree · all open` when it is unfolded.
 
 Changed files any number of levels down always get a row (attached to
-their top-level subdirectory in `sub`/`tree` mode), so every count in a
+their top-level subdirectory in the tree view), so every count in a
 directory badge has a selectable file behind it.
 
 `F` filters by status code — each press cycles through:

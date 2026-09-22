@@ -13,9 +13,13 @@ import (
 type FileViewMode int
 
 const (
+	// Two views, because there are two questions: "what changed here"
+	// (flat) and "let me walk the directories" (tree). The old third
+	// mode, sub, was tree with every subdirectory unfolded — a state of
+	// the tree wearing the costume of a mode. It lives on as
+	// expandAll.
 	FileViewFlat FileViewMode = iota // this dir's files + changed files below (dir-relative paths)
-	FileViewSub                      // files grouped by subdirectories
-	FileViewTree                     // expandable subtree
+	FileViewTree                     // subdirectories, foldable
 )
 
 // SubDirGroup holds a subdirectory and its files for sub/tree views.
@@ -47,6 +51,10 @@ type FileListModel struct {
 	marked      map[string]bool
 	viewMode    FileViewMode
 	hideIgnored bool
+	// expandAll is the fold state new directories inherit. Without it,
+	// every directory change would refold what the user just unfolded —
+	// which is the one thing the old sub mode did well.
+	expandAll bool
 }
 
 func NewFileListModel() FileListModel {
@@ -60,6 +68,9 @@ func (m *FileListModel) SetFiles(dir string, files []cvs.FileEntry, subDirs []Su
 	m.dir = dir
 	m.files = files
 	m.subDirs = subDirs
+	for i := range m.subDirs {
+		m.subDirs[i].Expanded = m.expandAll
+	}
 	m.cursor = 0
 	m.offset = 0
 }
@@ -139,7 +150,7 @@ func (m FileListModel) rows() []fileRow {
 			}
 		}
 
-	case FileViewSub, FileViewTree:
+	case FileViewTree:
 		// Top-level files first
 		for i := range m.files {
 			if !m.showFile(&m.files[i]) {
@@ -157,8 +168,7 @@ func (m FileListModel) rows() []fileRow {
 				continue
 			}
 			rows = append(rows, fileRow{subDir: sd, isDirHeader: true})
-			expanded := m.viewMode == FileViewSub || sd.Expanded
-			if expanded {
+			if sd.Expanded {
 				for j := range sd.Files {
 					if !m.showFile(&sd.Files[j]) {
 						continue
@@ -230,18 +240,26 @@ func (m FileListModel) MarkedFiles() []string {
 	return result
 }
 
-// CycleViewMode advances the file-list view through flat → sub → tree
-// → flat. Exposed so the App's global key handler can drive it from any
-// focused panel — users pressing `f` on the tree pane don't need to
-// switch focus first.
-func (m *FileListModel) CycleViewMode() {
-	switch m.viewMode {
-	case FileViewFlat:
-		m.viewMode = FileViewSub
-	case FileViewSub:
+// ToggleViewMode switches between the two views. It used to cycle
+// through three, so reaching the one you wanted took up to two presses
+// and a separate `t` key existed to shortcut the cycle.
+func (m *FileListModel) ToggleViewMode() {
+	if m.viewMode == FileViewFlat {
 		m.viewMode = FileViewTree
-	default:
+	} else {
 		m.viewMode = FileViewFlat
+	}
+	m.cursor = 0
+	m.offset = 0
+}
+
+// ToggleExpandAll folds or unfolds every subdirectory at once — the
+// old sub mode as a gesture. The choice sticks for the session, so the
+// next directory opens the way this one does.
+func (m *FileListModel) ToggleExpandAll() {
+	m.expandAll = !m.expandAll
+	for i := range m.subDirs {
+		m.subDirs[i].Expanded = m.expandAll
 	}
 	m.cursor = 0
 	m.offset = 0
@@ -250,15 +268,16 @@ func (m *FileListModel) CycleViewMode() {
 // ViewModeName returns a short label for the current view mode, used as
 // a parenthetical badge in the file-list header so the user can tell at
 // a glance which layout `f` cycled to.
+// ViewModeName is the header chip: the view, plus its fold state when
+// that is not the default.
 func (m FileListModel) ViewModeName() string {
-	switch m.viewMode {
-	case FileViewSub:
-		return "sub"
-	case FileViewTree:
-		return "tree"
-	default:
+	if m.viewMode != FileViewTree {
 		return "flat"
 	}
+	if m.expandAll {
+		return "tree · all open"
+	}
+	return "tree"
 }
 
 func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
@@ -374,14 +393,6 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 		// the copies shadow-drift (see issues/021).
 	}
 	return m, nil
-}
-
-// SetViewTree jumps the list straight to tree mode (the `t` key,
-// dispatched from the App-level handler).
-func (m *FileListModel) SetViewTree() {
-	m.viewMode = FileViewTree
-	m.cursor = 0
-	m.offset = 0
 }
 
 func (m *FileListModel) ensureVisible() {

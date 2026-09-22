@@ -504,11 +504,10 @@ var localBindings = []key.Binding{
 
 // pendingRemoval are bindings that have a handler but no place in the
 // UI — orphans the registry refuses to legitimize by advertising them.
-// Listed here so the completeness test stays strict while the removal
-// is still ahead of us.
-var pendingRemoval = []key.Binding{
-	keys.Preview, // p: preview modal, advertised nowhere; removed in S3c
-}
+// Listed here so the completeness test stays strict while a removal is
+// still ahead of us. Empty is the healthy state: keys.Preview, the one
+// entry this list was created for, is gone.
+var pendingRemoval = []key.Binding{}
 
 // --- keybar assembly ---------------------------------------------------
 

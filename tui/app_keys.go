@@ -4,9 +4,7 @@ import (
 	"fmt"
 	"github.com/kmax-tech/lazycvs/cvs"
 	"github.com/kmax-tech/lazycvs/fs"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/charmbracelet/bubbles/key"
@@ -21,7 +19,16 @@ var globalBindings = []struct {
 	binding key.Binding
 	action  func(*App) tea.Cmd
 }{
-	{keys.Quit, func(*App) tea.Cmd { return tea.Quit }},
+	{keys.Quit, func(m *App) tea.Cmd {
+		// Marks and a typed commit message are work the user cannot
+		// get back after the process exits. One confirming keystroke
+		// is cheaper than losing a twenty-file worklist to a stray q.
+		if pending := m.unsavedWork(); pending != "" && !m.quitPending {
+			m.quitPending = true
+			return m.setResult(pending+" — press q again to quit", false)
+		}
+		return tea.Quit
+	}},
 	{keys.Tab1, func(m *App) tea.Cmd {
 		// Switching to Files always feels like "go check what changed";
 		// kick off a status refresh so the listing the user lands on is
@@ -72,7 +79,18 @@ var globalBindings = []struct {
 		}
 		return nil
 	}},
-	{keys.FocusC, func(m *App) tea.Cmd { m.focus = PanelConsole; return nil }},
+	{keys.FocusC, func(m *App) tea.Cmd {
+		// Coming from a failure banner, the console opens on the
+		// errors filter: "see Console" is only useful if the console
+		// then shows the failure rather than the fifty successful
+		// commands that came after it.
+		if m.bannerIsFailure() {
+			m.focusConsoleOnErrors()
+		} else {
+			m.focus = PanelConsole
+		}
+		return nil
+	}},
 	{keys.FocusUp, func(m *App) tea.Cmd {
 		// Up out of the console row lands on the left pane — the
 		// "first" pane of the row above. Up from a pane goes to
@@ -252,10 +270,12 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 			// here left the keybar's `u:update` advertising a no-op.
 			return nil, false
 		}
-		// History is read-only with respect to the working copy. `u`
-		// would surprise the user by mutating state they're trying to
-		// inspect, so silently consume it.
-		return nil, true
+		// History is read-only with respect to the working copy: `u`
+		// there would mutate the very state the user is inspecting.
+		// Refusing is right, refusing silently is not — a key that
+		// does nothing and says nothing reads as a broken app, which
+		// is the same complaint issue 021 collected about dead keys.
+		return m.setResult("History is read-only — press 1 to update files", false), true
 	case key.Matches(msg, keys.ForceUpdate) && (m.activeTab == TabTree || m.activeTab == TabFavorites):
 		if paths := m.filelist.MarkedFiles(); len(paths) > 0 {
 			m.dialog.OpenForceUpdate(paths)
@@ -529,22 +549,6 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			return m.addFavorite()
 		case key.Matches(msg, keys.FavDel) && m.activeTab == TabFavorites:
 			return m.removeFavorite()
-		case key.Matches(msg, keys.Preview) && m.activeTab != TabHistory && selectedPath != "" && !fs.IsBinary(filepath.Join(m.exec.WorkDir, selectedPath)):
-			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
-			data, err := os.ReadFile(fullPath)
-			if err == nil {
-				content := cvs.EnsureUTF8(string(data))
-				// Limit preview to ~500 lines
-				if lines := strings.Split(content, "\n"); len(lines) > 500 {
-					content = strings.Join(lines[:500], "\n") + "\n..."
-				}
-				m.dialog.OpenPreview(selectedPath, content)
-			}
-			return nil
-		// Resolved from the path, not from selectedFile: the tree pane
-		// has no FileEntry, so requiring one made `a` a dead key
-		// exactly where the keybar now offers it (cursor on an
-		// untracked file in the tree).
 		case key.Matches(msg, keys.Add) && selectedPath != "" &&
 			m.resolveFileStatus(selectedPath) == "?" && m.activeTab != TabHistory:
 			m.setProgress(fmt.Sprintf("⟳ Adding %s…", filepath.Base(selectedPath)))

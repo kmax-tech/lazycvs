@@ -65,7 +65,6 @@ type keyMap struct {
 	TreeList       key.Binding
 	HideIgnored    key.Binding
 	ForceUpdate    key.Binding
-	Preview        key.Binding
 	CollapseAll    key.Binding
 	ScrollLeft     key.Binding
 	ScrollRight    key.Binding
@@ -153,7 +152,6 @@ var keys = keyMap{
 	TreeList:       key.NewBinding(key.WithKeys("t"), key.WithHelp("t", "tree list")),
 	HideIgnored:    key.NewBinding(key.WithKeys("I"), key.WithHelp("I", "hide-ign")),
 	ForceUpdate:    key.NewBinding(key.WithKeys("U"), key.WithHelp("U", "force update")),
-	Preview:        key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "preview")),
 	CollapseAll:    key.NewBinding(key.WithKeys("~"), key.WithHelp("~", "collapse all")),
 	ScrollLeft:     key.NewBinding(key.WithKeys("<"), key.WithHelp("<", "scroll left")),
 	ScrollRight:    key.NewBinding(key.WithKeys(">"), key.WithHelp(">", "scroll right")),

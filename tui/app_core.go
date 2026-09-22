@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -185,6 +186,36 @@ func notifyAfter(d time.Duration) tea.Cmd {
 // treats a non-zero notificationExpiry as the result-set signal, so
 // existing handlers don't need to clear notificationInProgress —
 // they just overwrite the banner text and set an expiry as before.
+// unsavedWork describes what a quit would throw away, or "" when
+// quitting costs nothing.
+func (m *App) unsavedWork() string {
+	marks := len(m.filelist.marked)
+	message := strings.TrimSpace(m.staged.input.Value())
+	switch {
+	case marks > 0 && message != "":
+		return fmt.Sprintf("%d file(s) marked and a commit message typed", marks)
+	case marks > 0:
+		return fmt.Sprintf("%d file(s) marked", marks)
+	case message != "":
+		return "commit message not sent"
+	}
+	return ""
+}
+
+// bannerIsFailure reports whether the banner currently shows a failure
+// (as opposed to a success, a progress line, or nothing).
+func (m App) bannerIsFailure() bool {
+	return m.notification != "" && !m.notificationOK && !m.bannerInProgress()
+}
+
+// focusConsoleOnErrors sends the user to the console with the errors
+// filter on — the "see Console" in a failure banner, made into one
+// keystroke instead of a panel hunt.
+func (m *App) focusConsoleOnErrors() {
+	m.focus = PanelConsole
+	m.console.ShowErrors()
+}
+
 func (m *App) setProgress(msg string) {
 	m.notification = msg
 	m.notificationInProgress = true
@@ -345,6 +376,12 @@ type App struct {
 	// notificationInProgress overrides the OK/error palette with a neutral
 	// "running" color and disables auto-expiry — used to surface dispatched
 	// CVS commands until their *DoneMsg overwrites the banner.
+	// quitPending is set by a q that found unsaved work; the next key
+	// either confirms (q again) or clears it. Deliberately not a
+	// dialog: a modal for "are you sure" on every quit would be worse
+	// than the loss it prevents.
+	quitPending bool
+
 	notification           string
 	notificationOK         bool // true=success (green), false=error (red)
 	notificationInProgress bool
@@ -671,6 +708,13 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
+		// A pending quit confirmation survives exactly one keystroke:
+		// the q that confirms it. Anything else means the user went
+		// back to work and the warning is stale.
+		if m.quitPending && !key.Matches(msg, keys.Quit) {
+			m.quitPending = false
+		}
+
 		// Priority chain: staged commit input → overlays (dialog/search) →
 		// global keys → focused-panel delegate.
 		if cmd, handled := m.handleStagedInput(msg); handled {

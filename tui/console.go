@@ -42,6 +42,17 @@ func NewConsoleModel(cmdLog *cvs.CommandLog) ConsoleModel {
 	}
 }
 
+// ShowErrors switches the panel to the errors filter. Used when the
+// user goes looking for the detail behind a failure banner: the banner
+// says what failed, the console says why, and landing in the compact
+// view with fifty successful commands between you and the error is not
+// an answer.
+func (m *ConsoleModel) ShowErrors() {
+	m.filter = ConsoleErrors
+	m.lastLen = 0 // force a rebuild
+	m.refreshContent()
+}
+
 func (m ConsoleModel) Update(msg tea.Msg) (ConsoleModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.KeyMsg:

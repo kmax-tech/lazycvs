@@ -150,7 +150,14 @@ func (m App) renderBanner() string {
 		Bold(true).
 		Width(m.width).
 		Padding(0, 1)
-	return style.Render(m.notification)
+
+	// A failure banner names its own way to the detail. "see Console"
+	// used to leave the user to find the panel and then the filter.
+	text := m.notification
+	if m.bannerIsFailure() {
+		text += "   (C-j: console, errors only)"
+	}
+	return style.Render(text)
 }
 
 func (m App) renderTabBar() string {

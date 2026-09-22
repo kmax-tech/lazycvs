@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -159,5 +160,136 @@ func TestAddWorksFromTreePane(t *testing.T) {
 	}
 	if cmd := app.delegateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}); cmd == nil {
 		t.Error("a produced no command — the offered key is dead in the tree pane")
+	}
+}
+
+// A key that does nothing and says nothing reads as a broken app —
+// the complaint issue 021 collected. History is read-only on purpose,
+// so `u` refuses out loud.
+func TestUpdateInHistoryExplainsItself(t *testing.T) {
+	app := newListingTestApp(t)
+	app.history = NewHistoryModel()
+	app.staged = NewStagedModel()
+	app.activeTab = TabHistory
+
+	cmd, handled := app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("u")})
+	if !handled {
+		t.Fatal("u in History should be consumed, not passed on to the panes")
+	}
+	if cmd == nil {
+		t.Fatal("u in History produced no feedback — silent refusal")
+	}
+	if !strings.Contains(app.notification, "read-only") {
+		t.Errorf("banner should explain the refusal, got %q", app.notification)
+	}
+}
+
+// Marks and a typed commit message are work a quit destroys. One
+// confirming keystroke is cheaper than losing a twenty-file worklist.
+func TestQuitGuardsUnsavedWork(t *testing.T) {
+	newApp := func(t *testing.T) *App {
+		app := newListingTestApp(t)
+		app.staged = NewStagedModel()
+		app.history = NewHistoryModel()
+		return app
+	}
+	press := func(app *App, r rune) (tea.Cmd, bool) {
+		return app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+	}
+	// Only ever run a command we expect to be tea.Quit: a notification
+	// command is a tea.Tick and would hold the test for the banner's
+	// full display window.
+	quits := func(cmd tea.Cmd) bool {
+		if cmd == nil {
+			return false
+		}
+		_, ok := cmd().(tea.QuitMsg)
+		return ok
+	}
+
+	t.Run("clean state quits at once", func(t *testing.T) {
+		app := newApp(t)
+		cmd, _ := press(app, 'q')
+		if !quits(cmd) {
+			t.Error("q with nothing pending should quit immediately")
+		}
+	})
+
+	t.Run("marks need a second q", func(t *testing.T) {
+		app := newApp(t)
+		app.filelist.marked["a.txt"] = true
+		app.filelist.marked["b.txt"] = true
+
+		if _, handled := press(app, 'q'); !handled {
+			t.Fatal("q should be consumed")
+		}
+		if !app.quitPending {
+			t.Error("quit should be pending after the warning")
+		}
+		if !strings.Contains(app.notification, "2 file(s) marked") ||
+			!strings.Contains(app.notification, "press q again") {
+			t.Errorf("banner should name the work and the way out, got %q", app.notification)
+		}
+
+		cmd, _ := press(app, 'q')
+		if !quits(cmd) {
+			t.Error("the confirming q should quit")
+		}
+	})
+
+	t.Run("an unsent commit message counts as work", func(t *testing.T) {
+		app := newApp(t)
+		app.staged.input.SetValue("fix the parser")
+		press(app, 'q')
+		if !app.quitPending {
+			t.Fatal("q threw away a typed commit message")
+		}
+		if !strings.Contains(app.notification, "commit message") {
+			t.Errorf("banner should name the message, got %q", app.notification)
+		}
+	})
+
+	t.Run("any other key cancels the pending quit", func(t *testing.T) {
+		app := newApp(t)
+		app.filelist.marked["a.txt"] = true
+		press(app, 'q')
+
+		// Update has a value receiver: the cleared flag lives in the
+		// model it returns, which is what the runtime keeps.
+		next, _ := app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("j")})
+		if next.(App).quitPending {
+			t.Error("the warning should expire as soon as the user works on")
+		}
+	})
+}
+
+// "see Console" is only an answer if the console then shows the
+// failure instead of everything that happened after it.
+func TestConsoleOpensOnErrorsAfterAFailure(t *testing.T) {
+	app := newListingTestApp(t)
+	app.staged = NewStagedModel()
+	app.history = NewHistoryModel()
+	app.setResult("✗ Commit failed for docs/notes.txt — see Console", false)
+
+	if !app.bannerIsFailure() {
+		t.Fatal("a failed result should read as a failure banner")
+	}
+	if _, handled := app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyCtrlJ}); !handled {
+		t.Fatal("C-j should focus the console")
+	}
+	if app.focus != PanelConsole {
+		t.Errorf("focus = %v, want PanelConsole", app.focus)
+	}
+	if app.console.filter != ConsoleErrors {
+		t.Errorf("console filter = %v, want ConsoleErrors", app.console.filter)
+	}
+
+	// Without a failure, C-j leaves the filter alone.
+	app2 := newListingTestApp(t)
+	app2.staged = NewStagedModel()
+	app2.history = NewHistoryModel()
+	app2.handleGlobalKey(tea.KeyMsg{Type: tea.KeyCtrlJ})
+	if app2.console.filter != ConsoleCompact {
+		t.Errorf("filter changed without a failure: %v", app2.console.filter)
 	}
 }

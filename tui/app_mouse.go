@@ -25,7 +25,9 @@ func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 	// Tab bar click
 	if y == tabBarY && msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress {
 		if tab := m.tabAtX(x); tab >= 0 {
-			m.activeTab = tab
+			// tabAtX keeps an int -1 sentinel; the cast is the
+			// boundary between "no tab here" and a real Tab.
+			m.activeTab = Tab(tab)
 			m.updateFileList()
 		}
 		return nil

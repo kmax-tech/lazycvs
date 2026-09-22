@@ -164,14 +164,3 @@ var keys = keyMap{
 	Yes:    key.NewBinding(key.WithKeys("y"), key.WithHelp("y", "yes")),
 	No:     key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "no")),
 }
-
-func keyHelp(bindings ...key.Binding) string {
-	s := ""
-	for i, b := range bindings {
-		if i > 0 {
-			s += "  "
-		}
-		s += keyStyle.Render(b.Help().Key) + ":" + b.Help().Desc
-	}
-	return s
-}

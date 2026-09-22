@@ -1333,6 +1333,37 @@ func helpContent() string {
 	return helpContentText
 }
 
+// helpIntro and helpOutro are the prose that frames a section's key
+// rows. The rows themselves come from the keymap registry — the table
+// owns what a key does, these own the explanation around it.
+var helpIntro = map[string]string{
+	"Navigation": "  Vertical: arrows / jk move within the pane. Horizontal is a\n" +
+		"  ranger/yazi axis: → goes deeper (expand, then cross into the\n" +
+		"  right pane), ← goes shallower (fold / walk up; from a right\n" +
+		"  pane it returns to the left). Ctrl+h/l/j/k jump panes directly.\n",
+}
+
+func helpOutro(section string) string {
+	switch section {
+	case "Tabs":
+		return "\n  " + mutedStyle.Render(
+			"Bootstrap: `lazycvs init` in an empty dir to check out a fresh\n"+
+				"module from a CVSROOT (TUI prompts for root + module).") + "\n"
+	case "CVS":
+		return mutedStyle.Render("             cvs history; window: history_days (default 7d).\n"+
+			"             Enter on a row opens that file's History tab.") + "\n"
+	case "History tab":
+		return "\n  " + mutedStyle.Render(
+			"Top row is the working copy when modified — diff there shows\n"+
+				"local changes vs repository.") + "\n"
+	case "Console":
+		return "\n  " + mutedStyle.Render(
+			"Every cvs command and file operation (rm / mv / backup) is\n"+
+				"also appended to "+config.DefaultLogPath()) + "\n"
+	}
+	return ""
+}
+
 func buildHelpContent() string {
 	var b strings.Builder
 
@@ -1344,106 +1375,21 @@ func buildHelpContent() string {
 			"and keeps them on failure (fix + retry). `a` (add) keeps them\n" +
 			"for the follow-up commit. `x` clears them all.\n"))
 
-	// ── Navigation ────────────────────────────────────────────────
-	b.WriteString(helpSection("Navigation"))
-	b.WriteString(mutedStyle.Render(
-		"  Vertical: arrows / jk move within the pane. Horizontal is a\n" +
-			"  ranger/yazi axis: → goes deeper (expand, then cross into the\n" +
-			"  right pane), ← goes shallower (fold / walk up; from a right\n" +
-			"  pane it returns to the left). Ctrl+h/l/j/k jump panes directly.\n"))
-	b.WriteString(helpRow("j / k", "cursor down / up") + "\n")
-	b.WriteString(helpRow("l / →", "expand dir; nothing to expand → right pane") + "\n")
-	b.WriteString(helpRow("h / ←", "collapse / up (tree); right pane → back left") + "\n")
-	b.WriteString(helpRow("~", "collapse all, jump to root (tree)") + "\n")
-	b.WriteString(helpRow("g / G", "top / bottom") + "\n")
-	b.WriteString(helpRow("PgUp/PgDn", "scroll page (also C-u / C-d)") + "\n")
-	b.WriteString(helpRow("enter", "select + jump to right pane (yazi-style)") + "\n")
-	b.WriteString(helpRow("C-h / C-←", "focus left pane") + "\n")
-	b.WriteString(helpRow("C-l / C-→", "focus right pane") + "\n")
-	b.WriteString(helpRow("C-j / C-↓", "focus console") + "\n")
-	b.WriteString(helpRow("C-k / C-↑", "back to panes from console") + "\n")
-	b.WriteString(helpRow("tab", "cycle focused panel") + "\n")
-	b.WriteString(helpRow("/", "fuzzy search files") + "\n")
-	b.WriteString(helpRow("q", "quit lazycvs (inside a dialog: close it)") + "\n")
-
-	// ── Tabs ──────────────────────────────────────────────────────
-	b.WriteString(helpSection("Tabs"))
-	b.WriteString(helpRow("1", "Files — tree+filelist OR tree+diff preview") + "\n")
-	b.WriteString(helpRow("2", "Favorites — pinned directories") + "\n")
-	b.WriteString(helpRow("3", "Staged — files marked for commit") + "\n")
-	b.WriteString(helpRow("4", "History — revisions of the selected file") + "\n")
-	b.WriteString("\n  " + mutedStyle.Render(
-		"Bootstrap: `lazycvs init` in an empty dir to check out a fresh\n"+
-			"module from a CVSROOT (TUI prompts for root + module).") + "\n")
-
-	// ── File actions ──────────────────────────────────────────────
-	b.WriteString(helpSection("File actions"))
-	b.WriteString(helpRow("d", "diff (working vs base revision)") + "\n")
-	b.WriteString(helpRow("c", "commit cursor file (or marked files)") + "\n")
-	b.WriteString(helpRow("C-e", "commit message in $EDITOR (while input focused)") + "\n")
-	b.WriteString(helpRow("a", "add cursor file (?-status) to CVS") + "\n")
-	b.WriteString(helpRow("r", "revert cursor file (bulk in Staged tab)") + "\n")
-	b.WriteString(helpRow("B", "restore .lazycvs-backup (marked / dir subtree / cursor)") + "\n")
-	b.WriteString(helpRow("D", "remove (single file or marked set)") + "\n")
-	b.WriteString(helpRow("i", "ignore — add pattern to .cvsignore") + "\n")
-	b.WriteString(helpRow("e", "edit in $EDITOR") + "\n")
-	b.WriteString(helpRow("E", "external diff tool (config.diff_tool)") + "\n")
-	b.WriteString(helpRow("M", "external merge tool (conflict files)") + "\n")
-	b.WriteString(helpRow("o", "open in OS default app") + "\n")
-	b.WriteString(helpRow("C-e", "edit in $EDITOR (picker-style alias of e)") + "\n")
-	b.WriteString(helpRow("C-o", "alternate opener (config [editor] alt_open)") + "\n")
-	b.WriteString(helpRow("C-r", "reveal in Finder / file manager") + "\n")
-	b.WriteString(helpRow("C-y", "copy absolute path to clipboard") + "\n")
-	b.WriteString(helpRow("space", "mark/unmark") + "\n")
-	b.WriteString(helpRow("A", "mark/unmark every changed file in dir") + "\n")
-	b.WriteString(helpRow("x", "clear ALL marks (in console: clear log)") + "\n")
-	b.WriteString(helpRow("+ / -", "add/remove from favorites") + "\n")
-
-	// ── View modes & filters ──────────────────────────────────────
-	b.WriteString(helpSection("View & filters"))
-	b.WriteString(helpRow("v", "layout: Files (tree+list) ↔ Detail (tree+preview)") + "\n")
-	b.WriteString(helpRow("f", "list mode: flat → sub → tree") + "\n")
-	b.WriteString(helpRow("F", "status filter: all → * → M → C → ? → all") + "\n")
-	b.WriteString(helpRow("I", "toggle hide-ignored on both panes") + "\n")
-	b.WriteString(helpRow("t", "jump list to tree mode") + "\n")
-
-	// ── CVS ───────────────────────────────────────────────────────
-	b.WriteString(helpSection("CVS"))
-	b.WriteString(helpRow("s", "status refresh (dry-run + scan, parallel)") + "\n")
-	b.WriteString(helpRow("u", "update (cvs update -d -P)") + "\n")
-	b.WriteString(helpRow("U", "force update (cvs update -C — overwrite!)") + "\n")
-	b.WriteString(helpRow("H", "recent repo changes for dir + subdirs (all users)") + "\n")
-	b.WriteString(mutedStyle.Render("             cvs history; window: history_days (default 7d).\n"+
-		"             Enter on a row opens that file's History tab.") + "\n")
-
-	// ── History ───────────────────────────────────────────────────
-	b.WriteString(helpSection("History tab"))
-	b.WriteString(helpRow("enter", "show revision content") + "\n")
-	b.WriteString(helpRow("d", "show diff vs previous revision") + "\n")
-	b.WriteString(helpRow("p", "toggle side-by-side diff") + "\n")
-	b.WriteString(helpRow("b", "blame view") + "\n")
-	b.WriteString(helpRow("w", "compare vs working copy") + "\n")
-	b.WriteString(helpRow("R", "restore selected revision into working copy") + "\n")
-	b.WriteString(helpRow("space", "anchor revision for two-rev comparison") + "\n")
-	b.WriteString(helpRow("E", "open the selected pair in the external diff tool") + "\n")
-	b.WriteString(helpRow("M", "merge the selected pair into the working copy") + "\n")
-	b.WriteString(helpRow("B", "restore the file's .lazycvs-backup (e.g. undo a pair merge)") + "\n")
-	b.WriteString(helpRow("< / >", "horizontal scroll in diff content") + "\n")
-	b.WriteString(helpRow("esc", "cancel comparison mode") + "\n")
-	b.WriteString("\n  " + mutedStyle.Render(
-		"Top row is the working copy when modified — diff there shows\n"+
-			"local changes vs repository.") + "\n")
-
-	// ── Console ───────────────────────────────────────────────────
-	b.WriteString(helpSection("Console"))
-	b.WriteString(helpRow("F", "cycle filter: compact → verbose → errors → slow") + "\n")
-	b.WriteString(helpRow("+ / -", "grow / shrink the console panel (when focused)") + "\n")
-	b.WriteString(helpRow("x", "clear panel (session log file keeps everything)") + "\n")
-	b.WriteString("\n  " + mutedStyle.Render(
-		"Every cvs command and file operation (rm / mv / backup) is\n"+
-			"also appended to "+config.DefaultLogPath()) + "\n")
+	// ── Key sections, straight off the registry ───────────────────
+	for _, section := range helpSectionOrder {
+		b.WriteString(helpSection(section))
+		if intro := helpIntro[section]; intro != "" {
+			b.WriteString(mutedStyle.Render(intro))
+		}
+		for _, row := range helpRows(section) {
+			b.WriteString(helpRow(row[0], row[1]) + "\n")
+		}
+		b.WriteString(helpOutro(section))
+	}
 
 	// ── Status codes ──────────────────────────────────────────────
+	// Not keys: the legend for the status column, which has no place
+	// in a keymap table.
 	b.WriteString(helpSection("Status codes"))
 	color := func(c lipgloss.Color, code, desc string) string {
 		return "  " + lipgloss.NewStyle().Foreground(c).Render(code) + "   " + desc + "\n"

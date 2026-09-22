@@ -8,7 +8,6 @@ import (
 	"github.com/kmax-tech/lazycvs/cvs"
 	"github.com/kmax-tech/lazycvs/fs"
 
-	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
@@ -169,7 +168,7 @@ func (m App) renderTabBar() string {
 	var parts []string
 	for i, name := range names {
 		label := fmt.Sprintf(" %d:%s ", i+1, name)
-		if i == m.activeTab {
+		if Tab(i) == m.activeTab {
 			parts = append(parts, active.Render(label))
 		} else {
 			parts = append(parts, inactive.Render(label))
@@ -437,97 +436,52 @@ func (m App) renderConsole() string {
 	return renderPanel(title, m.console.View(), m.width, consoleH, m.focus == PanelConsole, info)
 }
 
-// renderKeybar returns two lines:
+// renderKeybar returns two lines, both assembled from the keymap
+// registry (keymap.go) — the single table that also feeds the help
+// modal, so the two can no longer disagree.
 //
-//	Line 1 — global navigation that's the same on every tab (tabs,
-//	focus switching, help/quit/cancel). Always present so the user
-//	has a stable map of "how do I move around".
+//	Line 1 — the nav segment: the same on every tab, a stable map of
+//	how to move around.
 //
-//	Line 2 — context-sensitive actions for the active tab. Grouped
-//	with │ separators into [Action] / [View] / [Toggle] so the eye
-//	can find what it needs without scanning the whole row. A merge
-//	hint surfaces here when the cursor sits on a C-status file.
+//	Line 2 — the active tab's action segments, separated by │. Which
+//	segments exist and in what order is barSegmentOrder; which keys
+//	are live inside them is the entries' own applies predicate (a
+//	merge key on a conflict row, the History mode variants).
 //
-// The two-line shape replaces the previous single-line keybar that
-// truncated off the right edge on most terminals — users couldn't
-// see the second half of their own toolbar.
+// The commit input is the one hand-written row: while the message
+// field has focus the keys belong to the text input, not to the file
+// list, so no registry entry applies.
 func (m App) renderKeybar() string {
 	sep := mutedStyle.Render(" │ ")
+	ctx := m.keyContext()
 
-	// Line 1: navigation. Identical on every tab.
-	nav := keyStyle.Render("j/k") + ":nav" + sep +
-		keyStyle.Render("C-h/C-l") + ":pane" + sep +
-		keyStyle.Render("1") + ":files" + sep +
-		keyStyle.Render("2") + ":fav" + sep +
-		keyStyle.Render("3") + ":staged" + sep +
-		keyStyle.Render("4") + ":history" + sep +
-		keyStyle.Render("/") + ":search" + sep +
-		keyStyle.Render("?") + ":help" + sep +
-		keyStyle.Render("esc") + ":back" + sep +
-		keyStyle.Render("q") + ":quit"
-
-	mergeHint := ""
-	if path := m.selectedFilePath(); path != "" && m.statusMap[path] == "C" {
-		mergeHint = sep + keyHelp(keys.Merge)
+	render := func(entries []keyEntry) []string {
+		items := make([]string, 0, len(entries))
+		for _, e := range entries {
+			k, d := e.barText()
+			items = append(items, keyStyle.Render(k)+":"+d)
+		}
+		return items
 	}
 
-	// Line 2: per-tab action/view groups.
+	nav := strings.Join(render(barEntries(ctx, "nav")), sep)
+
 	var actions string
-	switch m.activeTab {
-	case TabTree:
-		actions = mutedStyle.Render("[Action] ") +
-			keyHelp(keys.Diff, keys.Commit, keys.Add, keys.Remove, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.ClearMarks) + sep +
-			mutedStyle.Render("[View] ") +
-			keyHelp(keys.ViewMode, keys.ListMode, keys.Filter, keys.HideIgnored) + sep +
-			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update, keys.Recent) + mergeHint
-	case TabFavorites:
-		actions = mutedStyle.Render("[Action] ") +
-			keyHelp(keys.Diff, keys.Commit, keys.Revert, keys.Ignore, keys.Edit, keys.MarkAll, keys.ClearMarks, keys.FavAdd, keys.FavDel) + sep +
-			mutedStyle.Render("[View] ") +
-			keyHelp(keys.ListMode, keys.Filter) + sep +
-			mutedStyle.Render("[CVS] ") + keyHelp(keys.Status, keys.Update, keys.Recent) + mergeHint
-	case TabStaged:
-		if m.staged.mode == StagedCommit && m.staged.input.Focused() {
-			actions = keyStyle.Render("enter") + ":commit" + sep +
-				keyStyle.Render("C-e") + ":editor" + sep +
-				keyStyle.Render("esc") + ":back"
-			break
-		}
-		actions = mutedStyle.Render("[Action] ") +
-			keyHelp(keys.Commit, keys.Revert, keys.Ignore, keys.Diff) + "  " +
-			keyStyle.Render("space") + ":unstage  " +
-			keyHelp(keys.ClearMarks) + sep +
-			mutedStyle.Render("[CVS] ") + keyHelp(keys.Update) + mergeHint
-	case TabHistory:
-		spAnchor := keyStyle.Render("space") + ":anchor"
-		hScroll := keyStyle.Render("</>") + ":scroll"
-		switch {
-		case m.history.HasCompare() || m.history.vsWorking:
-			// E and M also work in plain Diff mode (cursor ↔ parent
-			// fallback), but the keybar slot is spent here, where the
-			// user has deliberately picked a pair; elsewhere the help
-			// dialog covers them. M is only advertised when the pair is
-			// two real revisions — with the working copy pinned in,
-			// launchHistoryMergeForCurrent always refuses (the working
-			// copy is already the LOCAL side).
-			pairKeys := []key.Binding{keys.SideBySide, keys.Blame, keys.EditDiff}
-			if from, to := m.comparePair(); from != "" && to != "" &&
-				from != workingRev && to != workingRev {
-				pairKeys = append(pairKeys, keys.Merge)
+	if ctx.stagedInput {
+		actions = keyStyle.Render("enter") + ":commit" + sep +
+			keyStyle.Render("C-e") + ":editor" + sep +
+			keyStyle.Render("esc") + ":back"
+	} else {
+		var segments []string
+		for _, id := range barSegmentOrder(ctx.tab) {
+			entries := barEntries(ctx, id)
+			if len(entries) == 0 {
+				continue
 			}
-			pairKeys = append(pairKeys, keys.CompareWorking, keys.Escape)
-			actions = mutedStyle.Render("[Compare] ") +
-				keyHelp(pairKeys...) + sep +
-				spAnchor + sep + hScroll
-		case m.history.mode == HistoryDiff:
-			actions = mutedStyle.Render("[Diff] ") +
-				keyHelp(keys.SideBySide, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking) + sep +
-				spAnchor + sep + hScroll
-		default:
-			actions = mutedStyle.Render("[Action] ") +
-				keyHelp(keys.Diff, keys.Blame, keys.Edit, keys.EditDiff, keys.CompareWorking, keys.Restore) + sep +
-				spAnchor + sep + hScroll
+			segments = append(segments,
+				mutedStyle.Render(barSegmentLabel(id, ctx))+strings.Join(render(entries), "  "))
 		}
+		actions = strings.Join(segments, sep)
 	}
 
 	// Truncate each row independently so a long action row doesn't

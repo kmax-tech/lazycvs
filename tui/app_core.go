@@ -22,8 +22,13 @@ const (
 	PanelConsole
 )
 
+// Tab identifies one of the four top-level views. Typed rather than a
+// bare int so the keymap registry can say `tabs: []Tab{TabHistory}` and
+// have the compiler check it.
+type Tab int
+
 const (
-	TabTree = iota
+	TabTree Tab = iota
 	TabFavorites
 	TabStaged
 	TabHistory
@@ -253,7 +258,7 @@ func (m *App) refreshStatusForPaths(paths []string) tea.Cmd {
 const notifyDuration = 3 * time.Second
 
 type App struct {
-	activeTab int
+	activeTab Tab
 	focus     Panel
 	treeMode  TreeViewMode
 

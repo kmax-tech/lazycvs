@@ -140,3 +140,65 @@ File: foo.txt	Status: Locally Modified
 		t.Errorf("expected Status=Locally Modified, got %q", got[0].Status)
 	}
 }
+
+// CVS separates the file name from "Status:" with a tab, and file
+// names contain spaces. Parsing the name as \S+ stopped at the first
+// space, so a file called "Zusammenfassung Größe.txt" never got a
+// status recorded under its real path: the listing showed it clean
+// while cvs considered it modified, and the diff pane said "No local
+// changes" about a file with local changes.
+func TestParseStatusNamesWithSpaces(t *testing.T) {
+	// A whole status block, as cvs prints it — the parser only emits
+	// an entry once the repository-revision line has arrived.
+	block := func(fileLine string) string {
+		return "===================================================================\n" +
+			fileLine + "\n\n" +
+			"   Working revision:\t1.3\t2026-03-01 09:42:09 +0000\n" +
+			"   Repository revision:\t1.3\t/cvsroot/proj/x,v\n"
+	}
+
+	cases := []struct {
+		name     string
+		fileLine string
+		wantPath string
+		wantStat string
+	}{
+		{"plain name", "File: main.go\tStatus: Up-to-date", "main.go", "Up-to-date"},
+		{"name with a space", "File: Zusammenfassung Größe.txt\tStatus: Locally Modified",
+			"Zusammenfassung Größe.txt", "Locally Modified"},
+		{"several spaces", "File: a b c.txt\tStatus: Locally Modified", "a b c.txt", "Locally Modified"},
+		{"missing file with a space", "File: no file a b.txt\tStatus: Locally Removed",
+			"a b.txt", "Locally Removed"},
+		{"missing file, plain", "File: no file util.go\t\tStatus: Needs Checkout",
+			"util.go", "Needs Checkout"},
+		{"padded with spaces", "File: main.go       \tStatus: Up-to-date", "main.go", "Up-to-date"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := ParseStatus(block(c.fileLine))
+			if len(got) != 1 {
+				t.Fatalf("parsed %d entries, want 1: %+v", len(got), got)
+			}
+			if got[0].Path != c.wantPath {
+				t.Errorf("path = %q, want %q", got[0].Path, c.wantPath)
+			}
+			if got[0].Status != c.wantStat {
+				t.Errorf("status = %q, want %q", got[0].Status, c.wantStat)
+			}
+		})
+	}
+}
+
+// A directory whose name contains spaces prefixes its files correctly.
+func TestParseStatusDirWithSpaces(t *testing.T) {
+	out := "cvs status: Examining my docs\n" +
+		"===================================================================\n" +
+		"File: some file.txt\tStatus: Locally Modified\n\n" +
+		"   Working revision:\t1.1\t2026-03-01 09:42:09 +0000\n" +
+		"   Repository revision:\t1.1\t/cvsroot/proj/x,v\n"
+	got := ParseStatus(out)
+	if len(got) != 1 || got[0].Path != "my docs/some file.txt" {
+		t.Fatalf("got %+v, want my docs/some file.txt", got)
+	}
+}

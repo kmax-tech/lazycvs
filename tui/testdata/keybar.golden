@@ -1,0 +1,36 @@
+## tree/clean
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Action] d:diff  c:commit  a:add  D:remove  r:revert  i:ignore  e:edit  A:mark all  x:clear marks │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent
+
+## tree/cursor-on-conflict
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Action] d:diff  c:commit  a:add  D:remove  r:revert  i:ignore  e:edit  A:mark all  x:clear marks │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent │ M:merge tool
+
+## favorites
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Action] d:diff  c:commit  r:revert  i:ignore  e:edit  A:mark all  x:clear marks  +:add fav  -:del fav │ [View] f:list  F:filter │ [CVS] s:status  u:update  H:recent
+
+## staged/actions
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Action] c:commit  r:revert  i:ignore  d:diff  space:unstage  x:clear marks │ [CVS] u:update
+
+## staged/commit-input
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ enter:commit │ C-e:editor │ esc:back
+
+## history/revisions
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Action] d:diff  b:blame  e:edit  E:diff tool  w:vs working  R:restore rev │ space:anchor │ </>:scroll
+
+## history/diff
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Diff] p:side-by-side  b:blame  e:edit  E:diff tool  w:vs working │ space:anchor │ </>:scroll
+
+## history/compare-pair
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Compare] p:side-by-side  b:blame  E:diff tool  M:merge tool  w:vs working  esc:back │ space:anchor │ </>:scroll
+
+## tree/narrow-80
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?…
+ [Action] d:diff  c:commit  a:add  D:remove  r:revert  i:ignore  e:edit  A:mark…
+

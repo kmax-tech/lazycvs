@@ -45,7 +45,22 @@ re-anchoring scrolls past the end, so the panel rendered blank — right
 when the user pressed `Ctrl-J` to look at something. `SetSize` now
 re-anchors on a height change.
 
-## 4. The quit warning pointed at the console
+## 4. A failure opened the console, but not its contents
+
+With a cvs binary that fails (exit 2, not the informational exit 1 that
+`status`/`diff`/`log` are allowed), the console panel opened itself as
+designed — and rendered a single collapsed line inside the six-row
+frame, with the reason for the failure invisible.
+
+`ConsoleModel.View` rendered from the height `SetSize` last stored,
+while the panel around it was drawn from `layout()`. Those two agree
+only when something called `updateSizes` — a focus change or a terminal
+resize. An error opens the panel without either. `ViewAt(height)` now
+renders for the height the layout is actually drawing (resizing a copy
+of the viewport, so the render stays pure), and `renderConsole` passes
+it in.
+
+## 5. The quit warning pointed at the console
 
 `q` with marks warns on the banner, and the banner appended
 `(C-j: console, errors only)` to anything red. A refusal is not a failed

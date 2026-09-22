@@ -525,7 +525,7 @@ func (m App) renderConsole() string {
 	if m.console.lastLen > 0 {
 		info = fmt.Sprintf(" %d cmds ", m.console.lastLen)
 	}
-	return renderPanel(title, m.console.View(), m.width, consoleH, m.focus == PanelConsole, info)
+	return renderPanel(title, m.console.ViewAt(consoleH), m.width, consoleH, m.focus == PanelConsole, info)
 }
 
 // renderKeybar returns two lines, both assembled from the keymap

@@ -184,16 +184,34 @@ func (m *ConsoleModel) SetSize(d PanelDims) {
 }
 
 func (m ConsoleModel) View() string {
+	return m.ViewAt(m.height)
+}
+
+// ViewAt renders the console for the height the layout is actually
+// drawing, rather than for the height SetSize last stored.
+//
+// The two differ: the panel collapses and expands on its own — an
+// unread error opens it without the user touching anything — and that
+// changes the layout on the very next frame, while SetSize only runs on
+// a focus change or a terminal resize. Rendering from the stored height
+// drew one collapsed line inside a six-row panel, which is precisely
+// the frame a failure produces.
+func (m ConsoleModel) ViewAt(height int) string {
 	style := lipgloss.NewStyle().
 		Width(m.width).
-		Height(m.height)
+		Height(height)
 	if m.lastLen == 0 {
 		return style.Foreground(colorMuted).Render("  No commands yet")
 	}
-	if m.height <= consoleCollapsed {
+	if height <= consoleCollapsed {
 		return m.collapsedView()
 	}
-	return m.viewport.View()
+	// The viewport is a value; resizing a copy keeps this a pure
+	// render while still showing `height` lines of the log.
+	vp := m.viewport
+	vp.Height = height
+	vp.GotoBottom()
+	return vp.View()
 }
 
 // compactLine is one command as the compact filter shows it:

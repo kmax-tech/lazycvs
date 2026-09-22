@@ -170,3 +170,35 @@ func TestConsoleShowsContentAfterExpanding(t *testing.T) {
 		t.Errorf("expanded console is blank: %q", got)
 	}
 }
+
+// The console opens itself when a command fails, which changes the
+// layout on the next frame — but SetSize only runs on a focus change
+// or a terminal resize. Rendering from the stored height therefore drew
+// one collapsed line inside a six-row panel: exactly the frame a
+// failure produced, with the reason for the failure invisible.
+func TestConsoleRendersAtTheHeightItIsDrawnAt(t *testing.T) {
+	log := cvs.NewCommandLog(10)
+	log.Add(cvs.CommandResult{
+		Command:  "cvs status",
+		Stdout:   "cvs [update aborted]: connect to host failed\n",
+		ExitCode: 2,
+		Success:  false,
+	})
+	console := NewConsoleModel(log)
+	console.SetSize(PanelDims{LeftW: 100, Height: consoleCollapsed})
+	console, _ = console.Update(nil)
+
+	collapsed := ansi.Strip(console.ViewAt(consoleCollapsed))
+	if strings.Contains(collapsed, "→") {
+		t.Errorf("the collapsed line should be one line, got %q", collapsed)
+	}
+
+	// Same model, no SetSize in between — the layout expanded it.
+	expanded := ansi.Strip(console.ViewAt(6))
+	if !strings.Contains(expanded, "FAILED 2") {
+		t.Errorf("expanded console lost the failure: %q", expanded)
+	}
+	if !strings.Contains(expanded, "connect to host failed") {
+		t.Errorf("expanded console does not say why it failed: %q", expanded)
+	}
+}

@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/kmax-tech/lazycvs/cvs"
@@ -455,42 +456,140 @@ func (m App) renderKeybar() string {
 	sep := mutedStyle.Render(" │ ")
 	ctx := m.keyContext()
 
-	render := func(entries []keyEntry) []string {
-		items := make([]string, 0, len(entries))
-		for _, e := range entries {
-			k, d := e.barText()
-			items = append(items, keyStyle.Render(k)+":"+d)
-		}
-		return items
-	}
-
-	nav := strings.Join(render(barEntries(ctx, "nav")), sep)
-
-	var actions string
-	if ctx.stagedInput {
-		actions = keyStyle.Render("enter") + ":commit" + sep +
-			keyStyle.Render("C-e") + ":editor" + sep +
-			keyStyle.Render("esc") + ":back"
-	} else {
-		var segments []string
-		for _, id := range barSegmentOrder(ctx.tab) {
-			entries := barEntries(ctx, id)
-			if len(entries) == 0 {
-				continue
-			}
-			segments = append(segments,
-				mutedStyle.Render(barSegmentLabel(id, ctx))+strings.Join(render(entries), "  "))
-		}
-		actions = strings.Join(segments, sep)
-	}
-
-	// Truncate each row independently so a long action row doesn't
-	// chop the nav row.
+	nav := strings.Join(barItems(barEntries(ctx, "nav")), sep)
 	if m.width > 2 {
 		nav = ansi.Truncate(nav, m.width-1, "…")
-		actions = ansi.Truncate(actions, m.width-1, "…")
 	}
+
+	actions := m.actionRow(ctx)
 	return " " + nav + "\n " + actions
+}
+
+// barItems renders entries as "key:description" in registry order.
+func barItems(entries []keyEntry) []string {
+	items := make([]string, 0, len(entries))
+	for _, e := range entries {
+		k, d := e.barText()
+		items = append(items, keyStyle.Render(k)+":"+d)
+	}
+	return items
+}
+
+// actionRow builds keybar line 2 for the current context and width.
+//
+// Two things distinguish it from a static toolbar. It shows only keys
+// that apply to the row under the cursor (an untracked file offers add
+// and ignore, a conflict offers the merge tool), and when the keys
+// exceed the terminal width it *drops* the lowest-ranked ones and says
+// how many, instead of cutting the row mid-word. The old behaviour hid
+// the entire [View] group on an 80-column terminal behind a single "…"
+// with nothing to indicate what was missing.
+func (m App) actionRow(ctx keyContext) string {
+	sep := mutedStyle.Render(" │ ")
+
+	// The commit input is not a key catalogue: while it has focus the
+	// keys belong to the text field.
+	if ctx.stagedInput {
+		row := keyStyle.Render("enter") + ":commit" + sep +
+			keyStyle.Render("C-e") + ":editor" + sep +
+			keyStyle.Render("esc") + ":back"
+		return truncateRow(row, m.width)
+	}
+
+	// Rule 1 made visible: with a worklist, actions address the marked
+	// set, and the row says so before naming a single key.
+	prefix := ""
+	if ctx.marked > 0 {
+		prefix = lipgloss.NewStyle().Foreground(colorMod).Bold(true).
+			Render(fmt.Sprintf("%d marked ▸ ", ctx.marked))
+	}
+
+	type unit struct {
+		segment string
+		text    string
+		keep    int // segment rank; higher goes first when space runs out
+		bar     int // rank within the segment
+	}
+	var units []unit
+	for _, id := range barSegmentOrder(ctx.tab) {
+		entries := barEntries(ctx, id)
+		for i, item := range barItems(entries) {
+			units = append(units, unit{
+				segment: entries[i].barSegment,
+				text:    item,
+				keep:    barSegmentKeep(entries[i].barSegment),
+				bar:     entries[i].bar,
+			})
+		}
+	}
+
+	// Drop order: least deserving segment first, lowest rank within it.
+	// Display order is untouched — dropping [View] must not reshuffle
+	// what remains.
+	order := make([]int, len(units))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		ua, ub := units[order[a]], units[order[b]]
+		if ua.keep != ub.keep {
+			return ua.keep > ub.keep
+		}
+		return ua.bar > ub.bar
+	})
+
+	render := func(dropped map[int]bool) string {
+		var b strings.Builder
+		current := ""
+		for i, u := range units {
+			if dropped[i] {
+				continue
+			}
+			switch {
+			case u.segment != current:
+				if current != "" {
+					b.WriteString(sep)
+				}
+				b.WriteString(mutedStyle.Render(barSegmentLabel(u.segment, ctx)))
+				current = u.segment
+			default:
+				b.WriteString("  ")
+			}
+			b.WriteString(u.text)
+		}
+		return b.String()
+	}
+
+	// A blank row reads as a broken UI. When nothing applies — an empty
+	// Staged tab, a cursor on a row with no actions — say so and point
+	// at the one key that always works.
+	if len(units) == 0 {
+		return truncateRow(prefix+mutedStyle.Render("no actions for this row — ")+
+			keyStyle.Render("?")+mutedStyle.Render(" lists every key"), m.width)
+	}
+
+	budget := m.width - 1
+	dropped := map[int]bool{}
+	for n := 0; ; n++ {
+		marker := ""
+		if n > 0 {
+			marker = mutedStyle.Render(fmt.Sprintf("  +%d (?)", n))
+		}
+		row := prefix + render(dropped) + marker
+		if n == len(units) || m.width <= 2 || lipgloss.Width(row) <= budget {
+			return truncateRow(row, m.width)
+		}
+		dropped[order[n]] = true
+	}
+}
+
+// truncateRow is the last-resort guard for a terminal too narrow for
+// even one key.
+func truncateRow(row string, width int) string {
+	if width > 2 {
+		return ansi.Truncate(row, width-1, "…")
+	}
+	return row
 }
 
 func (m App) renderPreview() string {

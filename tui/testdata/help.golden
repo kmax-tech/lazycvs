@@ -1,8 +1,16 @@
-Convention: lowercase acts on the file under the cursor;     
-UPPERCASE extends to the dir / every marked file.            
-Marks are a worklist: a bulk action consumes them on success 
-and keeps them on failure (fix + retry). `a` (add) keeps them
-for the follow-up commit. `x` clears them all.               
+How the keys work:                                           
+  1. Scope comes from the selection, not from the key. With  
+     files marked, an action applies to the marked set;      
+     otherwise to the row under the cursor.                  
+  2. Shift is the same action, sharper: u update → U force   
+     update, r revert → R restore a revision.                
+  3. External tools (e, E, M, o, C-o, C-r) are their own     
+     group, not Shift variants.                              
+The keybar shows the keys that apply to the current row; this
+list is all of them. Marks are a worklist: a bulk action     
+consumes them on success and keeps them on failure (fix +    
+retry). `a` (add) keeps them for the follow-up commit, `x`   
+clears them all.                                             
                                                              
 Navigation
 ──────────

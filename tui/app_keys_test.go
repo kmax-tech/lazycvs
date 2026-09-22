@@ -117,3 +117,47 @@ func TestRestoreBackupWorksInHistoryTab(t *testing.T) {
 		t.Error("backup file still present after restore")
 	}
 }
+
+// `a` (add) used to require a FileEntry, which only the file list
+// produces — so with the cursor on an untracked file in the *tree*
+// pane the key did nothing, while the keybar offered it. The keybar
+// promises by status now, so the handler has to resolve by path.
+func TestAddWorksFromTreePane(t *testing.T) {
+	app := newListingTestApp(t)
+	app.tree = NewTreeModel(app.exec.WorkDir)
+	app.tree, _ = app.tree.Update(treeLoadedMsg{nodes: scanDir(app.exec.WorkDir, ".")})
+	app.activeTab = TabTree
+	app.focus = PanelLeft
+
+	// An untracked file the tree can put a cursor on.
+	untracked := "fresh.txt"
+	if err := os.WriteFile(filepath.Join(app.exec.WorkDir, untracked), []byte("x"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	app.statusMap[untracked] = "?"
+	app.tree.showFiles = true
+	app.tree, _ = app.tree.Update(treeLoadedMsg{nodes: scanDir(app.exec.WorkDir, ".")})
+	// The tree carries statuses the same way the app feeds them in.
+	app.tree.RefreshStatus(app.statusMap, app.staleDirs)
+	found := false
+	for i, f := range app.tree.flat {
+		if f.node.Path == untracked {
+			app.tree.cursor, found = i, true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("tree does not list %s as a row", untracked)
+	}
+
+	ctx := app.keyContext()
+	if ctx.status != "?" {
+		t.Fatalf("context status = %q, want ? (the keybar offers a:add on it)", ctx.status)
+	}
+	if !liveKeys(ctx)["a"] {
+		t.Fatal("keybar does not offer a:add on an untracked tree row")
+	}
+	if cmd := app.delegateKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")}); cmd == nil {
+		t.Error("a produced no command — the offered key is dead in the tree pane")
+	}
+}

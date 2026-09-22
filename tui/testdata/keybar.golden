@@ -1,18 +1,38 @@
-## tree/clean
+## tree/no-selection
  j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
- [Action] d:diff  c:commit  a:add  D:remove  r:revert  i:ignore  e:edit  A:mark all  x:clear marks │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent
+ [Action] A:mark all │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent
+
+## tree/cursor-on-clean-file
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Action] d:diff  D:remove  e:edit  A:mark all │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent
 
 ## tree/cursor-on-conflict
  j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
- [Action] d:diff  c:commit  a:add  D:remove  r:revert  i:ignore  e:edit  A:mark all  x:clear marks │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent │ M:merge tool
+ [Action] d:diff  c:commit  D:remove  r:revert  e:edit  A:mark all │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent │ M:merge tool
+
+## tree/cursor-on-untracked
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Action] d:diff  c:commit  a:add  D:remove  i:ignore  e:edit  A:mark all │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent
+
+## tree/cursor-on-directory
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ [Action] A:mark all │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent
+
+## tree/three-marked
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ 3 marked ▸ [Action] d:diff  c:commit  D:remove  r:revert  e:edit  A:mark all  x:clear marks │ [View] v:layout  f:list  F:filter  I:hide-ign │ [CVS] s:status  u:update  H:recent
 
 ## favorites
  j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
- [Action] d:diff  c:commit  r:revert  i:ignore  e:edit  A:mark all  x:clear marks  +:add fav  -:del fav │ [View] f:list  F:filter │ [CVS] s:status  u:update  H:recent
+ [Action] A:mark all  +:add fav  -:del fav │ [View] f:list  F:filter │ [CVS] s:status  u:update  H:recent
+
+## staged/empty
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
+ no actions for this row — ? lists every key
 
 ## staged/actions
  j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
- [Action] c:commit  r:revert  i:ignore  d:diff  space:unstage  x:clear marks │ [CVS] u:update
+ 2 marked ▸ [Action] c:commit  r:revert  i:ignore  d:diff  space:unstage  x:clear marks │ [CVS] u:update
 
 ## staged/commit-input
  j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?:help │ esc:back │ q:quit
@@ -32,5 +52,9 @@
 
 ## tree/narrow-80
  j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:history │ /:search │ ?…
- [Action] d:diff  c:commit  a:add  D:remove  r:revert  i:ignore  e:edit  A:mark…
+ [Action] d:diff  c:commit  D:remove  r:revert  e:edit  A:mark all  +7 (?)
+
+## tree/narrow-60
+ j/k:nav │ C-h/C-l:pane │ 1:files │ 2:fav │ 3:staged │ 4:hi…
+ [Action] d:diff  c:commit  D:remove  r:revert  +9 (?)
 

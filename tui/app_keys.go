@@ -541,7 +541,12 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				m.dialog.OpenPreview(selectedPath, content)
 			}
 			return nil
-		case key.Matches(msg, keys.Add) && selectedFile != nil && selectedFile.Status == "?" && m.activeTab != TabHistory:
+		// Resolved from the path, not from selectedFile: the tree pane
+		// has no FileEntry, so requiring one made `a` a dead key
+		// exactly where the keybar now offers it (cursor on an
+		// untracked file in the tree).
+		case key.Matches(msg, keys.Add) && selectedPath != "" &&
+			m.resolveFileStatus(selectedPath) == "?" && m.activeTab != TabHistory:
 			m.setProgress(fmt.Sprintf("⟳ Adding %s…", filepath.Base(selectedPath)))
 			return m.addFile(selectedPath)
 		case key.Matches(msg, keys.Ignore) && m.activeTab != TabHistory:

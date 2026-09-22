@@ -1369,11 +1369,19 @@ func buildHelpContent() string {
 
 	// ── Convention banner ─────────────────────────────────────────
 	b.WriteString(mutedStyle.Render(
-		"Convention: lowercase acts on the file under the cursor;\n" +
-			"UPPERCASE extends to the dir / every marked file.\n" +
-			"Marks are a worklist: a bulk action consumes them on success\n" +
-			"and keeps them on failure (fix + retry). `a` (add) keeps them\n" +
-			"for the follow-up commit. `x` clears them all.\n"))
+		"How the keys work:\n" +
+			"  1. Scope comes from the selection, not from the key. With\n" +
+			"     files marked, an action applies to the marked set;\n" +
+			"     otherwise to the row under the cursor.\n" +
+			"  2. Shift is the same action, sharper: u update → U force\n" +
+			"     update, r revert → R restore a revision.\n" +
+			"  3. External tools (e, E, M, o, C-o, C-r) are their own\n" +
+			"     group, not Shift variants.\n" +
+			"The keybar shows the keys that apply to the current row; this\n" +
+			"list is all of them. Marks are a worklist: a bulk action\n" +
+			"consumes them on success and keeps them on failure (fix +\n" +
+			"retry). `a` (add) keeps them for the follow-up commit, `x`\n" +
+			"clears them all.\n"))
 
 	// ── Key sections, straight off the registry ───────────────────
 	for _, section := range helpSectionOrder {

@@ -32,7 +32,15 @@ type keyContext struct {
 	tab    Tab
 	focus  Panel
 	status string // status of the cursor row: "", "M", "C", "?", "A", "R"
-	marked int    // size of the marked set
+	isFile bool   // a file sits under the cursor (not a directory, not nothing)
+
+	// The marked set, counted the way the bulk handlers slice it: a
+	// bulk revert takes M/C, a bulk ignore takes ?. Counting here is
+	// what lets the keybar promise a bulk action only when one would
+	// actually run.
+	marked           int
+	markedRevertable int
+	markedUntracked  int
 
 	// History-only state.
 	histMode      HistoryMode
@@ -49,22 +57,46 @@ type keyContext struct {
 // downstream works on the value.
 func (m App) keyContext() keyContext {
 	ctx := keyContext{
-		tab:    m.activeTab,
-		focus:  m.focus,
-		marked: len(m.filelist.marked),
+		tab:   m.activeTab,
+		focus: m.focus,
 	}
-	if path := m.selectedFilePath(); path != "" {
-		ctx.status = m.statusMap[path]
-	}
-	if m.activeTab == TabStaged {
+
+	// Status comes from the row the user is looking at, which already
+	// carries it — not from resolveFileStatus, which stats the disk.
+	// The keybar re-renders on every frame; it may not read files.
+	switch m.activeTab {
+	case TabTree, TabFavorites:
+		if m.focus == PanelRight && m.treeMode != TreeViewDetails {
+			if f := m.filelist.SelectedFile(); f != nil {
+				ctx.status, ctx.isFile = f.Status, true
+			}
+		} else if node := m.tree.SelectedNode(); node != nil && !node.IsDir {
+			ctx.status, ctx.isFile = node.Status, true
+		}
+	case TabStaged:
+		if f := m.staged.SelectedFile(); f != nil {
+			ctx.status, ctx.isFile = f.status, true
+		}
 		ctx.stagedInput = m.staged.mode == StagedCommit && m.staged.input.Focused()
-	}
-	if m.activeTab == TabHistory {
+	case TabHistory:
+		if path := m.history.Path(); path != "" {
+			ctx.status, ctx.isFile = m.statusMap[path], true
+		}
 		ctx.histMode = m.history.mode
 		ctx.compare = m.history.HasCompare() || m.history.vsWorking
 		from, to := m.comparePair()
 		ctx.pairMergeable = from != "" && to != "" &&
 			from != workingRev && to != workingRev
+	}
+
+	for path := range m.filelist.marked {
+		ctx.marked++
+		switch m.statusMap[path] {
+		case "M", "C":
+			ctx.markedRevertable++
+		case "?":
+			ctx.markedUntracked++
+		}
 	}
 	return ctx
 }
@@ -160,7 +192,39 @@ func (e keyEntry) barText() (string, string) {
 // the UI ("only on a conflict") and so the test suite can exercise them
 // one by one.
 
+// Each predicate below mirrors the gate its handler applies in
+// app_keys.go. Where the handler asks a shared helper — isCommittable
+// for the commit set — the predicate asks the same helper rather than
+// restating the list, which is how issue 024's five copies of that set
+// (one of them wrong) became one.
+
 func onConflict(ctx keyContext) bool { return ctx.status == "C" }
+
+// onFile is the floor for every action addressing a single file: with
+// the cursor on a directory row, file actions have no target.
+func onFile(ctx keyContext) bool { return ctx.isFile }
+
+// canCommit: the marked set wins when there is one, exactly as
+// openCommitDialog and the Staged commit gate resolve it.
+func canCommit(ctx keyContext) bool {
+	return ctx.marked > 0 || isCommittable(ctx.status)
+}
+
+// canRevert: bulk over the revertable marks, else the cursor row — and
+// only M/C have anything to revert.
+func canRevert(ctx keyContext) bool {
+	return ctx.markedRevertable > 0 || ctx.status == "M" || ctx.status == "C"
+}
+
+// canIgnore: ignoring means writing a .cvsignore pattern, which is
+// meaningless for a file CVS already tracks.
+func canIgnore(ctx keyContext) bool {
+	return ctx.markedUntracked > 0 || ctx.status == "?"
+}
+
+func canAdd(ctx keyContext) bool { return ctx.status == "?" }
+
+func canRemove(ctx keyContext) bool { return ctx.marked > 0 || ctx.isFile }
 
 func historyPlain(ctx keyContext) bool {
 	return !ctx.compare && ctx.histMode != HistoryDiff
@@ -182,6 +246,11 @@ func historyCompare(ctx keyContext) bool { return ctx.compare }
 func historyComparePair(ctx keyContext) bool {
 	return ctx.compare && ctx.pairMergeable
 }
+
+// hasMarks gates the "drop the worklist" key: with nothing marked
+// there is nothing to clear, and the slot belongs to a key that does
+// something.
+func hasMarks(ctx keyContext) bool { return ctx.marked > 0 && ctx.focus != PanelConsole }
 
 func inConsole(ctx keyContext) bool { return ctx.focus == PanelConsole }
 
@@ -266,29 +335,29 @@ var keyRegistry = []keyEntry{
 	// are what order the keybar, independently.
 	{binding: keys.Diff, group: groupAct, scope: scopeCursor, tabs: fileTabs,
 		bar: 10, barSegment: "act",
-		section: "File actions", helpDesc: "diff (working vs base revision)"},
+		section: "File actions", helpDesc: "diff (working vs base revision)", applies: onFile},
 	{binding: keys.Commit, group: groupAct, scope: scopeSelection, tabs: fileTabs,
 		bar: 20, barSegment: "act",
-		section: "File actions", helpDesc: "commit cursor file (or marked files)"},
+		section: "File actions", helpDesc: "commit cursor file (or marked files)", applies: canCommit},
 	{binding: commitEditorKey, group: groupExternal, scope: scopeGlobal, tabs: []Tab{TabStaged},
 		section: "File actions", helpDesc: "commit message in $EDITOR (while input focused)"},
 	{binding: keys.Add, group: groupAct, scope: scopeCursor, tabs: []Tab{TabTree},
 		bar: 30, barSegment: "act",
-		section: "File actions", helpDesc: "add cursor file (?-status) to CVS"},
+		section: "File actions", helpDesc: "add cursor file (?-status) to CVS", applies: canAdd},
 	{binding: keys.Revert, group: groupAct, scope: scopeSelection, tabs: fileTabs,
 		bar: 50, barSegment: "act",
-		section: "File actions", helpDesc: "revert cursor file (bulk in Staged tab)"},
+		section: "File actions", helpDesc: "revert cursor file (bulk in Staged tab)", applies: canRevert},
 	{binding: keys.RestoreBackup, group: groupAct, scope: scopeSelection,
 		section: "File actions", helpDesc: "restore .lazycvs-backup (marked / dir subtree / cursor)"},
 	{binding: keys.Remove, group: groupAct, scope: scopeSelection, tabs: []Tab{TabTree},
 		bar: 40, barSegment: "act",
-		section: "File actions", helpDesc: "remove (single file or marked set)"},
+		section: "File actions", helpDesc: "remove (single file or marked set)", applies: canRemove},
 	{binding: keys.Ignore, group: groupAct, scope: scopeSelection, tabs: fileTabs,
 		bar: 60, barSegment: "act",
-		section: "File actions", helpDesc: "ignore — add pattern to .cvsignore"},
+		section: "File actions", helpDesc: "ignore — add pattern to .cvsignore", applies: canIgnore},
 	{binding: keys.Edit, group: groupExternal, scope: scopeCursor, tabs: fileTabs,
 		bar: 70, barSegment: "act",
-		section: "File actions", helpDesc: "edit in $EDITOR"},
+		section: "File actions", helpDesc: "edit in $EDITOR", applies: onFile},
 
 	// External tools are their own group — rule 3: E and M are not the
 	// "sharper" variants of e, they are a different kind of action.
@@ -317,7 +386,7 @@ var keyRegistry = []keyEntry{
 		bar: 80, barSegment: "act",
 		section: "File actions", helpDesc: "mark/unmark every changed file in dir"},
 	{binding: keys.ClearMarks, group: groupAct, scope: scopeSelection, tabs: fileTabs,
-		bar: 90, barSegment: "act", applies: outsideConsole,
+		bar: 90, barSegment: "act", applies: hasMarks,
 		section: "File actions", helpDesc: "clear ALL marks (in console: clear log)"},
 	{binding: keys.FavAdd, group: groupAct, scope: scopeDirectory, tabs: []Tab{TabFavorites},
 		bar: 100, barSegment: "act",
@@ -356,19 +425,21 @@ var keyRegistry = []keyEntry{
 
 	// ── Staged tab ────────────────────────────────────────────────────
 	{binding: keys.Commit, group: groupAct, scope: scopeSelection, tabs: []Tab{TabStaged},
-		bar: 10, barSegment: "act"},
+		bar: 10, barSegment: "act", applies: canCommit},
 	{binding: keys.Revert, group: groupAct, scope: scopeSelection, tabs: []Tab{TabStaged},
-		bar: 20, barSegment: "act"},
+		bar: 20, barSegment: "act", applies: canRevert},
 	{binding: keys.Ignore, group: groupAct, scope: scopeSelection, tabs: []Tab{TabStaged},
-		bar: 30, barSegment: "act"},
+		bar: 30, barSegment: "act", applies: canIgnore},
 	{binding: keys.Diff, group: groupAct, scope: scopeCursor, tabs: []Tab{TabStaged},
-		bar: 40, barSegment: "act"},
+		bar: 40, barSegment: "act", applies: onFile},
 	{binding: keys.Space, group: groupAct, scope: scopeCursor, tabs: []Tab{TabStaged},
-		bar: 50, barSegment: "act", barDesc: "unstage"},
+		bar: 50, barSegment: "act", barDesc: "unstage", applies: onFile},
 	{binding: keys.ClearMarks, group: groupAct, scope: scopeSelection, tabs: []Tab{TabStaged},
-		bar: 60, barSegment: "act", applies: outsideConsole},
+		bar: 60, barSegment: "act", applies: hasMarks},
+	// The staged bulk update runs over the staged set, so with nothing
+	// staged the key does nothing — stagedBulkAction's own guard.
 	{binding: keys.Update, group: groupCVS, scope: scopeSelection, tabs: []Tab{TabStaged},
-		bar: 10, barSegment: "cvs"},
+		bar: 10, barSegment: "cvs", applies: hasMarks},
 
 	// ── History tab ───────────────────────────────────────────────────
 	// The action segment has three shapes: plain revision browsing, an
@@ -454,6 +525,27 @@ func barSegmentOrder(tab Tab) []string {
 	}
 }
 
+// barSegmentKeep ranks segments by how much they deserve the space when
+// the terminal is too narrow for all of them: the conflict hint first
+// (it is the most urgent thing on screen), then the actions for the
+// current row, then the CVS commands, and view toggles last — a filter
+// the user can reach through the help is worth less than a key that
+// acts on what is under the cursor.
+//
+// Display order stays barSegmentOrder; this only decides what goes.
+func barSegmentKeep(segment string) int {
+	switch segment {
+	case "hint", "anchor":
+		return 0
+	case "act":
+		return 1
+	case "cvs", "scroll":
+		return 2
+	default: // view
+		return 3
+	}
+}
+
 // barSegmentLabel is the group label printed before a segment's keys.
 // The History action segment is the one that renames itself: what the
 // keys do there depends on whether a diff or a pair is open.
@@ -519,6 +611,18 @@ func helpRows(section string) [][2]string {
 			k = e.helpKey
 		}
 		out = append(out, [2]string{k, e.helpDesc})
+	}
+	return out
+}
+
+// liveActions returns every action key that applies in this context, in
+// the order the keybar would show them: segment by segment, rank within
+// segment. Pure — what *fits* on the terminal is the renderer's
+// problem, what *applies* is this table's.
+func liveActions(ctx keyContext) []keyEntry {
+	var out []keyEntry
+	for _, id := range barSegmentOrder(ctx.tab) {
+		out = append(out, barEntries(ctx, id)...)
 	}
 	return out
 }

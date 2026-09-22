@@ -2,6 +2,7 @@ package tui
 
 import (
 	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
@@ -202,4 +203,109 @@ func TestKeymapPredicates(t *testing.T) {
 			t.Errorf("%s: got %v, want %v", c.name, c.got, c.want)
 		}
 	}
+}
+
+// liveKeys is the set of keybar keys for a context, as the user would
+// read them off the row.
+func liveKeys(ctx keyContext) map[string]bool {
+	out := map[string]bool{}
+	for _, e := range liveActions(ctx) {
+		k, _ := e.barText()
+		out[k] = true
+	}
+	return out
+}
+
+// The keybar's promise is that what it shows, applies. These cases are
+// the promise in both directions: the keys a status earns, and the keys
+// it must not advertise.
+func TestLiveActionsFollowTheCursorRow(t *testing.T) {
+	files := func(status string) keyContext {
+		return keyContext{tab: TabTree, focus: PanelRight, status: status, isFile: status != ""}
+	}
+
+	cases := []struct {
+		name    string
+		ctx     keyContext
+		want    []string
+		unwant  []string
+		comment string
+	}{
+		{
+			name: "untracked offers add and ignore", ctx: files("?"),
+			want:   []string{"a", "i", "c"},
+			unwant: []string{"r", "M"},
+			// c is there on purpose: isCommittable accepts "?" — the
+			// commit path adds the file first. The keybar mirrors the
+			// gate rather than a tidier story.
+		},
+		{
+			name: "modified offers commit, diff and revert", ctx: files("M"),
+			want:   []string{"c", "d", "r"},
+			unwant: []string{"a", "i", "M"},
+		},
+		{
+			name: "conflict offers the merge tool", ctx: files("C"),
+			want:   []string{"M", "d", "c", "r"},
+			unwant: []string{"a", "i"},
+		},
+		{
+			name: "scheduled removal can still be committed", ctx: files("R"),
+			want:   []string{"c"},
+			unwant: []string{"a", "i", "r"},
+		},
+		{
+			name: "clean file has nothing to revert or commit", ctx: files(""),
+			want:   []string{"A"},
+			unwant: []string{"c", "r", "i", "a"},
+		},
+		{
+			name: "directory row drops every file action",
+			ctx:  keyContext{tab: TabTree, focus: PanelLeft},
+			want: []string{"A", "s", "u", "H"}, unwant: []string{"d", "c", "e", "D"},
+		},
+		{
+			name: "marks carry the scope even on a clean cursor row",
+			ctx:  keyContext{tab: TabTree, focus: PanelRight, marked: 3, markedRevertable: 3},
+			want: []string{"c", "r", "D", "x"}, unwant: []string{"a"},
+		},
+		{
+			name: "marked untracked files earn the bulk ignore",
+			ctx:  keyContext{tab: TabTree, focus: PanelRight, marked: 2, markedUntracked: 2},
+			want: []string{"i", "c", "x"}, unwant: []string{"r"},
+		},
+		{
+			name: "empty staged tab advertises nothing",
+			ctx:  keyContext{tab: TabStaged, focus: PanelLeft},
+			want: []string{}, unwant: []string{"c", "u", "r", "x"},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := liveKeys(tc.ctx)
+			for _, k := range tc.want {
+				if !got[k] {
+					t.Errorf("key %q should be offered, row shows %v", k, keysOf(got))
+				}
+			}
+			for _, k := range tc.unwant {
+				if got[k] {
+					t.Errorf("key %q must not be offered, row shows %v", k, keysOf(got))
+				}
+			}
+			if len(tc.want) == 0 && len(got) != 0 {
+				t.Errorf("expected an empty row, got %v", keysOf(got))
+			}
+		})
+	}
+}
+
+func keysOf(set map[string]bool) []string {
+	out := make([]string, 0, len(set))
+	for k := range set {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

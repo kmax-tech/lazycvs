@@ -63,6 +63,16 @@ func (m *StagedModel) SetSize(d PanelDims) {
 	m.input.Width = max(10, d.RightW-4)
 }
 
+// SelectedFile returns the staged row under the cursor, or nil when
+// the list is empty. The keymap context needs the status alongside the
+// path, and reading it here keeps that lookup off the status map.
+func (m StagedModel) SelectedFile() *stagedFile {
+	if m.cursor >= len(m.files) {
+		return nil
+	}
+	return &m.files[m.cursor]
+}
+
 func (m StagedModel) SelectedPath() string {
 	if m.cursor >= len(m.files) {
 		return ""

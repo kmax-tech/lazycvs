@@ -28,6 +28,17 @@ func moduleRoot(executor *cvs.CVSExecutor) (string, error) {
 	return filepath.Clean(strings.TrimSpace(string(data))), nil
 }
 
+// moduleName is moduleRoot for display: the header would rather show
+// nothing than an error, and a checkout whose CVS/Repository cannot be
+// read has bigger problems than a missing label.
+func moduleName(executor *cvs.CVSExecutor) string {
+	root, err := moduleRoot(executor)
+	if err != nil {
+		return ""
+	}
+	return root
+}
+
 // externalDiffMsg reports the result of an external diff/merge launch. err is
 // non-nil if extraction or spawning failed and is surfaced in the result bar.
 // A plain diff succeeds silently (the tool appearing is the feedback); a merge

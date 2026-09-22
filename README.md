@@ -152,6 +152,12 @@ from the binary name, overridable with `diff_terminal` / `merge_terminal`
 | `3` | Marked | The worklist `c`, `r`, `i` and `u` act on; `c` opens the commit input |
 | `4` | History | Revisions + working copy as a synthetic top row |
 
+The tab bar's right side carries the context: module, the sticky tag of
+the directory on screen (`MAIN` in grey on the trunk, the tag in yellow
+otherwise — CVS pins per directory, so a subdirectory can sit on a
+branch while the rest of the tree does not), and how long ago the tree
+was last checked.
+
 ## Key actions on a file
 
 | Key | Action |

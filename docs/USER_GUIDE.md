@@ -87,6 +87,27 @@ cursor, are then what the actions address. When the keys do not fit the
 terminal, the least important go first and the row ends in `+7 (?)`
 rather than being cut mid-word; `?` lists all of them.
 
+The tab bar's right-hand side says where you are: the module, the
+sticky tag of the directory the file pane is showing, and how long ago
+the whole tree was last checked against the server.
+
+```
+ 1:Files | 2:Fav | 3:Marked | 4:History        demo · release-2 · ⟳ 3m
+```
+
+The branch is the reason this exists. CVS pins stickiness **per
+directory**: `cvs update -r release-2` inside one subdirectory leaves
+the rest of the tree on the trunk, and nothing in a file listing tells
+you which one you are looking at. A directory with no sticky tag reads
+as `MAIN`, in grey; a sticky one is yellow, and a *non-branch* tag —
+one you cannot commit to — adds `no-commit`, which is cheaper to read
+here than in cvs's refusal after you have written the code.
+
+The age (`⟳ 3m`) counts from the last whole-tree check: startup, `s`,
+or a refresh after an action. Per-directory scans do not reset it, or
+it would always read "now" and answer nothing. On a narrow terminal the
+age goes first and the module second; the branch stays.
+
 The console at the bottom logs every `cvs` command lazycvs runs, with
 durations. It stays collapsed to a single line — the command that just
 ran — until you focus it (`Ctrl-J`) or a command fails, and it collapses

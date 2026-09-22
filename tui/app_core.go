@@ -355,6 +355,20 @@ type App struct {
 	width  int
 	height int
 
+	// Header context: which checkout, which branch, how old the
+	// picture is.
+	//
+	// module is read once — CVS/Repository does not change under a
+	// running checkout. sticky follows the directory the file pane is
+	// showing, because CVS pins per directory: one subdirectory can sit
+	// on a branch while the rest of the tree is on the trunk.
+	// statusAt is the last *full* refresh; a per-directory scan does
+	// not reset it, or the age would always read "now" and answer
+	// nothing.
+	module   string
+	sticky   cvs.Sticky
+	statusAt time.Time
+
 	// ui carries the [ui] sizes, read once at startup. consoleOverride
 	// is the height the user dialled in with +/- (0 = use the config).
 	ui              uiSizes
@@ -478,6 +492,7 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		cmdLog:        cmdLog,
 		cfgMgr:        cfgMgr,
 		ui:            uiSizesFrom(cfg),
+		module:        moduleName(exec),
 		initialPath:   initialPath,
 		statusMap:     make(map[string]string),
 		staleDirs:     make(map[string]bool),
@@ -609,6 +624,18 @@ func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
 	}
 }
 
+// clockTickMsg wakes the app so the header's refresh age advances on
+// its own. Without it the age freezes at whatever the last keystroke
+// left behind — and a header that says "2m" twenty minutes later is
+// worse than one that says nothing.
+type clockTickMsg time.Time
+
+const clockTickInterval = 30 * time.Second
+
+func clockTick() tea.Cmd {
+	return tea.Tick(clockTickInterval, func(t time.Time) tea.Msg { return clockTickMsg(t) })
+}
+
 func (m App) Init() tea.Cmd {
 	// Bootstrap mode has no working copy yet — skip the tree init and
 	// the background dir scan (both would blow up on a nil exec).
@@ -618,6 +645,7 @@ func (m App) Init() tea.Cmd {
 	initEpoch := m.statusEpoch
 	return tea.Batch(
 		m.tree.Init(),
+		clockTick(),
 		backgroundDirScan(m.exec, initEpoch, m.initialPath),
 	)
 }
@@ -756,6 +784,11 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	switch msg := msg.(type) {
+	case clockTickMsg:
+		// Nothing to do but come back: having run Update is what
+		// redraws the header.
+		return m, clockTick()
+
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
@@ -939,10 +972,21 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.applyStatuses(toClear, msg.statuses)
 		m.updateFileList()
+		if msg.recursive && msg.dir == "." {
+			// A recursive scan of the root is a whole-tree check, the
+			// same claim the explicit refresh makes — and it is what
+			// runs at startup, so the header can answer "how old is
+			// this?" from the first frame instead of staying blank
+			// until the user presses s.
+			m.statusAt = time.Now()
+		}
 		return m, nil
 
 	case statusRefreshedMsg:
 		m.console.refreshContent()
+		// The header's age hangs off this: the moment the whole tree
+		// was last compared with the server.
+		m.statusAt = time.Now()
 		if msg.result != nil {
 			// Dry-run gives the canonical statusMap (incl. server-side
 			// U-status the partition scan can't see) and StaleDirs.

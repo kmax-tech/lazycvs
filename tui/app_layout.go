@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/kmax-tech/lazycvs/cvs"
 	"github.com/kmax-tech/lazycvs/fs"
@@ -217,6 +218,74 @@ func (m App) renderBanner() string {
 	return style.Render(text)
 }
 
+// refreshAge is how long ago the whole tree was last checked against
+// the server, in one or two characters. Precision past the minute is
+// noise: the question the header answers is "can I trust what I see",
+// not "how many seconds exactly".
+func refreshAge(since time.Duration) string {
+	switch {
+	case since < time.Minute:
+		return "now"
+	case since < time.Hour:
+		return fmt.Sprintf("%dm", int(since.Minutes()))
+	case since < 24*time.Hour:
+		return fmt.Sprintf("%dh", int(since.Hours()))
+	default:
+		return fmt.Sprintf("%dd", int(since.Hours()/24))
+	}
+}
+
+// headerContext builds the right-hand side of the tab bar: which
+// checkout, which branch, how old the picture is.
+//
+// The branch is the reason this exists. CVS pins stickiness per
+// directory, so `cvs update -r release-2` in one subdirectory leaves
+// the rest of the tree on the trunk, and nothing in a file listing
+// says which one you are looking at. A whole afternoon can land on the
+// wrong branch without a single hint on screen.
+//
+// When the width runs out, the age goes first and the module second:
+// the branch is the part whose absence costs you work.
+func headerContext(module string, sticky cvs.Sticky, age string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+	branch := mutedStyle.Render(sticky.Label())
+	if !sticky.OnTrunk() {
+		branch = lipgloss.NewStyle().Foreground(colorStale).Bold(true).Render(sticky.Label())
+		if sticky.NonBranch {
+			// A non-branch tag cannot be committed to. Better to read
+			// that here than in cvs's refusal after writing the code.
+			branch += mutedStyle.Render(" no-commit")
+		}
+	}
+	sep := mutedStyle.Render(" · ")
+
+	candidates := []string{branch}
+	if age != "" {
+		candidates = append(candidates, mutedStyle.Render("⟳ "+age))
+	}
+	if module != "" {
+		candidates = append([]string{mutedStyle.Render(module)}, candidates...)
+	}
+
+	// Drop from the least important end until it fits: age, then module.
+	for {
+		row := strings.Join(candidates, sep) + " "
+		if lipgloss.Width(row) <= width || len(candidates) == 1 {
+			if lipgloss.Width(row) > width {
+				return ""
+			}
+			return row
+		}
+		if len(candidates) == 3 {
+			candidates = candidates[:2] // drop the age
+		} else {
+			candidates = candidates[1:] // drop the module
+		}
+	}
+}
+
 // tabNames are the four tab labels, built in one place because two
 // surfaces need them: the tab bar draws them, and the mouse handler
 // measures them to work out which tab a click landed on. They used to
@@ -267,12 +336,26 @@ func (m App) renderTabBar() string {
 		warn = warnStyle.Render(fmt.Sprintf(" ⚠ %d ", n))
 	}
 
-	// Pad bar so the warn indicator sits flush right.
-	pad := m.width - lipgloss.Width(bar) - lipgloss.Width(warn)
+	// Between the tabs and the warning: where this checkout is. The
+	// space left over decides how much of it fits.
+	ctx := headerContext(m.module, m.sticky, m.refreshAge(),
+		m.width-lipgloss.Width(bar)-lipgloss.Width(warn)-1)
+
+	pad := m.width - lipgloss.Width(bar) - lipgloss.Width(ctx) - lipgloss.Width(warn)
 	if pad > 0 {
 		bar += strings.Repeat(" ", pad)
 	}
-	return bar + warn
+	return bar + ctx + warn
+}
+
+// refreshAge reports how long ago the whole tree was last checked, or
+// "" before the first check has come back — an empty slot says "not
+// yet", which a "0m" would quietly misreport.
+func (m App) refreshAge() string {
+	if m.statusAt.IsZero() {
+		return ""
+	}
+	return refreshAge(time.Since(m.statusAt))
 }
 
 // fileListInfo is the file pane's footer: the cursor's position among

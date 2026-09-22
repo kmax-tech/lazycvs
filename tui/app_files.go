@@ -192,6 +192,9 @@ func (m *App) updateFileList() {
 }
 
 func (m *App) updateFileListForDir(dir string) {
+	// CVS pins stickiness per directory, so the header's branch has to
+	// follow the directory on screen rather than the checkout root.
+	m.sticky = cvs.ReadSticky(filepath.Join(m.exec.WorkDir, dir))
 	prefix := dir + "/"
 	if dir == "." {
 		prefix = ""

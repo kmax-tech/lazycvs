@@ -20,14 +20,24 @@ type CompareEntry struct {
 	HasChildren bool           `json:"has_children"`
 }
 
-var statusLabels = map[string]string{
-	"Up-to-date":                  "identical",
-	"Locally Modified":            "modified",
-	"Locally Added":               "local_only",
-	"Needs Checkout":              "server_only",
-	"Needs Patch":                 "server_only",
-	"Needs Merge":                 "conflict",
-	"File had conflicts on merge": "conflict",
+// compareLabel projects a CVS status onto the compare view's own
+// vocabulary. The classification itself lives in cvs.ClassifyStatus —
+// this used to be a second table of CVS phrases, and the two drifted.
+func compareLabel(status string) string {
+	switch cvs.ClassifyStatus(status) {
+	case cvs.StatusUpToDate:
+		return "identical"
+	case cvs.StatusModified:
+		return "modified"
+	case cvs.StatusAdded:
+		return "local_only"
+	case cvs.StatusNeedsUpdate:
+		return "server_only"
+	case cvs.StatusNeedsMerge, cvs.StatusConflict:
+		return "conflict"
+	default:
+		return ""
+	}
 }
 
 // Compare builds a top-level compare tree from CVS status data.
@@ -130,7 +140,7 @@ func CompareChildren(workDir, dir string, statuses []cvs.FileStatus) []CompareEn
 }
 
 func mapStatus(cvsStatus string) string {
-	if label, ok := statusLabels[cvsStatus]; ok {
+	if label := compareLabel(cvsStatus); label != "" {
 		return label
 	}
 	return "unknown"

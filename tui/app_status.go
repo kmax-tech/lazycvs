@@ -339,24 +339,5 @@ func runPartitionScan(executor *cvs.CVSExecutor, scope string) []cvs.FileStatus 
 // to the single-letter codes used throughout the UI. Returns "" for
 // statuses that don't map to anything actionable (e.g. "Up-to-date").
 func cvsStatusCode(status string) string {
-	switch status {
-	case "Locally Modified":
-		return "M"
-	case "Locally Added":
-		return "A"
-	case "Locally Removed":
-		return "R"
-	case "Needs Update", "Needs Patch":
-		return "U"
-	case "Needs Merge":
-		return "M"
-	case "File had conflicts on merge", "Unresolved Conflict":
-		return "C"
-	case "Unknown":
-		// `cvs status` calls untracked files "Unknown" while `cvs update -n`
-		// uses "?". Map both to the same code so the TUI shows ? consistently.
-		return "?"
-	default:
-		return ""
-	}
+	return cvs.ClassifyStatus(status).StatusCode()
 }

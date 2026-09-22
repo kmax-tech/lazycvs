@@ -49,10 +49,40 @@ func (e *CVSExecutor) RunReadOnly(args ...string) (*CommandResult, error) {
 	return e.run(args...)
 }
 
+// dashPathArgs rewrites arguments that are really working-copy paths
+// but look like flags: a file named "-dashfile.txt" handed to cvs as
+// an argument produces "add: illegal option -- d" and no action at
+// all. Prefixing it with "./" makes cvs read it as the path it is.
+//
+// The test is deliberately narrow — the argument must start with "-",
+// be longer than a short flag, and exist in the working copy — because
+// every cvs flag we pass is one or two characters and none of them
+// names a file. A working copy containing a file called exactly "-u"
+// would still confuse cvs, and confuses it from a shell too.
+//
+// This lives in the executor rather than at the twenty call sites that
+// build paths into arguments: a rule that has to be remembered
+// separately at each of them is a rule that will be forgotten at the
+// twenty-first.
+func dashPathArgs(workDir string, args []string) []string {
+	out := make([]string, len(args))
+	copy(out, args)
+	for i, a := range out {
+		if i == 0 || !strings.HasPrefix(a, "-") || len(a) <= 2 {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(workDir, a)); err == nil {
+			out[i] = "./" + a
+		}
+	}
+	return out
+}
+
 func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.Timeout)
 	defer cancel()
 
+	args = dashPathArgs(e.WorkDir, args)
 	cmd := exec.CommandContext(ctx, e.CVSBin, args...)
 	cmd.Dir = e.WorkDir
 

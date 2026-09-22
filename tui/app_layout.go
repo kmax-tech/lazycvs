@@ -2,9 +2,11 @@ package tui
 
 import (
 	"fmt"
-	"github.com/kmax-tech/lazycvs/fs"
 	"path/filepath"
 	"strings"
+
+	"github.com/kmax-tech/lazycvs/cvs"
+	"github.com/kmax-tech/lazycvs/fs"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -333,6 +335,11 @@ func (m App) renderMainContent() string {
 					rightTitle = node.Status + " " + fullDirPath(node.Path)
 				} else {
 					rightTitle = fullDirPath(node.Path)
+				}
+				if !node.IsDir {
+					if issue := m.encodingIssueFor(node.Path); issue != cvs.EncodingOK {
+						rightTitle += "  ⚠ " + issue.String()
+					}
 				}
 			} else {
 				rightTitle = "Preview"

@@ -17,6 +17,9 @@ type FileEntry struct {
 	ModTime    time.Time `json:"mod_time"`
 	Ignored    bool      `json:"ignored,omitempty"`
 	ServerOnly bool      `json:"server_only,omitempty"`
+	// EncodingIssue is a display-only warning (yellow "!" in the file
+	// list); it never blocks commit/add/diff.
+	EncodingIssue EncodingIssue `json:"encoding_issue,omitempty"`
 }
 
 // InTheWayEntry represents a file that blocks a server update ("move away").

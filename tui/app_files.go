@@ -251,7 +251,11 @@ func (m *App) updateFileListForDir(dir string) {
 						sz = info.Size()
 					}
 					st, ignored := resolveListingStatus(sn, m.resolveFileStatus(sp), subTracked, subIgnore)
-					sg.Files = append(sg.Files, cvs.FileEntry{Path: sp, Status: st, Size: sz, Ignored: ignored})
+					sf := cvs.FileEntry{Path: sp, Status: st, Size: sz, Ignored: ignored}
+					if !ignored {
+						sf.EncodingIssue = m.encodingIssueFor(sp)
+					}
+					sg.Files = append(sg.Files, sf)
 				}
 			}
 			subDirs = append(subDirs, sg)
@@ -263,7 +267,11 @@ func (m *App) updateFileListForDir(dir string) {
 			size = info.Size()
 		}
 		status, ignored := resolveListingStatus(name, m.resolveFileStatus(path), tracked, ignorePatterns)
-		files = append(files, cvs.FileEntry{Path: path, Status: status, Size: size, Ignored: ignored})
+		fe := cvs.FileEntry{Path: path, Status: status, Size: size, Ignored: ignored}
+		if !ignored {
+			fe.EncodingIssue = m.encodingIssueFor(path)
+		}
+		files = append(files, fe)
 	}
 
 	// Surface changed files the directory walk above didn't see. Two
@@ -309,6 +317,7 @@ func (m *App) updateFileListForDir(dir string) {
 			entry.IsDir = info.IsDir()
 			if !info.IsDir() {
 				entry.Size = info.Size()
+				entry.EncodingIssue = m.encodingIssueFor(path)
 			}
 		}
 		// The disk scans run names through the ignore patterns; do the

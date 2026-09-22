@@ -321,6 +321,37 @@ Applied at every loader that pipes file content to the renderer:
 Status / log / annotate / update parsers don't need it — their tokens
 are reliably ASCII.
 
+### Encoding warnings
+
+Beyond making broken content render, the file list also *flags* it.
+`cvs.DetectEncodingIssue(data, expect)` (`cvs/encoding.go`) classifies
+text bytes relative to the repo's expected encoding, configured as
+`cvs.expected_encoding` (`"latin1"` — the default, since classic CVS
+repos predate UTF-8 — or `"utf8"`).
+
+With Latin-1 expected: pure ASCII and clean Latin-1 (high bytes
+0xA0–0xFF) pass; `EncodingNonISO` flags C1 bytes 0x80–0x9F (CP1252
+smart quotes and friends — control codes, not characters, in
+ISO-8859-1); `EncodingUnexpectedUTF8` flags multi-byte UTF-8 content,
+which a Latin-1 consumer renders as mojibake; `EncodingMojibake` flags
+valid UTF-8 carrying double-encoded patterns — `Ã`/`Â` followed by a
+rune that reads as a UTF-8 continuation byte under Latin-1/CP1252, or
+`â` followed by two of them. The follower-set restriction keeps
+legitimate text like "NÃO" or "château" out of the mojibake class, so
+a single hit (`mojibakeThreshold = 1`) is enough for that verdict.
+With UTF-8 expected the classes reduce to `EncodingNotUTF8` (invalid
+UTF-8, most likely a Latin-1/CP1252 file) and `EncodingMojibake`.
+
+The TUI-side wrapper `encodingIssueFor` (`tui/encoding_check.go`)
+skips binaries via `fs.IsBinary`, reads at most 128 KB
+(`encCheckMaxBytes`; damage past the cap goes undetected), and
+memoizes the verdict per path in `App.encCache`, invalidated purely by
+mtime/size comparison on access. Verdicts are attached to `FileEntry`
+during `updateFileListForDir` and rendered as a yellow `!` between the
+status badge and the file name; details mode appends the full text
+(e.g. `⚠ UTF-8 (expected Latin-1)`) to the right-panel title. The
+flag is display-only: commit, add, and diff are never gated on it.
+
 ## Key dispatch
 
 Three layers, in priority order, each handled in `tui/app_keys.go`:

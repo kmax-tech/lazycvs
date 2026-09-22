@@ -471,9 +471,20 @@ func (m FileListModel) View() string {
 				size = formatSize(f.Size)
 			}
 
+			// Encoding warning flag (display-only): one of the two gap
+			// spaces between status and name becomes a yellow "!" for
+			// files with encoding issues, so the total row width and
+			// nameWidth arithmetic stay unchanged. ASCII "!" (matching
+			// the "! stale" tree badge) rather than "⚠", whose ambiguous
+			// glyph width could misalign the fixed column.
+			encFlag := " "
+			if f.EncodingIssue != cvs.EncodingOK {
+				encFlag = lipgloss.NewStyle().Foreground(colorStale).Render("!")
+			}
+
 			nameWidth := max(1, m.width-20)
-			line = fmt.Sprintf(" %s %s  %-*s %8s",
-				mark, status, nameWidth, truncate(name, nameWidth), size)
+			line = fmt.Sprintf(" %s %s%s %-*s %8s",
+				mark, status, encFlag, nameWidth, truncate(name, nameWidth), size)
 		}
 
 		if i == m.cursor {

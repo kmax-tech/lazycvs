@@ -311,6 +311,16 @@ type App struct {
 	// row correctly when the working copy is on a sticky tag or branch.
 	baseRevMap map[string]string
 
+	// encCache memoizes per-file encoding verdicts (see encoding_check.go).
+	// Invalidation is stat-based on access — a changed mtime or size
+	// triggers a fresh read — so no explicit clearing is needed.
+	encCache map[string]encVerdict
+
+	// expectedEnc is the repo's expected text encoding (config
+	// `cvs.expected_encoding`), read once at startup. Zero value is
+	// ExpectLatin1 — the CVS default.
+	expectedEnc cvs.ExpectedEncoding
+
 	// Epoch-based staleness tracking: each status command dispatch
 	// increments statusEpoch. dirEpoch records the epoch of the most
 	// recently applied update per directory. A result is only applied if
@@ -394,6 +404,8 @@ func NewApp(exec *cvs.CVSExecutor, cmdLog *cvs.CommandLog, cfgMgr *config.Config
 		statusMap:     make(map[string]string),
 		staleDirs:     make(map[string]bool),
 		baseRevMap:    make(map[string]string),
+		encCache:      make(map[string]encVerdict),
+		expectedEnc:   cvs.ParseExpectedEncoding(cfg.CVS.ExpectedEncoding),
 		statusEpoch:   1,
 		dirEpoch:      make(map[string]uint64),
 		histRevisions: make(map[string]*cvs.FileHistory),

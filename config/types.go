@@ -30,6 +30,11 @@ type CVSConfig struct {
 	// server-global, so the window is what keeps the query cheap.
 	// 0 or unset means 7.
 	HistoryDays int `toml:"history_days,omitempty" json:"history_days,omitempty"`
+	// ExpectedEncoding is the text encoding the repo's files are supposed
+	// to use: "latin1" (default — classic CVS) or "utf8". It only steers
+	// the encoding warning flag in the file list; reading, writing, and
+	// committing are never affected.
+	ExpectedEncoding string `toml:"expected_encoding,omitempty" json:"expected_encoding,omitempty"`
 }
 
 // FavoritesConfig holds the list of favorite directories.

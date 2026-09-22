@@ -39,3 +39,8 @@ notes-design.md
 # Internal design spec — lives in the private kmax-tech/lazycvs-internal repo.
 # Keep ignored here so it can't accidentally get committed to the public repo.
 lazycvs-spec.md
+
+# Demo working copies generated with a custom name (scripts/demo.py <dir>).
+# `make demo` uses /_lazycvs-demo/ above; a plain name like demo-repo/ also
+# gets walked by `go test ./...`, which is why it must not be committed.
+/demo-repo/

@@ -482,13 +482,20 @@ func (m FileListModel) View() string {
 				encFlag = lipgloss.NewStyle().Foreground(colorStale).Render("!")
 			}
 
+			// Cells, not bytes: %-*s pads by byte count, so a name
+			// with an umlaut pushed the size column one cell left per
+			// non-ASCII byte. ansi.Truncate and lipgloss.Width both
+			// count display cells.
 			nameWidth := max(1, m.width-20)
-			line = fmt.Sprintf(" %s %s%s %-*s %8s",
-				mark, status, encFlag, nameWidth, truncate(name, nameWidth), size)
+			line = fmt.Sprintf(" %s %s%s %s %8s",
+				mark, status, encFlag, padCells(name, nameWidth), size)
 		}
 
 		if i == m.cursor {
-			line = lipgloss.NewStyle().Reverse(true).Render(line)
+			// One reversed bar across the pane, built from plain text:
+			// reversing a coloured status badge paints it as a block,
+			// and a short bar ends ragged mid-row. See tree.go.
+			line = cursorBar(line, m.width)
 		}
 		lines = append(lines, line)
 	}
@@ -509,17 +516,4 @@ func formatSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
-}
-
-func truncate(s string, maxLen int) string {
-	if maxLen <= 0 {
-		return s
-	}
-	if len(s) <= maxLen {
-		return s
-	}
-	if maxLen < 4 {
-		return s[:maxLen]
-	}
-	return s[:maxLen-3] + "..."
 }

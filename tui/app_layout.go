@@ -583,6 +583,35 @@ func (m App) actionRow(ctx keyContext) string {
 	}
 }
 
+// padCells truncates s to w display cells and pads it out to exactly w.
+//
+// Display cells, not bytes: fmt's %-*s verb pads by byte count, so a
+// single umlaut in a file name or an author shifted every column to its
+// right by one cell — routine in a repo whose expected encoding is
+// Latin-1.
+func padCells(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	s = ansi.Truncate(s, w, "…")
+	if pad := w - lipgloss.Width(s); pad > 0 {
+		s += strings.Repeat(" ", pad)
+	}
+	return s
+}
+
+// cursorBar paints a row as the selection bar: plain text (reversing a
+// coloured badge turns it into a solid block), truncated and padded to
+// the pane width so the bar spans the pane instead of ending ragged
+// wherever the text happens to stop.
+func cursorBar(line string, width int) string {
+	plain := ansi.Strip(line)
+	if width > 0 {
+		plain = padCells(plain, width)
+	}
+	return lipgloss.NewStyle().Reverse(true).Render(plain)
+}
+
 // truncateRow is the last-resort guard for a terminal too narrow for
 // even one key.
 func truncateRow(row string, width int) string {

@@ -511,6 +511,8 @@ func (m TreeModel) View() string {
 		indent := strings.Repeat("  ", f.depth)
 
 		var icon, name, counts string
+		// Plain (uncoloured) counterparts, used to paint the cursor row.
+		var plainStatus, plainCounts, plainStale string
 		if f.node.IsDir {
 			if f.node.Expanded {
 				icon = "v "
@@ -520,6 +522,7 @@ func (m TreeModel) View() string {
 			name = f.node.Name + "/"
 			if !f.node.Counts.IsZero() {
 				counts = "  " + renderCounts(f.node.Counts)
+				plainCounts = "  " + f.node.Counts.String()
 			}
 		} else {
 			icon = "  "
@@ -533,9 +536,11 @@ func (m TreeModel) View() string {
 			// Dirs don't get a badge (their slot shows aggregate counts),
 			// only the dim/strikethrough styling applied below.
 			statusStr = lipgloss.NewStyle().Foreground(colorIgnored).Render("I") + " "
+			plainStatus = "I "
 		case f.node.Status != "":
 			c := statusColor(f.node.Status)
 			statusStr = lipgloss.NewStyle().Foreground(c).Render(f.node.Status) + " "
+			plainStatus = f.node.Status + " "
 		}
 
 		// Stale-dir badge: directory exists locally but CVS reports it
@@ -544,6 +549,7 @@ func (m TreeModel) View() string {
 		staleBadge := ""
 		if f.node.IsStale {
 			staleBadge = "  " + lipgloss.NewStyle().Foreground(colorStale).Render("! stale")
+			plainStale = "  ! stale"
 		}
 
 		line := indent + icon + statusStr + name + counts + staleBadge
@@ -552,7 +558,15 @@ func (m TreeModel) View() string {
 			line = ignoredStyle.Render(line)
 		}
 		if i == m.cursor {
-			line = lipgloss.NewStyle().Reverse(true).Render(line)
+			// The cursor row is one reversed bar, built from the plain
+			// text rather than the coloured segments: reversing a
+			// coloured badge paints it as a solid block (the blue smear
+			// over "1M" on the selected row), and an unpadded bar ends
+			// ragged in the middle of the pane while the file list's
+			// bar spans it. Both panes now highlight the same way.
+			lines = append(lines,
+				cursorBar(indent+icon+plainStatus+name+plainCounts+plainStale, m.width))
+			continue
 		}
 		// Truncate to width. Use ansi.Truncate, not a byte slice — the
 		// rendered line contains escape sequences (status colors,

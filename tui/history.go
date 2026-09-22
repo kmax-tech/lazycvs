@@ -980,9 +980,11 @@ func (m HistoryModel) ViewLeft() string {
 			rev := m.revisions[m.revisionIndex(i)]
 			date := rev.Date.Format("Jan 02 06")
 
-			line1 = fmt.Sprintf("%s%-6s %-8s %s", markerTop, rev.Number, truncate(rev.Author, 8), date)
+			line1 = fmt.Sprintf("%s%s %s %s",
+				markerTop, padCells(rev.Number, 6), padCells(rev.Author, 8), date)
 			if len(rev.Tags) > 0 {
-				line1 += " " + lipgloss.NewStyle().Foreground(colorStale).Render(truncate(rev.Tags[0], 12))
+				line1 += " " + lipgloss.NewStyle().Foreground(colorStale).
+					Render(ansi.Truncate(rev.Tags[0], 12, "…"))
 			}
 			// Base-revision badge: when the file is clean, badge the
 			// row whose Number matches the working revision. This is
@@ -994,7 +996,7 @@ func (m HistoryModel) ViewLeft() string {
 			}
 
 			msg := strings.SplitN(rev.Message, "\n", 2)[0]
-			msg = truncate(msg, m.leftWidth-4)
+			msg = ansi.Truncate(msg, max(1, m.leftWidth-4), "…")
 			delta := ""
 			if rev.LinesAdded > 0 || rev.LinesRemoved > 0 {
 				delta = fmt.Sprintf(" %s%s",

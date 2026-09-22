@@ -4,10 +4,16 @@ import "github.com/charmbracelet/lipgloss"
 
 // ANSI colors — respect user's terminal theme
 var (
-	colorMod       = lipgloss.Color("4")   // Blue
-	colorConflict  = lipgloss.Color("1")   // Red
-	colorUpdated   = lipgloss.Color("2")   // Green
-	colorUntracked = lipgloss.Color("8")   // Gray
+	colorMod      = lipgloss.Color("4") // Blue
+	colorConflict = lipgloss.Color("1") // Red
+	colorUpdated  = lipgloss.Color("2") // Green
+	// Untracked files are the bulk of a typical listing, so they must
+	// read as quieter than M/C — but ANSI 8 made them the exact colour
+	// of the panel borders and every muted label, which buried the one
+	// or two rows that needed attention in a field of identical grey.
+	// 244 keeps them subdued while separating them from the chrome, and
+	// leaves 239 (ignored) dimmer still: ignored < untracked < normal.
+	colorUntracked = lipgloss.Color("244") // Medium gray
 	colorStale     = lipgloss.Color("3")   // Yellow
 	colorBorder    = lipgloss.Color("8")   // Gray
 	colorActive    = lipgloss.Color("4")   // Blue

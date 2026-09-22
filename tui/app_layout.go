@@ -217,22 +217,40 @@ func (m App) renderBanner() string {
 	return style.Render(text)
 }
 
-func (m App) renderTabBar() string {
+// tabNames are the four tab labels, built in one place because two
+// surfaces need them: the tab bar draws them, and the mouse handler
+// measures them to work out which tab a click landed on. They used to
+// be built twice, so renaming a tab in one place silently shifted every
+// click target in the other.
+func (m App) tabNames() []string {
 	treeName := "Files"
 	if m.treeMode == TreeViewDetails {
-		treeName = "Detail"
+		treeName = "Diff"
 	}
-	stagedName := "Staged"
+	// "Staged" promised a CVS index. CVS has none: the tab shows the
+	// files the user marked, and the marks are a worklist every bulk
+	// action reads. One word for one thing — the code called it
+	// marked, the key was called mark, and only the tab said staged.
+	markedName := "Marked"
 	if n := len(m.filelist.marked); n > 0 {
-		stagedName = fmt.Sprintf("Staged(%d)", n)
+		markedName = fmt.Sprintf("Marked(%d)", n)
 	}
-	names := []string{treeName, "Fav", stagedName, "History"}
+	return []string{treeName, "Fav", markedName, "History"}
+}
+
+// tabLabel is how a name appears in the bar, separators excluded.
+func tabLabel(i int, name string) string {
+	return fmt.Sprintf(" %d:%s ", i+1, name)
+}
+
+func (m App) renderTabBar() string {
+	names := m.tabNames()
 	active := lipgloss.NewStyle().Foreground(colorActive).Bold(true)
 	inactive := mutedStyle
 
 	var parts []string
 	for i, name := range names {
-		label := fmt.Sprintf(" %d:%s ", i+1, name)
+		label := tabLabel(i, name)
 		if Tab(i) == m.activeTab {
 			parts = append(parts, active.Render(label))
 		} else {
@@ -346,7 +364,7 @@ func (m App) renderMainContent() string {
 	case TabFavorites:
 		leftTitle = "Favorites"
 	case TabStaged:
-		leftTitle = fmt.Sprintf("Staged (%d)", len(m.staged.files))
+		leftTitle = fmt.Sprintf("Marked (%d)", len(m.staged.files))
 	case TabHistory:
 		if p := m.history.Path(); p != "" {
 			leftTitle = "Revisions — " + p

@@ -1,7 +1,7 @@
 package tui
 
 import (
-	"fmt"
+	"github.com/charmbracelet/lipgloss"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -96,19 +96,10 @@ func (m *App) handleMouse(msg tea.MouseMsg) tea.Cmd {
 
 // tabAtX returns the tab index for a given X coordinate, or -1 if outside.
 func (m *App) tabAtX(x int) int {
-	treeName := "Files"
-	if m.treeMode == TreeViewDetails {
-		treeName = "Detail"
-	}
-	stagedName := "Staged"
-	if n := len(m.filelist.marked); n > 0 {
-		stagedName = fmt.Sprintf("Staged(%d)", n)
-	}
-	names := []string{treeName, "Fav", stagedName, "History"}
+	names := m.tabNames()
 	pos := 0
 	for i, name := range names {
-		label := fmt.Sprintf(" %d:%s ", i+1, name)
-		end := pos + len(label)
+		end := pos + lipgloss.Width(tabLabel(i, name))
 		if x >= pos && x < end {
 			return i
 		}

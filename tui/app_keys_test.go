@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/kmax-tech/lazycvs/cvs"
 )
 
@@ -291,5 +292,49 @@ func TestConsoleOpensOnErrorsAfterAFailure(t *testing.T) {
 	app2.handleGlobalKey(tea.KeyMsg{Type: tea.KeyCtrlJ})
 	if app2.console.filter != ConsoleCompact {
 		t.Errorf("filter changed without a failure: %v", app2.console.filter)
+	}
+}
+
+// Looking at the marked set must not change it. Entering the tab used
+// to mark the file under the cursor whenever nothing was marked yet —
+// a silent edit to the worklist, made by navigation, that the next
+// bulk action then acted on.
+func TestOpeningTheMarkedTabMarksNothing(t *testing.T) {
+	app := newListingTestApp(t)
+	app.staged = NewStagedModel()
+	app.history = NewHistoryModel()
+	app.tree = NewTreeModel(app.exec.WorkDir)
+	app.updateFileListForDir(".")
+	app.filelist.FocusOnFile("top.txt")
+
+	app.handleGlobalKey(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("3")})
+
+	if app.activeTab != TabStaged {
+		t.Fatalf("3 did not open the marked tab: %v", app.activeTab)
+	}
+	if n := len(app.filelist.marked); n != 0 {
+		t.Errorf("opening the tab marked %d file(s): %v", n, app.filelist.marked)
+	}
+	if n := len(app.staged.files); n != 0 {
+		t.Errorf("marked list shows %d file(s) nobody marked", n)
+	}
+}
+
+// The tab bar's labels and the click map are built from one list; when
+// they were built twice, renaming a tab shifted every click target.
+func TestTabClickTargetsFollowTheLabels(t *testing.T) {
+	app := newListingTestApp(t)
+	app.width = 100
+	app.filelist.marked["a.txt"] = true // widens the third label
+
+	names := app.tabNames()
+	pos := 0
+	for i, name := range names {
+		label := tabLabel(i, name)
+		mid := pos + lipgloss.Width(label)/2
+		if got := app.tabAtX(mid); got != i {
+			t.Errorf("click in the middle of %q hits tab %d, want %d", label, got, i)
+		}
+		pos += lipgloss.Width(label) + 1 // the │ separator
 	}
 }

@@ -133,16 +133,18 @@ func (m StagedModel) ViewLeft() string {
 		return m.viewCommitFiles()
 	}
 
-	header := titleStyle.Render(fmt.Sprintf(" staged (%d)", len(m.files)))
+	header := titleStyle.Render(fmt.Sprintf(" marked (%d)", len(m.files)))
 	var lines []string
 	lines = append(lines, header)
 
 	if len(m.files) == 0 {
 		lines = append(lines, "")
-		lines = append(lines, mutedStyle.Render("  No files staged"))
+		lines = append(lines, mutedStyle.Render("  Nothing marked"))
 		lines = append(lines, "")
-		lines = append(lines, mutedStyle.Render("  Use space in the file list"))
-		lines = append(lines, mutedStyle.Render("  to mark files for commit"))
+		lines = append(lines, mutedStyle.Render("  Press space on a file in the"))
+		lines = append(lines, mutedStyle.Render("  Files tab to mark it. Marked"))
+		lines = append(lines, mutedStyle.Render("  files are what c, r, i and u"))
+		lines = append(lines, mutedStyle.Render("  act on."))
 		for len(lines) < m.height {
 			lines = append(lines, "")
 		}

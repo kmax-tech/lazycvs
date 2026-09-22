@@ -83,7 +83,7 @@ var keys = keyMap{
 	BackTab: key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("S-tab", "prev tab")),
 	Tab1:    key.NewBinding(key.WithKeys("1"), key.WithHelp("1", "tree")),
 	Tab2:    key.NewBinding(key.WithKeys("2"), key.WithHelp("2", "favorites")),
-	Tab3:    key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "staged")),
+	Tab3:    key.NewBinding(key.WithKeys("3"), key.WithHelp("3", "marked")),
 	Tab4:    key.NewBinding(key.WithKeys("4"), key.WithHelp("4", "history")),
 	FocusL: key.NewBinding(
 		key.WithKeys("ctrl+h", "ctrl+left"),

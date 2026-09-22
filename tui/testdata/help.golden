@@ -37,7 +37,7 @@ Tabs
 ────
   1           Files — tree+filelist OR tree+diff preview
   2           Favorites — pinned directories
-  3           Staged — files marked for commit
+  3           Marked — the worklist c, r, i and u act on
   4           History — revisions of the selected file
 
   Bootstrap: `lazycvs init` in an empty dir to check out a fresh
@@ -49,7 +49,7 @@ File actions
   c           commit cursor file (or marked files)
   C-e         commit message in $EDITOR (while input focused)
   a           add cursor file (?-status) to CVS
-  r           revert cursor file (bulk in Staged tab)
+  r           revert the cursor file, or every marked M/C file
   B           restore .lazycvs-backup (marked / dir subtree / cursor)
   D           remove (single file or marked set)
   i           ignore — add pattern to .cvsignore

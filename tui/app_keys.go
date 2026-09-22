@@ -43,19 +43,11 @@ var globalBindings = []struct {
 	}},
 	{keys.Tab2, func(m *App) tea.Cmd { m.activeTab = TabFavorites; return nil }},
 	{keys.Tab3, func(m *App) tea.Cmd {
+		// Looking at the marked set must not change it. Entering this
+		// tab used to mark the file under the cursor whenever nothing
+		// was marked yet — a silent edit to the worklist, triggered by
+		// navigation, that the next bulk action then acted on.
 		m.activeTab = TabStaged
-		// Auto-mark the selected file if nothing is staged yet
-		if len(m.filelist.marked) == 0 {
-			var path string
-			if f := m.filelist.SelectedFile(); f != nil && f.Status != "" {
-				path = f.Path
-			} else if node := m.tree.SelectedNode(); node != nil && !node.IsDir && node.Status != "" {
-				path = node.Path
-			}
-			if path != "" {
-				m.filelist.marked[path] = true
-			}
-		}
 		m.staged.Refresh(m.filelist.marked, m.resolveFileStatus)
 		paths := m.filelist.MarkedFiles()
 		if len(paths) > 0 {
@@ -130,7 +122,7 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// commits (non-empty message) or aborts (empty).
 		commitFiles := m.staged.CommittablePaths()
 		if len(commitFiles) == 0 {
-			return m.setResult("Nothing committable staged — statuses must be ?, A, M, C or R", false), true
+			return m.setResult("Nothing committable marked — statuses must be ?, A, M, C or R", false), true
 		}
 		return openCommitEditor(
 			m.staged.input.Value(),
@@ -149,7 +141,7 @@ func (m *App) handleStagedInput(msg tea.KeyMsg) (tea.Cmd, bool) {
 		if len(commitFiles) == 0 {
 			// Silent-swallow used to read as "commit is broken" — the
 			// input ate the Enter and nothing happened, nothing said why.
-			return m.setResult("Nothing committable staged — statuses must be ?, A, M, C or R", false), true
+			return m.setResult("Nothing committable marked — statuses must be ?, A, M, C or R", false), true
 		}
 		message := m.staged.input.Value()
 		m.staged.input.SetValue("")
@@ -397,7 +389,7 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 				m.staged.input.Focus()
 				return nil
 			}
-			return m.setResult(fmt.Sprintf("Nothing committable in %d staged file(s) — need status ?, A, M, C or R", len(m.staged.files)), false)
+			return m.setResult(fmt.Sprintf("Nothing committable in %d marked file(s) — need status ?, A, M, C or R", len(m.staged.files)), false)
 		case key.Matches(msg, keys.Commit) && m.activeTab != TabHistory && m.activeTab != TabStaged:
 			return m.openCommitDialog()
 		case key.Matches(msg, keys.Revert) && m.activeTab != TabHistory && m.activeTab != TabStaged:

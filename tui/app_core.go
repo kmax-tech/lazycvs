@@ -904,6 +904,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// element-for-element, so we just rebuild from the cache.
 		if m.history.Path() == msg.path && msg.history != nil {
 			m.history.ApplyRevisions(msg.history, m.workingCopyIsDirty(msg.path), m.baseRevMap[msg.path])
+			m.history.MarkLoaded(m.historyEmptyNote(msg.path))
 			if m.history.NumRevisions() > 0 {
 				return m, m.loadHistoryContent()
 			}

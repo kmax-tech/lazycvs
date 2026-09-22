@@ -126,6 +126,21 @@ func (m *App) autoLoadHistory() tea.Cmd {
 	return m.openHistoryFor(path)
 }
 
+// historyEmptyNote explains an empty log. "No revisions" alone would
+// leave the user guessing between "not in CVS", "added but never
+// committed" and "something went wrong" — three different situations
+// with three different next steps.
+func (m *App) historyEmptyNote(path string) string {
+	switch m.resolveFileStatus(path) {
+	case "?":
+		return "Not in CVS — no revisions yet. Press a in the Files tab to add it."
+	case "A":
+		return "Added but not committed. The first commit creates revision 1.1."
+	default:
+		return "No revisions returned. The Console has what cvs said."
+	}
+}
+
 // openHistoryFor switches the History view to path. Revisions are served
 // from the per-file cache when available (no re-fetch on revisit); only
 // the first visit hits the cvs binary.

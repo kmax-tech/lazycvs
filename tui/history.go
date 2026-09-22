@@ -92,6 +92,13 @@ type HistoryModel struct {
 	hasWorkingRow      bool
 	workingMatchesBase bool
 
+	// loaded marks the log as finished for this path, and emptyNote is
+	// what to say when it finished with nothing. Without them an empty
+	// result is indistinguishable from a pending one, and a file CVS
+	// does not track sat on "Loading revisions..." forever.
+	loaded    bool
+	emptyNote string
+
 	// baseRev is the revision number the on-disk file is checked out to
 	// — populated from `cvs status` "Working revision:". Sticky-tag and
 	// branch aware: not necessarily the most recent revision in the log.
@@ -496,6 +503,14 @@ func loadBlame(exec *cvs.CVSExecutor, path string) tea.Cmd {
 // SwitchTo loads UI state for path, saving the current path's state first.
 // Caller is responsible for then pushing the file's revisions/diff/content
 // from the App's caches via the Apply* methods.
+// MarkLoaded records that the log for the current path has arrived.
+// note is what the left pane says when it arrived empty — the App
+// phrases it, because the reason lives in the status map it owns.
+func (m *HistoryModel) MarkLoaded(note string) {
+	m.loaded = true
+	m.emptyNote = note
+}
+
 func (m *HistoryModel) SwitchTo(path string) {
 	if m.path != "" {
 		m.uiState[m.path] = historyFileUI{
@@ -509,6 +524,8 @@ func (m *HistoryModel) SwitchTo(path string) {
 	}
 	m.path = path
 	m.revisions = nil
+	m.loaded = false
+	m.emptyNote = ""
 	m.diffData = nil
 	m.content = ""
 	m.diffFromRev = ""
@@ -932,7 +949,17 @@ func (m HistoryModel) ViewLeft() string {
 	}
 	rows := m.numRows()
 	if rows == 0 {
-		return mutedStyle.Render("  Loading revisions...")
+		if !m.loaded {
+			return mutedStyle.Render("  Loading revisions...")
+		}
+		// The revision pane is narrow; an explanation that runs off
+		// its edge explains nothing.
+		wrapped := ansi.Wordwrap(m.emptyNote, max(12, m.leftWidth-4), " -—")
+		var out []string
+		for _, line := range strings.Split(wrapped, "\n") {
+			out = append(out, mutedStyle.Render("  "+strings.TrimLeft(line, " ")))
+		}
+		return strings.Join(out, "\n")
 	}
 
 	visibleCount := m.height / 2
@@ -1043,6 +1070,11 @@ func (m HistoryModel) ViewRight() string {
 		return ""
 	}
 	if m.diffData == nil && m.content == "" {
+		if m.loaded && m.numRows() == 0 {
+			// No revisions to show anything about; the left pane
+			// already explains why.
+			return ""
+		}
 		switch m.mode {
 		case HistoryDiff:
 			return mutedStyle.Render("  Loading diff...")

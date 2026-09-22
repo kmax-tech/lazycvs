@@ -134,3 +134,62 @@ func TestRefreshAgeIsEmptyUntilTheFirstCheck(t *testing.T) {
 		t.Errorf("age = %q, want 5m", got)
 	}
 }
+
+// "Nothing yet" and "nothing, and that is the answer" used to render
+// identically: a file CVS does not track sat on "Loading revisions..."
+// forever, because zero rows was read as pending.
+func TestHistoryDistinguishesPendingFromEmpty(t *testing.T) {
+	h := NewHistoryModel()
+	h.SetSize(PanelDims{LeftW: 40, RightW: 60, Height: 20})
+	h.SwitchTo("scratch.log")
+
+	pending := ansi.Strip(h.ViewLeft())
+	if !strings.Contains(pending, "Loading revisions") {
+		t.Errorf("before the log arrives the pane should say so: %q", pending)
+	}
+
+	h.MarkLoaded("Not in CVS — no revisions yet. Press a in the Files tab to add it.")
+	done := ansi.Strip(h.ViewLeft())
+	if strings.Contains(done, "Loading") {
+		t.Errorf("an empty answer must not read as pending: %q", done)
+	}
+	if !strings.Contains(done, "Not in CVS") {
+		t.Errorf("the empty pane should explain itself: %q", done)
+	}
+	for _, line := range strings.Split(done, "\n") {
+		if lipgloss.Width(line) > 40 {
+			t.Errorf("explanation runs past the pane: %q", line)
+		}
+	}
+
+	// The right pane has nothing to add in that state.
+	if got := ansi.Strip(h.ViewRight()); strings.Contains(got, "Loading") {
+		t.Errorf("right pane still claims to be loading: %q", got)
+	}
+
+	// Switching files starts the cycle over.
+	h.SwitchTo("other.txt")
+	if again := ansi.Strip(h.ViewLeft()); !strings.Contains(again, "Loading revisions") {
+		t.Errorf("a new file starts pending again: %q", again)
+	}
+}
+
+// The three empty cases have three different next steps, so they get
+// three different sentences.
+func TestHistoryEmptyNoteFollowsTheStatus(t *testing.T) {
+	app := newListingTestApp(t)
+	// The statuses the scan would have put there.
+	app.statusMap["untracked.txt"] = "?"
+	app.statusMap["added.txt"] = "A"
+	app.statusMap["tracked.txt"] = "M"
+
+	if got := app.historyEmptyNote("untracked.txt"); !strings.Contains(got, "Not in CVS") {
+		t.Errorf("untracked note = %q", got)
+	}
+	if got := app.historyEmptyNote("added.txt"); !strings.Contains(got, "not committed") {
+		t.Errorf("added note = %q", got)
+	}
+	if got := app.historyEmptyNote("tracked.txt"); !strings.Contains(got, "Console") {
+		t.Errorf("unexplained note should point at the console: %q", got)
+	}
+}

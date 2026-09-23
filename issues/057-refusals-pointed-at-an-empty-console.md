@@ -35,7 +35,9 @@ Two halves:
   characters (the console has the full text), and drops the file label
   when the reason already names the file.
 
-Both failure handlers — remove and the shared add/revert path — use it.
+All four failure handlers — remove, commit, update and the shared
+add/revert path — use it. (Commit and update were left at "see
+Console" at first; issue 058 caught up.)
 
 ## Files touched
 

@@ -13,6 +13,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type Panel int
@@ -226,6 +227,15 @@ func (m *App) unsavedWork() string {
 	return ""
 }
 
+// pathsLabel names the files an action touched: the file itself when
+// there is one, a count otherwise.
+func pathsLabel(paths []string) string {
+	if len(paths) == 1 {
+		return filepath.Base(paths[0])
+	}
+	return countLabel(len(paths), "file")
+}
+
 // actionFailure phrases a failed action for the banner. It carries the
 // reason rather than pointing at the console: "see Console" is only an
 // answer when the console has something to say, and a refusal that
@@ -240,9 +250,9 @@ func actionFailure(what, label string, err error) string {
 	if reason == "" {
 		return msg + " — see Console"
 	}
-	if len(reason) > 80 {
-		reason = reason[:77] + "…"
-	}
+	// Cells, not bytes: a byte cut lands inside an umlaut and the
+	// banner carries invalid UTF-8.
+	reason = ansi.Truncate(reason, 80, "…")
 	if strings.Contains(reason, label) {
 		// The reason already names the file; saying it twice reads
 		// like a stutter.
@@ -1074,11 +1084,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// working-copy diff cache for the path; safest to drop the
 		// per-path History cache so the next view re-fetches.
 		if msg.err != nil {
-			label := fmt.Sprintf("%d path(s)", len(msg.paths))
-			if len(msg.paths) == 1 {
-				label = filepath.Base(msg.paths[0])
-			}
-			notifyCmd := m.setResult(actionFailure("Action", label, msg.err), false)
+			notifyCmd := m.setResult(actionFailure("Action", pathsLabel(msg.paths), msg.err), false)
 			invalidateCmd := m.invalidateHistoryCache(msg.paths)
 			return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths), invalidateCmd)
 		}
@@ -1103,7 +1109,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Own commits create history events the H cache can't know.
 			m.recentEvents = nil
 		} else {
-			notifyCmd = m.setResult("✗ Commit failed — see Console for details", false)
+			notifyCmd = m.setResult(actionFailure("Commit", pathsLabel(msg.files), msg.err), false)
 		}
 		// A successful commit creates a new revision: drop the cached
 		// revisions / diffs / contents for every committed path so the
@@ -1255,7 +1261,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var notifyCmd tea.Cmd
 		switch {
 		case msg.err != nil:
-			notifyCmd = m.setResult("✗ Update failed — see Console", false)
+			notifyCmd = m.setResult(actionFailure("Update", pathsLabel(msg.paths), msg.err), false)
 		case len(msg.inTheWay) > 0:
 			// CVS held back N files because local files were in the
 			// way; surface that in the banner and open the dialog.
@@ -1288,11 +1294,7 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case removeDoneMsg:
 		if msg.err != nil {
-			label := fmt.Sprintf("%d files", len(msg.paths))
-			if len(msg.paths) == 1 {
-				label = filepath.Base(msg.paths[0])
-			}
-			notifyCmd := m.setResult(actionFailure("Remove", label, msg.err), false)
+			notifyCmd := m.setResult(actionFailure("Remove", pathsLabel(msg.paths), msg.err), false)
 			return m, tea.Batch(notifyCmd, m.refreshStatusForPaths(msg.paths))
 		}
 		for _, p := range msg.paths {

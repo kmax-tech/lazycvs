@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -252,7 +253,21 @@ func TestActionFailureCarriesTheReason(t *testing.T) {
 	}
 
 	long := errors.New(strings.Repeat("x", 200))
-	if got := actionFailure("Action", "a.txt", long); len(got) > 110 {
-		t.Errorf("a long cvs error should be cut, got %d chars", len(got))
+	if got := actionFailure("Action", "a.txt", long); ansi.StringWidth(got) > 110 {
+		t.Errorf("a long cvs error should be cut, got %d cells", ansi.StringWidth(got))
+	}
+
+	// The cut lands on a character boundary, not inside an umlaut:
+	// 77 bytes into this reason is the middle of the "ö".
+	umlaut := errors.New("path escapes working copy: docs/" + strings.Repeat("x", 40) + "Größe.txt")
+	if got := actionFailure("Remove", "Größe.txt", umlaut); !utf8.ValidString(got) {
+		t.Errorf("the cut split a character: %q", got)
+	}
+
+	if got := pathsLabel([]string{"docs/a.txt"}); got != "a.txt" {
+		t.Errorf("one path is named, got %q", got)
+	}
+	if got := pathsLabel([]string{"a", "b"}); got != "2 files" {
+		t.Errorf("several paths are counted, got %q", got)
 	}
 }

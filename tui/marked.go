@@ -262,7 +262,7 @@ func (m MarkedTabModel) viewCommit() string {
 	n := mc["M"] + mc["C"]
 
 	var b strings.Builder
-	b.WriteString(titleStyle.Render(fmt.Sprintf(" commit (%d files)", n)) + "\n\n")
+	b.WriteString(titleStyle.Render(" commit ("+countLabel(n, "file")+")") + "\n\n")
 	b.WriteString("  " + m.input.View() + "\n\n")
 
 	if m.input.Focused() {

@@ -64,15 +64,61 @@ func NewFileListModel() FileListModel {
 	}
 }
 
+// rowKey identifies a row across rebuilds: a file by its path, a
+// directory header by the subdir's path. Used to put the cursor back
+// where it was when the same directory is rebuilt under the user.
+func rowKey(r fileRow) string {
+	if r.file != nil {
+		return "f:" + r.file.Path
+	}
+	if r.subDir != nil {
+		return "d:" + r.subDir.Path
+	}
+	return ""
+}
+
 func (m *FileListModel) SetFiles(dir string, files []cvs.FileEntry, subDirs []SubDirGroup) {
+	// A rebuild of the directory already on screen is a status refresh,
+	// not a navigation: the cursor and the unfolded subdirs are the
+	// user's place in the list and have to survive it. Only a move to a
+	// different directory starts over at the top.
+	sameDir := m.dir == dir
+	var prevKey string
+	var prevExpanded map[string]bool
+	if sameDir {
+		if rows := m.rows(); m.cursor < len(rows) {
+			prevKey = rowKey(rows[m.cursor])
+		}
+		prevExpanded = make(map[string]bool, len(m.subDirs))
+		for _, sd := range m.subDirs {
+			prevExpanded[sd.Path] = sd.Expanded
+		}
+	}
+	prevOffset := m.offset
+
 	m.dir = dir
 	m.files = files
 	m.subDirs = subDirs
 	for i := range m.subDirs {
+		if expanded, ok := prevExpanded[m.subDirs[i].Path]; ok {
+			m.subDirs[i].Expanded = expanded
+			continue
+		}
 		m.subDirs[i].Expanded = m.expandAll
 	}
 	m.cursor = 0
 	m.offset = 0
+	if prevKey == "" {
+		return
+	}
+	for i, r := range m.rows() {
+		if rowKey(r) == prevKey {
+			m.cursor = i
+			m.offset = prevOffset
+			m.ensureVisible()
+			return
+		}
+	}
 }
 
 // SetSize takes the App's layout envelope. FileList fills the right panel

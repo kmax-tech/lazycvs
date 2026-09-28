@@ -240,3 +240,41 @@ func TestAddArgsBinary(t *testing.T) {
 		t.Errorf("text file: addArgs = %v, want [add notes.txt]", got)
 	}
 }
+
+// Rebuilding the directory on screen is a status refresh, not a
+// navigation: the cursor stays on the row the user left it on, and
+// unfolded subdirs stay unfolded. Without this, every refresh from the
+// fallback above would yank the cursor to the top of the list.
+func TestSetFilesKeepsPlaceOnSameDirRebuild(t *testing.T) {
+	app := newListingTestApp(t)
+	app.filelist.viewMode = FileViewTree
+	app.updateFileListForDir(".")
+
+	if !app.filelist.FocusOnFile("top.txt") {
+		t.Fatal("top.txt not selectable in the listing")
+	}
+	cursor := app.filelist.cursor
+	for i := range app.filelist.subDirs {
+		app.filelist.subDirs[i].Expanded = true
+	}
+
+	app.updateFileListForDir(".")
+
+	if app.filelist.cursor != cursor {
+		t.Errorf("cursor = %d after same-dir rebuild, want %d", app.filelist.cursor, cursor)
+	}
+	if f := app.filelist.SelectedFile(); f == nil || f.Path != "top.txt" {
+		t.Errorf("selection after rebuild = %+v, want top.txt", f)
+	}
+	for _, sd := range app.filelist.subDirs {
+		if !sd.Expanded {
+			t.Errorf("subdir %s refolded by the rebuild", sd.Path)
+		}
+	}
+
+	// Moving to a different directory does start over at the top.
+	app.updateFileListForDir("sub")
+	if app.filelist.cursor != 0 {
+		t.Errorf("cursor = %d after directory change, want 0", app.filelist.cursor)
+	}
+}

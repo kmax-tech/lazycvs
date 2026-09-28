@@ -241,6 +241,52 @@ func TestAddArgsBinary(t *testing.T) {
 	}
 }
 
+// The right pane shows the file list on every tab, so a status refresh
+// has to rebuild it even when the active tab names no directory of its
+// own. The Favorites tab with nothing favorited is the case that bit:
+// SelectedPath() returns "", and before the fallback updateFileList
+// bailed out, so a file committed from that tab kept its M forever.
+func TestUpdateFileListRefreshesWithoutTabDirectory(t *testing.T) {
+	for _, tab := range []struct {
+		name string
+		tab  Tab
+	}{
+		{"favorites-empty", TabFavorites},
+		{"marked", TabMarked},
+		{"history", TabHistory},
+	} {
+		t.Run(tab.name, func(t *testing.T) {
+			app := newListingTestApp(t)
+			app.statusMap["top.txt"] = "M"
+			app.updateFileListForDir(".")
+			if got := statusOfListedFile(t, app, "top.txt"); got != "M" {
+				t.Fatalf("setup: top.txt status = %q, want M", got)
+			}
+
+			// The commit lands: statusMap is clean again, and the
+			// listing must follow even though this tab has no dir.
+			app.activeTab = tab.tab
+			delete(app.statusMap, "top.txt")
+			app.updateFileList()
+
+			if got := statusOfListedFile(t, app, "top.txt"); got != "" {
+				t.Errorf("after refresh top.txt status = %q, want empty", got)
+			}
+		})
+	}
+}
+
+// Nothing has been listed yet — the fallback must not invent a
+// directory to rebuild.
+func TestUpdateFileListNoopBeforeFirstBuild(t *testing.T) {
+	app := newListingTestApp(t)
+	app.activeTab = TabMarked
+	app.updateFileList()
+	if len(app.filelist.files) != 0 {
+		t.Errorf("file list built from nothing: %+v", app.filelist.files)
+	}
+}
+
 // Rebuilding the directory on screen is a status refresh, not a
 // navigation: the cursor stays on the row the user left it on, and
 // unfolded subdirs stay unfolded. Without this, every refresh from the
@@ -277,4 +323,17 @@ func TestSetFilesKeepsPlaceOnSameDirRebuild(t *testing.T) {
 	if app.filelist.cursor != 0 {
 		t.Errorf("cursor = %d after directory change, want 0", app.filelist.cursor)
 	}
+}
+
+// statusOfListedFile returns the status code the listing carries for
+// path — the value the user actually sees, not the one in statusMap.
+func statusOfListedFile(t *testing.T, app *App, path string) string {
+	t.Helper()
+	for _, f := range app.filelist.files {
+		if f.Path == path {
+			return f.Status
+		}
+	}
+	t.Fatalf("%s not in the listing: %+v", path, app.filelist.files)
+	return ""
 }

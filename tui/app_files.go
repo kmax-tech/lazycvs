@@ -157,8 +157,17 @@ func resolveListingStatus(name, status string, tracked map[string]bool, ignorePa
 }
 
 // updateFileList rebuilds the right-pane file list from the active tab's
-// selected directory. No-op for tabs that don't have a file list (Marked,
-// History).
+// selected directory.
+//
+// The right pane shows the file list on every tab — the left-pane tabs
+// only decide what drives it — so "this tab has no directory for me" is
+// never a reason to skip the rebuild. Marked and History don't select a
+// directory at all, and Favorites doesn't while the list is empty or the
+// cursor sits past its end; in all three cases the listing on screen is
+// the one the Tree tab last built, and it has to be rebuilt or it keeps
+// the statuses it was born with. That is how a committed file went on
+// showing M: the commit refreshed statusMap, but the rows nobody rebuilt
+// still carried the old code.
 func (m *App) updateFileList() {
 	var dir string
 	switch m.activeTab {
@@ -180,10 +189,13 @@ func (m *App) updateFileList() {
 		}
 	case TabFavorites:
 		dir = m.favorites.SelectedPath()
-	default:
-		return
 	}
 
+	if dir == "" {
+		// Refresh whatever the file list is already showing. Empty only
+		// before the first build, when there is nothing to refresh.
+		dir = m.filelist.dir
+	}
 	if dir == "" {
 		return
 	}

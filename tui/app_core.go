@@ -1406,6 +1406,11 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case markedStatusMsg:
 		m.applyStatuses(msg.paths, msg.statuses)
+		// applyStatuses refreshes the tree and the Marked tab, but the
+		// file list bakes its status codes in at build time — without
+		// the rebuild it would go on showing the codes these fresh
+		// statuses just replaced.
+		m.updateFileList()
 		return m, nil
 
 	case diffLoadedMsg:

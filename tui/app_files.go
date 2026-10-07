@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"errors"
 	"github.com/kmax-tech/lazycvs/cvs"
 	"os"
 	"path/filepath"
@@ -138,6 +139,36 @@ func readCVSEntries(absDir string) map[string]bool {
 		tracked[parts[1]] = true
 	}
 	return tracked
+}
+
+// entryRemoved reports whether name is scheduled for removal in
+// absDir/CVS/Entries — `cvs remove` marks that by prefixing the
+// revision with "-" (/name/-1.2/…). Such a file is gone from disk, and
+// neither `cvs update` nor `cvs update -C` brings it back: only
+// `cvs add` undoes the remove. A missing Entries file means "not
+// removed"; any other read error is returned.
+func entryRemoved(absDir, name string) (bool, error) {
+	data, err := os.ReadFile(filepath.Join(absDir, "CVS", "Entries"))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return entriesMarkRemoved(string(data), name), nil
+}
+
+// entriesMarkRemoved is the pure half of entryRemoved: true when the
+// Entries text has a file line for name whose revision starts with "-".
+func entriesMarkRemoved(entries, name string) bool {
+	for _, line := range strings.Split(entries, "\n") {
+		parts := strings.SplitN(line, "/", 4)
+		if len(parts) < 3 || parts[0] != "" || parts[1] != name {
+			continue
+		}
+		return strings.HasPrefix(parts[2], "-")
+	}
+	return false
 }
 
 // resolveListingStatus derives the badge code and ignore flag for one

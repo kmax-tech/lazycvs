@@ -395,8 +395,30 @@ func (m *App) restoreBackupsInSubtree(dirPath string) tea.Cmd {
 // the working copy has been overwritten. Removing the working file
 // first forces cvs to re-create it cleanly and the marker is wiped
 // with it.
+//
+// A file scheduled for removal (`cvs remove`, revision "-1.x" in
+// Entries) is the exception to both: `update -C` leaves it removed
+// with exit 0, and if the server moved on meanwhile, plain `update`
+// fails with "removed `f' was modified by second party" — the file
+// stays C forever. So it gets `cvs add` first, which resurrects the
+// last checked-out revision, and then `update -C` to fetch the
+// server's current one.
 func revertOne(exec *cvs.CVSExecutor, workDir, path, status string) error {
 	abs := filepath.Join(workDir, path)
+	removed, err := entryRemoved(filepath.Dir(abs), filepath.Base(path))
+	if err != nil {
+		return err
+	}
+	if removed {
+		r, err := exec.Run("add", path)
+		if err != nil {
+			return err
+		}
+		if r != nil && !r.Success {
+			return fmt.Errorf("cvs add %s exited %d", path, r.ExitCode)
+		}
+		status = "" // resurrected: a clean working copy, plain update -C below
+	}
 	if status == "C" {
 		// Best-effort delete: if the file is already gone the next
 		// cvs update will still bring it back, which is the goal.

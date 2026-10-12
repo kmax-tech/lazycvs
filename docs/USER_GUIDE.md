@@ -19,28 +19,28 @@ lazycvs -follow /tmp/nav.fifo # selection follows paths written to a FIFO
 
 **Follow mode** (`-follow <fifo>`) is for running lazycvs next to a file
 manager: the other program creates the FIFO (`mkfifo`) and writes absolute
-paths into it, one per line; lazycvs moves its selection there, the same
-jump the fuzzy finder makes. A path waits while you are busy (a dialog or
-the search is open, another tab is active) and lands as soon as you are
-back on the Tree tab. A path that is not a FIFO exits with an error; if
+paths into it, one per line, and lazycvs follows. The rule: **the root is
+the directory the file manager stands in.** Every directory of a CVS
+checkout has `CVS/Root`, so each can be a root; a followed directory other
+than the current root **re-roots** lazycvs there, in place — moving down
+into a subdirectory as much as moving up or across. Following the root
+itself, or a file in it, only moves the selection. Paths outside any
+checkout are ignored. A path that is not a FIFO exits with an error; if
 reading stops mid-session, the console says so. conspectus uses it for
 its terminal panel.
 
-A path outside the working copy but inside another CVS checkout (its
-directory has `CVS/Root` — every directory of a checkout does, so the
-parent of your start directory usually qualifies) **re-roots** lazycvs
-there, in place: the followed directory becomes the tree root, with the
-file selected if the path was a file. The console, your config, panel
-sizes and a typed commit message survive the switch; the tree, file
-list, status, diffs and history are reloaded for the new root, and a
-command still running against the old root finishes but its result is
-discarded. Marks survive when you move up (they are re-expressed under
-the new root); switching to an unrelated checkout keeps only the marks
-inside it and reports how many were dropped. Each switch is logged as
-`re-rooted to <path>`. Moving down into a subdirectory is an ordinary
-follow, never a re-root, and paths outside any checkout are ignored. A
-re-root also waits for a running action (commit, revert, update) to
-finish.
+A path waits while you are busy (a dialog or the search is open, another
+tab is active, an action such as commit, revert or update is running) and
+lands as soon as you are back on the Tree tab. On a re-root the console,
+your config, panel sizes and a typed commit message survive; the tree,
+file list, status, diffs and history are reloaded for the new root. The
+old root's status scans are cancelled — running `cvs status`/`diff`/`log`
+calls are killed, queued ones never start — so walking through
+directories does not pile up scans. Marks survive when you move up (they
+are re-expressed under the new root); otherwise only the marks inside the
+new root stay, and lazycvs reports how many were dropped. Each switch is
+logged as `re-rooted to <path>`. Note that following the top of a whole
+repository checkout makes it the root, with a status scan to match.
 
 If the current directory isn't a CVS working copy, lazycvs falls back to
 `[cvs] default_path` from your config file. If neither resolves to a CVS

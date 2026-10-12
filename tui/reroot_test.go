@@ -221,9 +221,9 @@ func TestFollowLatestPathWinsOverPendingReroot(t *testing.T) {
 	app, parent, wc := newRerootTestApp(t)
 	app.search.active = true
 	app = sendFollow(t, app, parent)
-	app = sendFollow(t, app, filepath.Join(wc, "sub"))
-	if app.pendingReroot != "" || app.pendingFollow != "sub" {
-		t.Errorf("pending = (%q, %q), want (sub, \"\")", app.pendingFollow, app.pendingReroot)
+	app = sendFollow(t, app, filepath.Join(wc, "top.txt"))
+	if app.pendingReroot != "" || app.pendingFollow != "top.txt" {
+		t.Errorf("pending = (%q, %q), want (top.txt, \"\")", app.pendingFollow, app.pendingReroot)
 	}
 	app = sendFollow(t, app, parent)
 	if app.pendingReroot != parent || app.pendingFollow != "" {
@@ -429,16 +429,17 @@ func TestFollowOutsideAnyCheckoutIsStillDropped(t *testing.T) {
 	}
 }
 
-// Walking down is a follow, never a re-root — even though every
-// subdirectory of a checkout carries CVS metadata.
-func TestFollowIntoSubdirectoryIsAPlainFollow(t *testing.T) {
+// Walking down re-roots too: the root is where the file manager stands,
+// not some directory above it.
+func TestFollowIntoSubdirectoryReroots(t *testing.T) {
 	app, _, wc := newRerootTestApp(t)
-	markCheckout(t, filepath.Join(wc, "sub"), "webis/wc/sub")
-	app = sendFollow(t, app, filepath.Join(wc, "sub"))
-	if app.exec.WorkDir != wc {
-		t.Fatalf("WorkDir = %q, want unchanged %q", app.exec.WorkDir, wc)
+	sub := filepath.Join(wc, "sub")
+	markCheckout(t, sub, "webis/wc/sub")
+	app = sendFollow(t, app, sub)
+	if app.exec.WorkDir != sub {
+		t.Fatalf("WorkDir = %q, want %q", app.exec.WorkDir, sub)
 	}
-	if got := selectedTreePath(app); got != "sub" {
-		t.Errorf("tree cursor = %q, want sub", got)
+	if app.module != "webis/wc/sub" {
+		t.Errorf("header module = %q, want webis/wc/sub", app.module)
 	}
 }

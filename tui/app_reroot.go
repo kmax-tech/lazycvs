@@ -12,13 +12,13 @@ import (
 )
 
 // switchWorkDir re-roots the running app on abs, a directory carrying
-// CVS/Root, without restarting the process: follow mode calls it when
-// the file manager next door walks out of the working copy into
-// another checkout (usually the parent of this one). Afterwards abs is
-// the tree root; the tree and the status scan for it are returned as
-// commands, the same two Init starts, and the root row is selected
-// once the tree has loaded (the caller may set initialPath to land
-// deeper, as the command line does).
+// CVS/Root, without restarting the process: follow mode calls it
+// whenever the file manager next door enters a checkout directory other
+// than the current root (follow.go: the root is where the file manager
+// stands). Afterwards abs is the tree root; the tree and the status scan
+// for it are returned as commands, the same two Init starts, and the
+// root row is selected once the tree has loaded (the caller may set
+// initialPath to land deeper, as the command line does).
 //
 // What happens to each App field, so the next person does not have to
 // re-derive it from NewApp:
@@ -37,7 +37,10 @@ import (
 //	           timeout and log: nothing else in it derives from WorkDir,
 //	           and a new value rather than a mutated one so a command
 //	           already running — the partition scan reads WorkDir per
-//	           partition — finishes against the root it started in),
+//	           partition — stays on the root it started in; the old one
+//	           is retired, which kills its read-only commands and skips
+//	           the queued ones, so walking through directories never
+//	           piles up scans of roots already left behind),
 //	           tree (NewTreeModel on abs, stamped with the new rootGen),
 //	           filelist (fresh listing, preferences and rebased marks
 //	           carried over), history (NewHistoryModel: it was showing a
@@ -61,6 +64,7 @@ import (
 //	           and reported.
 func (m *App) switchWorkDir(abs string) tea.Cmd {
 	old := m.exec
+	old.Retire()
 	m.rootGen++
 	m.exec = cvs.NewCVSExecutor(abs, old.CVSBin, old.Timeout, old.Log)
 

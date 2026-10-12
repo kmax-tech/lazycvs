@@ -5,62 +5,33 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/kmax-tech/lazycvs/cvs"
 )
 
 // Follow mode (`lazycvs -follow <fifo>`): another program — a file
 // manager such as conspectus — writes absolute paths, one per line, into
-// a FIFO, and lazycvs moves its selection there as the user navigates
-// next door. main reads the FIFO and delivers each line as a FollowMsg.
+// a FIFO, and lazycvs follows the user as they navigate next door. main
+// reads the FIFO and delivers each line as a FollowMsg.
+//
+// The rule is simple: the working-copy root IS the followed directory.
+// Every directory of a CVS checkout carries CVS/Root, so any of them can
+// be a root, and a tree rooted where the file manager stands is the one
+// that reads unambiguously next to it — a root somewhere above, with the
+// current directory buried as a subdirectory, does not. A followed
+// directory other than the current root therefore re-roots lazycvs there
+// (switchWorkDir, in-process; the scans of the old root are cancelled).
+// The current root itself, or a file in it, only moves the selection.
 //
 // A path only applies while the user is not in the middle of something:
-// no dialog, no fuzzy search, Tree tab active, initial tree loaded.
-// Otherwise the latest path waits in pendingFollow and is applied on the
-// first Update after the user is done — closing a commit dialog lands on
-// where the file manager is by then, not on a path from minutes ago.
-// A path outside the working copy but inside another checkout — its
-// directory carries CVS/Root — re-roots lazycvs there (switchWorkDir),
-// in-process: every directory of a CVS checkout has a CVS/Root, so the
-// start directory is only ever one possible root, and a file manager
-// walking up out of it expects the tree to follow. Such a path waits
-// in pendingReroot under the same idle rule, plus one more: no action
-// may be running, because its result belongs to the root it ran in.
-// Paths outside any checkout are dropped: lazycvs stays where it is.
+// no dialog, no fuzzy search, Tree tab active, tree loaded — and, for a
+// re-root, no action running, because its result belongs to the root it
+// ran in. Until then the latest path waits (pendingFollow /
+// pendingReroot) and lands on the first Update after the user is done:
+// closing a commit dialog lands where the file manager is by then, not on
+// a path from minutes ago. Paths outside any checkout are dropped:
+// lazycvs stays where it is.
 
 // FollowMsg carries one line read from the -follow FIFO.
 type FollowMsg struct{ Path string }
-
-// followTarget maps an absolute path from the follow channel to a path
-// relative to the working copy. ok is false for anything outside it
-// (relative input, another checkout, a symlink escaping the checkout) —
-// the normal case when the user browses elsewhere, not an error.
-// Symlinks are resolved on both sides, as ValidatePath does, so
-// /tmp ↔ /private/tmp style aliases still match.
-func followTarget(exec *cvs.CVSExecutor, path string) (rel string, ok bool) {
-	if !filepath.IsAbs(path) {
-		return "", false
-	}
-	wd, err := filepath.EvalSymlinks(exec.WorkDir)
-	if err != nil {
-		wd = exec.WorkDir
-	}
-	abs, err := filepath.EvalSymlinks(path)
-	if err != nil {
-		return "", false // vanished between write and read: nothing to show
-	}
-	rel, err = filepath.Rel(wd, abs)
-	if err != nil {
-		return "", false
-	}
-	if rel == "." {
-		return ".", true
-	}
-	if exec.ValidatePath(rel) != nil {
-		return "", false
-	}
-	return rel, true
-}
 
 // rerootTarget maps an absolute path from the follow channel to the
 // checkout it belongs to: root is the path itself for a directory, its
@@ -96,24 +67,35 @@ func (m *App) followIdle() bool {
 	return m.followReady && !m.dialog.Active() && !m.search.active && m.activeTab == TabTree
 }
 
-// queueFollow records the latest followed path: relative, in
-// pendingFollow, when it lies inside the working copy; absolute, in
-// pendingReroot, when it lies in another checkout. The latest path wins
-// over both kinds — the file manager is in one place. Anything else is
-// dropped.
+// queueFollow records the latest followed path: in pendingFollow (what
+// to select, "." or a file name) when it lies in the current root
+// directory itself, in pendingReroot (absolute) when it names another
+// checkout directory. The latest path wins over both kinds — the file
+// manager is in one place. Paths outside any checkout are dropped.
 func (m *App) queueFollow(path string) {
-	if rel, ok := followTarget(m.exec, path); ok {
+	root, rel, ok := rerootTarget(path)
+	if !ok {
+		return
+	}
+	if root == canonicalDir(m.exec.WorkDir) {
 		m.pendingFollow, m.pendingReroot = rel, ""
 		return
 	}
-	if _, _, ok := rerootTarget(path); ok {
-		m.pendingFollow, m.pendingReroot = "", path
+	m.pendingFollow, m.pendingReroot = "", path
+}
+
+// canonicalDir resolves symlinks so roots compare by identity
+// (/tmp ↔ /private/tmp on macOS); an unresolvable path compares as given.
+func canonicalDir(dir string) string {
+	if r, err := filepath.EvalSymlinks(dir); err == nil {
+		return r
 	}
+	return dir
 }
 
 // applyPendingFollow moves the selection to the queued path once the
-// user is idle — or re-roots the app when the queued path is in another
-// checkout. Side effects: consumes the pending path; a follow changes
+// user is idle — or re-roots the app when the queued path is another
+// checkout directory. Side effects: consumes the pending path; a follow changes
 // tree/filelist selection and focus via revealPath; a re-root replaces
 // the working copy (switchWorkDir) and returns the loads for it.
 //

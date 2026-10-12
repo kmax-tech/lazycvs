@@ -1,56 +1,9 @@
 package tui
 
 import (
-	"os"
 	"path/filepath"
 	"testing"
 )
-
-func TestFollowTargetMapsPathsIntoTheWorkingCopy(t *testing.T) {
-	app := newListingTestApp(t)
-	root := app.exec.WorkDir
-	outside := t.TempDir()
-
-	cases := []struct {
-		name, path, want string
-		ok               bool
-	}{
-		{"subdirectory", filepath.Join(root, "sub/deep"), "sub/deep", true},
-		{"file", filepath.Join(root, "sub/direct.txt"), "sub/direct.txt", true},
-		{"working copy root", root, ".", true},
-		{"other directory", outside, "", false},
-		{"relative path", "sub", "", false},
-		{"missing path", filepath.Join(root, "nope"), "", false},
-	}
-	for _, c := range cases {
-		got, ok := followTarget(app.exec, c.path)
-		if got != c.want || ok != c.ok {
-			t.Errorf("%s: followTarget(%q) = (%q, %v), want (%q, %v)", c.name, c.path, got, ok, c.want, c.ok)
-		}
-	}
-}
-
-// t.TempDir lives under /var on macOS, which is a symlink to /private/var:
-// the file manager may report either spelling and both must match.
-func TestFollowTargetResolvesSymlinkedSpelling(t *testing.T) {
-	app := newListingTestApp(t)
-	link := filepath.Join(t.TempDir(), "alias")
-	if err := os.Symlink(app.exec.WorkDir, link); err != nil {
-		t.Fatal(err)
-	}
-	got, ok := followTarget(app.exec, filepath.Join(link, "sub"))
-	if !ok || got != "sub" {
-		t.Errorf("followTarget via symlink = (%q, %v), want (sub, true)", got, ok)
-	}
-}
-
-func followApp(t *testing.T) App {
-	t.Helper()
-	app := newRevealTestApp(t)
-	app.activeTab = TabTree
-	app.followReady = true
-	return *app
-}
 
 func sendFollow(t *testing.T, app App, path string) App {
 	t.Helper()
@@ -69,55 +22,47 @@ func selectedTreePath(app App) string {
 	return ""
 }
 
-func TestFollowMovesSelectionWhenIdle(t *testing.T) {
-	app := followApp(t)
-	app = sendFollow(t, app, filepath.Join(app.exec.WorkDir, "sub"))
-	if got := selectedTreePath(app); got != "sub" {
-		t.Errorf("tree cursor = %q, want sub", got)
+// Following the current root itself is no re-root: the root is already
+// where the file manager stands, so only the selection moves (to it).
+func TestFollowCurrentRootOnlySelects(t *testing.T) {
+	app, _, wc := newRerootTestApp(t)
+	app.revealPath("sub")
+	app = sendFollow(t, app, wc)
+	if app.exec.WorkDir != wc {
+		t.Fatalf("WorkDir = %q, want unchanged %q", app.exec.WorkDir, wc)
 	}
-	if app.pendingFollow != "" {
-		t.Errorf("pendingFollow = %q, want consumed", app.pendingFollow)
+	if got := selectedTreePath(app); got != "." {
+		t.Errorf("tree cursor = %q, want the root selected", got)
 	}
-}
-
-// A path arriving while the fuzzy search is open must not yank the
-// selection away; it lands on the first message after the search closes.
-func TestFollowWaitsUntilSearchCloses(t *testing.T) {
-	app := followApp(t)
-	app.search.active = true
-	app = sendFollow(t, app, filepath.Join(app.exec.WorkDir, "sub"))
-	if app.pendingFollow != "sub" {
-		t.Fatalf("pendingFollow = %q, want sub queued while busy", app.pendingFollow)
-	}
-	if got := selectedTreePath(app); got == "sub" {
-		t.Error("selection moved while the search was open")
-	}
-
-	app.search.active = false
-	next, _ := app.Update(clockTickMsg{})
-	app = next.(App)
-	if got := selectedTreePath(app); got != "sub" {
-		t.Errorf("after the search closed: tree cursor = %q, want sub", got)
+	if app.pendingFollow != "" || app.pendingReroot != "" {
+		t.Errorf("pending = (%q, %q), want both consumed", app.pendingFollow, app.pendingReroot)
 	}
 }
 
+// A followed file in the current root selects the file, no re-root.
+func TestFollowFileInRootSelectsIt(t *testing.T) {
+	app, _, wc := newRerootTestApp(t)
+	app = sendFollow(t, app, filepath.Join(wc, "top.txt"))
+	if app.exec.WorkDir != wc {
+		t.Fatalf("WorkDir = %q, want unchanged %q", app.exec.WorkDir, wc)
+	}
+	if sel := app.filelist.SelectedFile(); sel == nil || sel.Path != "top.txt" {
+		t.Errorf("selected file = %+v, want top.txt", sel)
+	}
+}
+
+// Busy on another tab, or before the tree has loaded: the re-root waits.
 func TestFollowWaitsOnOtherTabsAndBeforeTreeLoad(t *testing.T) {
 	for name, mutate := range map[string]func(*App){
 		"history tab":     func(a *App) { a.activeTab = TabHistory },
 		"tree not loaded": func(a *App) { a.followReady = false },
 	} {
-		app := followApp(t)
+		app, parent, wc := newRerootTestApp(t)
 		mutate(&app)
-		app = sendFollow(t, app, filepath.Join(app.exec.WorkDir, "sub"))
-		if app.pendingFollow != "sub" {
-			t.Errorf("%s: pendingFollow = %q, want sub", name, app.pendingFollow)
+		app = sendFollow(t, app, parent)
+		if app.pendingReroot != parent || app.exec.WorkDir != wc {
+			t.Errorf("%s: pendingReroot = %q, WorkDir = %q — want %q queued and the root unchanged",
+				name, app.pendingReroot, app.exec.WorkDir, parent)
 		}
-	}
-}
-
-func TestFollowOutsideWorkingCopyIsDropped(t *testing.T) {
-	app := sendFollow(t, followApp(t), t.TempDir())
-	if app.pendingFollow != "" {
-		t.Errorf("pendingFollow = %q, want nothing queued for a foreign path", app.pendingFollow)
 	}
 }

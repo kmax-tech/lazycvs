@@ -419,7 +419,20 @@ func (m *TreeModel) SetHideIgnored(hide bool) {
 // and positions the cursor at the target. Returns expanded directory paths
 // that need status loading.
 func (m *TreeModel) ExpandToPath(relPath string) []string {
-	if relPath == "" || relPath == "." {
+	if relPath == "" {
+		return nil
+	}
+	if relPath == "." {
+		// The root row itself: nothing to expand, but the cursor goes
+		// there like for any other target (follow mode lands on the
+		// root when the file manager stands in it).
+		for i, fn := range m.flat {
+			if fn.node.Path == "." {
+				m.cursor = i
+				m.ensureVisible()
+				break
+			}
+		}
 		return nil
 	}
 	parts := strings.Split(relPath, "/")

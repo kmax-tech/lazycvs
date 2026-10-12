@@ -410,6 +410,12 @@ type App struct {
 	consoleOverride int
 	initialPath     string // path to navigate to on startup
 
+	// Follow mode (follow.go): the latest path from the -follow FIFO
+	// waiting for the user to be idle, and whether the initial tree has
+	// loaded (before that, revealPath has nothing to move through).
+	pendingFollow string
+	followReady   bool
+
 	// statusMap is the single source of truth for per-file CVS status codes
 	// (M/A/R/U/C/?). Owned by App and only mutated inside Update(), which
 	// Bubble Tea serializes on the main goroutine. Sub-models receive it as
@@ -809,7 +815,22 @@ func (m *App) resizeOnFocusChange(prevFocus Panel) {
 	}
 }
 
+// Update runs the message, then applies a queued follow path if the user
+// is idle now (follow.go) — checked after every message, so a path that
+// arrived during a dialog lands as soon as the dialog closes.
 func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	next, cmd := m.update(msg)
+	app, ok := next.(App)
+	if !ok {
+		return next, cmd
+	}
+	if follow := app.applyPendingFollow(); follow != nil {
+		cmd = tea.Batch(cmd, follow)
+	}
+	return app, cmd
+}
+
+func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// While the user has the console panel focused, treat any logged errors
 	// as "seen" — clear the unread counter so the ⚠ indicator in the tab
 	// bar disappears. New errors that arrive while still on console will
@@ -858,9 +879,14 @@ func (m App) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.resizeOnFocusChange(prevFocus)
 		return m, cmd
 
+	case FollowMsg:
+		m.queueFollow(msg.Path)
+		return m, nil
+
 	case treeLoadedMsg:
 		var cmd tea.Cmd
 		m.tree, cmd = m.tree.Update(msg)
+		m.followReady = true
 		if m.initialPath != "" {
 			// A path was passed on the command line (`lazycvs
 			// path/to/file`). Same navigation the fuzzy finder

@@ -92,6 +92,7 @@ Behavior:
 | `lcvs src/parser.go`             | TUI opens at its working copy, on that file |
 | `lcvs -cvs /opt/cvs/bin/cvs`     | flags pass through to the binary           |
 | `lcvs -config /tmp/cfg.toml`     | dito                                       |
+| `lcvs -follow /tmp/nav.fifo`     | selection follows paths written to the FIFO (see the user guide) |
 
 Build is **explicit** — no surprise compilation when you just want the
 TUI. Daily use is just `cd` into a CVS checkout and type `lcvs`.

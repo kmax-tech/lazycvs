@@ -14,7 +14,17 @@ lazycvs                       # opens the TUI in the current directory
 lazycvs ~/work/myproject      # explicit working copy
 lazycvs -cvs /opt/cvs/bin/cvs # alternate cvs binary
 lazycvs -config /tmp/cfg.toml # alternate config path
+lazycvs -follow /tmp/nav.fifo # selection follows paths written to a FIFO
 ```
+
+**Follow mode** (`-follow <fifo>`) is for running lazycvs next to a file
+manager: the other program creates the FIFO (`mkfifo`) and writes absolute
+paths into it, one per line; lazycvs moves its selection there, the same
+jump the fuzzy finder makes. A path waits while you are busy (a dialog or
+the search is open, another tab is active) and lands as soon as you are
+back on the Tree tab; paths outside the working copy are ignored. A path
+that is not a FIFO exits with an error; if reading stops mid-session, the
+console says so. conspectus uses it for its terminal panel.
 
 If the current directory isn't a CVS working copy, lazycvs falls back to
 `[cvs] default_path` from your config file. If neither resolves to a CVS

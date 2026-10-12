@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"fmt"
 	"github.com/kmax-tech/lazycvs/config"
@@ -66,6 +67,7 @@ func main() {
 	cvsBin := flag.String("cvs", "", "path to CVS binary")
 	configPath := flag.String("config", "", "config file path")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	followPath := flag.String("follow", "", "FIFO to read absolute paths from (one per line); the selection follows them")
 	flag.Parse()
 
 	if *showVersion {
@@ -126,7 +128,7 @@ func main() {
 		}
 	}
 
-	runApp(workDir, initialPath, cfgMgr, *cvsBin)
+	runApp(workDir, initialPath, cfgMgr, *cvsBin, *followPath)
 }
 
 // loadConfig handles the "config exists / doesn't exist / corrupt" branches
@@ -162,9 +164,20 @@ func resolveCVSBin(cfgMgr *config.ConfigManager, override string) string {
 
 // runApp is the normal startup path: validate the working copy, build the
 // executor + TUI, and run until the user quits. Factored out of main so
-// runSetupMode can chain into it after a successful checkout.
-func runApp(workDir, initialPath string, cfgMgr *config.ConfigManager, cvsBinOverride string) {
+// runSetupMode can chain into it after a successful checkout. followPath
+// ("" = off) is the -follow FIFO; it is opened before the TUI starts so a
+// bad path exits with an error instead of a silently dead follow mode.
+func runApp(workDir, initialPath string, cfgMgr *config.ConfigManager, cvsBinOverride, followPath string) {
 	cfg := cfgMgr.Get()
+	var follow *os.File
+	if followPath != "" {
+		f, err := openFollowFIFO(followPath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: -follow: %v\n", err)
+			os.Exit(1)
+		}
+		follow = f
+	}
 	cvsPath := resolveCVSBin(cfgMgr, cvsBinOverride)
 	timeout := time.Duration(cfg.CVS.Timeout) * time.Second
 
@@ -196,6 +209,9 @@ func runApp(workDir, initialPath string, cfgMgr *config.ConfigManager, cvsBinOve
 	executor := cvs.NewCVSExecutor(workDir, cvsPath, timeout, cmdLog)
 	app := tui.NewApp(executor, cmdLog, cfgMgr, initialPath)
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	if follow != nil {
+		go readFollow(follow, p, cmdLog)
+	}
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
@@ -256,7 +272,7 @@ func runSetupMode(args []string) {
 	if newWorkDir == "" {
 		return
 	}
-	runApp(newWorkDir, "", cfgMgr, *cvsBin)
+	runApp(newWorkDir, "", cfgMgr, *cvsBin, "")
 }
 
 // runCleanBackups walks a path looking for .lazycvs-backup sidecar files
@@ -372,4 +388,38 @@ func findWorkingCopy(start string) (string, string, bool) {
 		}
 		dir = parent
 	}
+}
+
+// openFollowFIFO opens the -follow path, which must be a named pipe
+// (mkfifo) created by the program that writes to it. Opened read-write:
+// a reader-only open would block until a writer appears and see EOF
+// every time the writer closes; holding a write end ourselves keeps the
+// pipe open for the whole session, whatever the writer does.
+func openFollowFIFO(path string) (*os.File, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode()&os.ModeNamedPipe == 0 {
+		return nil, fmt.Errorf("%s is not a FIFO (create it with mkfifo)", path)
+	}
+	return os.OpenFile(path, os.O_RDWR, 0)
+}
+
+// readFollow delivers each line of the -follow FIFO to the TUI as a
+// tui.FollowMsg. Runs for the whole session on its own goroutine. A read
+// error ends follow mode and is logged to the console (the TUI owns the
+// screen, so stderr would be invisible).
+func readFollow(f *os.File, p *tea.Program, cmdLog *cvs.CommandLog) {
+	sc := bufio.NewScanner(f)
+	for sc.Scan() {
+		if line := strings.TrimSpace(sc.Text()); line != "" {
+			p.Send(tui.FollowMsg{Path: line})
+		}
+	}
+	err := sc.Err()
+	if err == nil {
+		err = fmt.Errorf("unexpected end of input")
+	}
+	cmdLog.LogFileOp("follow "+f.Name()+"  # follow mode stopped", err)
 }

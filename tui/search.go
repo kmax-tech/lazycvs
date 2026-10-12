@@ -20,6 +20,7 @@ type SearchModel struct {
 	width    int
 	height   int
 	active   bool
+	workDir  string // root allPaths was collected for
 }
 
 func NewSearchModel() SearchModel {
@@ -36,10 +37,16 @@ func (m *SearchModel) Open(workDir string) tea.Cmd {
 	m.results = nil
 	m.cursor = 0
 
+	if m.workDir != workDir {
+		// Another root (follow mode re-rooted the app): the cached
+		// paths describe the old one.
+		m.allPaths = nil
+		m.workDir = workDir
+	}
 	if len(m.allPaths) == 0 {
 		wd := workDir
 		return func() tea.Msg {
-			return pathsCollectedMsg{paths: collectPaths(wd)}
+			return pathsCollectedMsg{workDir: wd, paths: collectPaths(wd)}
 		}
 	}
 	return nil
@@ -50,13 +57,21 @@ func (m *SearchModel) Close() {
 	m.input.Blur()
 }
 
-type pathsCollectedMsg struct{ paths []string }
+// pathsCollectedMsg carries the file list of workDir. The model keeps
+// it only while that is still its root, so a walk started before a
+// re-root cannot fill the finder with paths of the previous checkout.
+type pathsCollectedMsg struct {
+	workDir string
+	paths   []string
+}
 type searchSelectedMsg struct{ path string }
 
 func (m SearchModel) Update(msg tea.Msg) (SearchModel, tea.Cmd) {
 	switch msg := msg.(type) {
 	case pathsCollectedMsg:
-		m.allPaths = msg.paths
+		if msg.workDir == m.workDir {
+			m.allPaths = msg.paths
+		}
 		return m, nil
 
 	case tea.KeyMsg:

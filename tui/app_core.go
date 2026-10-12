@@ -61,6 +61,7 @@ type statusRefreshedMsg struct {
 	result   *cvs.UpdateResult
 	statuses []cvs.FileStatus
 	epoch    uint64
+	gen      uint64 // root generation the scan ran against (see App.rootGen)
 }
 
 // dirStatusMsg carries the result of a `cvs status` invocation.
@@ -79,16 +80,19 @@ type dirStatusMsg struct {
 	recursive bool
 	statuses  []cvs.FileStatus
 	epoch     uint64
+	gen       uint64 // root generation the scan ran against (see App.rootGen)
 }
 
 type diffLoadedMsg struct {
 	path string
 	diff *cvs.DiffResult
+	gen  uint64 // root generation (see App.rootGen)
 }
 
 type markedStatusMsg struct {
 	paths    []string         // files that were checked
 	statuses []cvs.FileStatus // results from cvs status
+	gen      uint64           // root generation (see App.rootGen)
 }
 
 // commitDoneMsg is sent by doCommit when its async cvs add+commit sequence
@@ -128,6 +132,7 @@ type recentChangesMsg struct {
 	background bool
 	err        error
 	output     string
+	gen        uint64 // root generation (see App.rootGen)
 }
 
 // recentReloadMsg is emitted by the recent-changes dialog's `r` key:
@@ -344,7 +349,7 @@ func (m *App) refreshStatusForPaths(paths []string) tea.Cmd {
 		}
 		if !seen[dir] {
 			seen[dir] = true
-			cmds = append(cmds, loadDirStatus(m.exec, dir, epoch))
+			cmds = append(cmds, loadDirStatus(m.exec, dir, epoch, m.rootGen))
 		}
 	}
 	if len(cmds) == 0 {
@@ -455,6 +460,18 @@ type App struct {
 	// scans don't overwrite fresher dir scans.
 	statusEpoch uint64
 	dirEpoch    map[string]uint64
+
+	// rootGen is the working-copy root generation. It is bumped by
+	// switchWorkDir (follow mode re-rooting the app on another
+	// checkout) and stamped into every async message whose payload is
+	// relative to a root: tree listings, status scans, diffs, history
+	// loads. A result that comes back carrying an older generation ran
+	// against the previous root and is dropped — its paths mean
+	// something else under the new one. The cvs command itself still
+	// finishes and keeps its console entry; only the result is thrown
+	// away. Epochs and request IDs alone cannot do this: they are reset
+	// or bumped per root, so an old-root result could pass as fresh.
+	rootGen uint64
 
 	// Diff-pane state (LayoutDiff)
 	diffPath  string
@@ -665,6 +682,12 @@ func (m *App) rebuildStatusMap(result *cvs.UpdateResult) {
 	}
 }
 
+// staleRoot reports whether an async result stamped with gen ran
+// against a root the app has since left (see rootGen).
+func (m *App) staleRoot(gen uint64) bool {
+	return gen != m.rootGen
+}
+
 // clockTickMsg wakes the app so the header's refresh age advances on
 // its own. Without it the age freezes at whatever the last keystroke
 // left behind — and a header that says "2m" twenty minutes later is
@@ -687,7 +710,7 @@ func (m App) Init() tea.Cmd {
 	return tea.Batch(
 		m.tree.Init(),
 		clockTick(),
-		backgroundDirScan(m.exec, initEpoch, m.initialPath),
+		backgroundDirScan(m.exec, initEpoch, m.rootGen, m.initialPath),
 	)
 }
 
@@ -717,6 +740,7 @@ func humanizeBootstrapErr(err error) string {
 func (m *App) refreshStatusUser() tea.Cmd {
 	m.statusEpoch++
 	epoch := m.statusEpoch
+	gen := m.rootGen
 	exec := m.exec
 	return func() tea.Msg {
 		var (
@@ -734,7 +758,7 @@ func (m *App) refreshStatusUser() tea.Cmd {
 			statuses = runPartitionScan(exec, "")
 		}()
 		wg.Wait()
-		return statusRefreshedMsg{result: result, statuses: statuses, epoch: epoch}
+		return statusRefreshedMsg{result: result, statuses: statuses, epoch: epoch, gen: gen}
 	}
 }
 
@@ -884,6 +908,9 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case treeLoadedMsg:
+		if m.staleRoot(msg.gen) {
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.tree, cmd = m.tree.Update(msg)
 		m.followReady = true
@@ -900,6 +927,9 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 
 	case treeDirLoadedMsg:
+		if m.staleRoot(msg.gen) {
+			return m, nil
+		}
 		var cmd tea.Cmd
 		m.tree, cmd = m.tree.Update(msg)
 		// Rows that just arrived carry no status yet. Annotate them
@@ -911,15 +941,17 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.tree.RefreshStatus(m.statusMap, m.staleDirs)
 		m.updateFileList()
 		m.statusEpoch++
-		statusCmd := backgroundDirScan(m.exec, m.statusEpoch, msg.path)
+		statusCmd := backgroundDirScan(m.exec, m.statusEpoch, m.rootGen, msg.path)
 		return m, tea.Batch(cmd, statusCmd)
 
 	case historyBatchMsg:
 		// Stale batch from a previous request? Drop it. The
 		// goroutine will keep pushing until it finishes or its
 		// channel goes unread; the historyLoadedMsg sentinel for
-		// that request is what eventually closes the loop.
-		if msg.requestID != m.histRequestID {
+		// that request is what eventually closes the loop. A batch
+		// from a previous root is stale the same way — the stream
+		// is drained, nothing of it is shown or cached.
+		if msg.requestID != m.histRequestID || m.staleRoot(msg.gen) {
 			return m, historyStreamNext(m.histStreams[msg.requestID])
 		}
 		// Append batch to the model if the user is on this file. The
@@ -951,8 +983,11 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// newer request started while we were streaming, the cache
 		// is still authoritative for this path — store it — but
 		// don't touch the model (newer request owns the display).
-		m.histRevisions[msg.path] = msg.history
 		delete(m.histStreams, msg.requestID)
+		if m.staleRoot(msg.gen) {
+			return m, nil // the path is relative to a root we left
+		}
+		m.histRevisions[msg.path] = msg.history
 		if msg.requestID != m.histRequestID {
 			return m, nil
 		}
@@ -973,6 +1008,9 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case historyContentMsg:
+		if m.staleRoot(msg.gen) {
+			return m, nil
+		}
 		// Cache by (path, rev). Update display only if we're still on
 		// that file and the cursor is on that revision.
 		if m.histContents[msg.path] == nil {
@@ -986,6 +1024,9 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case historyDiffMsg:
+		if m.staleRoot(msg.gen) {
+			return m, nil
+		}
 		if m.histDiffs[msg.path] == nil {
 			m.histDiffs[msg.path] = make(map[string]*cvs.DiffResult)
 		}
@@ -1001,7 +1042,7 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case dirStatusMsg:
 		m.console.refreshContent()
-		if msg.epoch < m.dirEpoch[msg.dir] {
+		if m.staleRoot(msg.gen) || msg.epoch < m.dirEpoch[msg.dir] {
 			return m, nil
 		}
 		m.dirEpoch[msg.dir] = msg.epoch
@@ -1046,6 +1087,9 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case statusRefreshedMsg:
 		m.console.refreshContent()
+		if m.staleRoot(msg.gen) {
+			return m, nil
+		}
 		// The header's age hangs off this: the moment the whole tree
 		// was last compared with the server.
 		m.statusAt = time.Now()
@@ -1170,6 +1214,9 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, revertPathsCmd(m.exec, msg.paths, msg.statuses)
 
 	case recentChangesMsg:
+		if m.staleRoot(msg.gen) {
+			return m, nil
+		}
 		m.clearProgress()
 		title := recentTitle(msg.dir, msg.days)
 		if msg.err != nil && msg.background {
@@ -1431,6 +1478,9 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.markedBulkAction("revert", msg.paths)
 
 	case markedStatusMsg:
+		if m.staleRoot(msg.gen) {
+			return m, nil
+		}
 		m.applyStatuses(msg.paths, msg.statuses)
 		// applyStatuses refreshes the tree and the Marked tab, but the
 		// file list bakes its status codes in at build time — without
@@ -1440,6 +1490,9 @@ func (m App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case diffLoadedMsg:
+		if m.staleRoot(msg.gen) {
+			return m, nil
+		}
 		m.diffPath = msg.path
 		m.diffData = msg.diff
 		_, rightW, contentH, _ := m.layout()

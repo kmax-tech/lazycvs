@@ -571,13 +571,14 @@ func (m *App) loadRecentStore() {
 
 func (m *App) loadRecentChanges(dir string, days int, background bool) tea.Cmd {
 	exec := m.exec
+	gen := m.rootGen
 	prior := m.recentEvents // snapshot; App only ever replaces the slice
 	lastFetch := m.recentFetched
 	coverage := m.recentCoverage
 	return func() tea.Msg {
 		root, err := moduleRoot(exec)
 		if err != nil {
-			return recentChangesMsg{dir: dir, days: days, err: err}
+			return recentChangesMsg{dir: dir, days: days, err: err, gen: gen}
 		}
 		// Session cache empty (fresh start or invalidated)? Seed from
 		// the persistent store, so even the first H of a session only
@@ -614,7 +615,7 @@ func (m *App) loadRecentChanges(dir string, days int, background bool) tea.Cmd {
 			if r != nil {
 				out = r.Combined
 			}
-			return recentChangesMsg{dir: dir, days: days, background: background, err: e, output: out}
+			return recentChangesMsg{dir: dir, days: days, background: background, err: e, output: out, gen: gen}
 		}
 		// Zero cutoff: the local history keeps everything it has ever
 		// seen (bounded by the store cap); the display window filters.
@@ -628,6 +629,7 @@ func (m *App) loadRecentChanges(dir string, days int, background bool) tea.Cmd {
 			}).Save(storePath)
 		}
 		return recentChangesMsg{
+			gen: gen,
 			dir: dir, days: days, raw: events, coverage: newCoverage,
 			background: background,
 			entries:    buildRecentEntries(events, root, dir, windowStart),
@@ -747,7 +749,7 @@ func (m *App) doUpdateSelected() tea.Cmd {
 	node := m.tree.SelectedNode()
 	if node == nil {
 		m.statusEpoch++
-		return backgroundDirScan(m.exec, m.statusEpoch, "")
+		return backgroundDirScan(m.exec, m.statusEpoch, m.rootGen, "")
 	}
 	target := node.Path
 	exec := m.exec

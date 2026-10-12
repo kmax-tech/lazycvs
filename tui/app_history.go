@@ -99,7 +99,7 @@ func (m *App) invalidateHistoryCache(paths []string) tea.Cmd {
 			m.history.ClearProjection()
 			m.histPending[pendingLog(p)] = true
 			m.histRequestID++
-			ch, firstCmd := startHistoryStream(m.exec, p, m.histRequestID)
+			ch, firstCmd := startHistoryStream(m.exec, p, m.histRequestID, m.rootGen)
 			m.histStreams[m.histRequestID] = ch
 			cmds = append(cmds, firstCmd)
 		}
@@ -173,7 +173,7 @@ func (m *App) openHistoryFor(path string) tea.Cmd {
 	m.histPending[pendKey] = true
 	m.histRequestID++
 	requestID := m.histRequestID
-	ch, firstCmd := startHistoryStream(m.exec, path, requestID)
+	ch, firstCmd := startHistoryStream(m.exec, path, requestID, m.rootGen)
 	m.histStreams[requestID] = ch
 	return firstCmd
 }
@@ -353,7 +353,7 @@ func (m *App) serveContent(path, rev string) tea.Cmd {
 		return nil
 	}
 	m.histPending[pendKey] = true
-	return loadRevisionContent(m.exec, path, rev)
+	return loadRevisionContent(m.exec, path, rev, m.rootGen)
 }
 
 func (m *App) serveDiff(path, fromRev, toRev string) tea.Cmd {
@@ -379,9 +379,9 @@ func (m *App) serveDiff(path, fromRev, toRev string) tea.Cmd {
 	// "to" side; we never see fromRev == workingRev here.
 	var loader tea.Cmd
 	if toRev == workingRev {
-		loader = loadWorkingDiff(m.exec, path, fromRev)
+		loader = loadWorkingDiff(m.exec, path, fromRev, m.rootGen)
 	} else {
-		loader = loadRevisionDiff(m.exec, path, fromRev, toRev)
+		loader = loadRevisionDiff(m.exec, path, fromRev, toRev, m.rootGen)
 	}
 
 	if !m.parentDiff(fromRev, toRev) {
@@ -420,7 +420,7 @@ func (m *App) serveBlame(path string) tea.Cmd {
 		return nil
 	}
 	m.histPending[pendKey] = true
-	return loadBlame(m.exec, path)
+	return loadBlame(m.exec, path, m.rootGen)
 }
 
 // prefetchAdjacentDiffs warms the cache for revisions near the cursor so
@@ -455,7 +455,7 @@ func (m *App) prefetchAdjacentDiffs(path string) tea.Cmd {
 			continue
 		}
 		m.histPending[pendKey] = true
-		cmds = append(cmds, loadRevisionDiff(m.exec, path, adj.PrevNumber, adj.Number))
+		cmds = append(cmds, loadRevisionDiff(m.exec, path, adj.PrevNumber, adj.Number, m.rootGen))
 	}
 	if len(cmds) == 0 {
 		return nil
@@ -466,14 +466,14 @@ func (m *App) prefetchAdjacentDiffs(path string) tea.Cmd {
 // --- The Files tab's diff pane (lives here because it parallels
 // the diff-loading flow used by the History tab proper) ----------------
 
-func loadDiffFor(exec *cvs.CVSExecutor, path string) tea.Cmd {
+func loadDiffFor(exec *cvs.CVSExecutor, path string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		result, _ := exec.RunReadOnly("diff", "-u", path)
 		if result == nil {
-			return diffLoadedMsg{path: path}
+			return diffLoadedMsg{path: path, gen: gen}
 		}
 		parsed := cvs.ParseDiff(cvs.DisplayText(result.Stdout))
-		return diffLoadedMsg{path: path, diff: parsed}
+		return diffLoadedMsg{path: path, diff: parsed, gen: gen}
 	}
 }
 
@@ -497,7 +497,7 @@ func (m *App) autoLoadDiff() tea.Cmd {
 	// when the tree was last annotated and is empty for rows the tree
 	// only just started showing.
 	if st := m.resolveFileStatus(node.Path); st == "M" || st == "C" {
-		return loadDiffFor(m.exec, node.Path)
+		return loadDiffFor(m.exec, node.Path, m.rootGen)
 	}
 	// No diff needed — mark ready with nil diff
 	m.diffData = nil

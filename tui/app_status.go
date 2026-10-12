@@ -87,12 +87,12 @@ func (m *App) statusesFor(paths []string) map[string]string {
 // reports basenames only when status is invoked on individual files,
 // so this remaps basenames back to the caller's full paths before
 // returning the message.
-func refreshMarkedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
+func refreshMarkedFiles(exec *cvs.CVSExecutor, paths []string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		args := append([]string{"status"}, paths...)
 		result, _ := exec.RunReadOnly(args...)
 		if result == nil {
-			return markedStatusMsg{paths: paths}
+			return markedStatusMsg{paths: paths, gen: gen}
 		}
 		statuses := cvs.ParseStatus(result.Combined)
 		// `cvs status <path>` reports the basename only ("File: notes.txt")
@@ -108,11 +108,11 @@ func refreshMarkedFiles(exec *cvs.CVSExecutor, paths []string) tea.Cmd {
 				statuses[i].Path = full
 			}
 		}
-		return markedStatusMsg{paths: paths, statuses: statuses}
+		return markedStatusMsg{paths: paths, statuses: statuses, gen: gen}
 	}
 }
 
-func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch uint64) tea.Cmd {
+func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		args := []string{"status", "-l"}
 		if dir != "." {
@@ -120,7 +120,7 @@ func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch uint64) tea.Cmd 
 		}
 		result, _ := executor.RunReadOnly(args...)
 		if result == nil {
-			return dirStatusMsg{dir: dir, epoch: epoch}
+			return dirStatusMsg{dir: dir, epoch: epoch, gen: gen}
 		}
 		// Pass `dir` as the parser's default context: some CVS versions
 		// skip the "Examining <dir>" line for a `-l <dir>` invocation
@@ -130,7 +130,7 @@ func loadDirStatus(executor *cvs.CVSExecutor, dir string, epoch uint64) tea.Cmd 
 		// Use Combined: cvs writes "Examining <dir>" to stderr and the
 		// File: blocks to stdout. Only the combined stream preserves the
 		// order needed to attribute each file to the right dir.
-		return dirStatusMsg{dir: dir, statuses: cvs.ParseStatusInDir(result.Combined, dir), epoch: epoch}
+		return dirStatusMsg{dir: dir, statuses: cvs.ParseStatusInDir(result.Combined, dir), epoch: epoch, gen: gen}
 	}
 }
 
@@ -272,7 +272,7 @@ func partitionTree(n *dirNode) []scanSpec {
 // Targeted refreshes after individual actions still use loadDirStatus
 // directly (via refreshStatusForPaths), which only touches the
 // affected directories — unaffected by repo size.
-func backgroundDirScan(executor *cvs.CVSExecutor, epoch uint64, scope string) tea.Cmd {
+func backgroundDirScan(executor *cvs.CVSExecutor, epoch, gen uint64, scope string) tea.Cmd {
 	dirLabel := scope
 	if dirLabel == "" {
 		dirLabel = "."
@@ -283,6 +283,7 @@ func backgroundDirScan(executor *cvs.CVSExecutor, epoch uint64, scope string) te
 			recursive: true,
 			statuses:  runPartitionScan(executor, scope),
 			epoch:     epoch,
+			gen:       gen,
 		}
 	}
 }

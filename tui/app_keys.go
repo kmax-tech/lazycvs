@@ -51,7 +51,7 @@ var globalBindings = []struct {
 		m.markedTab.Refresh(m.filelist.marked, m.resolveFileStatus)
 		paths := m.filelist.MarkedFiles()
 		if len(paths) > 0 {
-			return refreshMarkedFiles(m.exec, paths)
+			return refreshMarkedFiles(m.exec, paths, m.rootGen)
 		}
 		return nil
 	}},

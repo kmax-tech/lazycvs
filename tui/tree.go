@@ -69,6 +69,10 @@ type TreeModel struct {
 	offset      int
 	showFiles   bool // when false, tree only shows directories (Variant A)
 	hideIgnored bool // mirror of FileListModel.hideIgnored, kept in sync by App
+	// gen is the root generation this tree was built for (App.rootGen);
+	// the listings it loads asynchronously carry it so a scan of a
+	// root the app has since left is dropped instead of grafted in.
+	gen uint64
 }
 
 func NewTreeModel(workDir string) TreeModel {
@@ -80,14 +84,18 @@ func NewTreeModel(workDir string) TreeModel {
 
 func (m TreeModel) Init() tea.Cmd {
 	return func() tea.Msg {
-		return treeLoadedMsg{nodes: scanDir(m.workDir, ".")}
+		return treeLoadedMsg{nodes: scanDir(m.workDir, "."), gen: m.gen}
 	}
 }
 
-type treeLoadedMsg struct{ nodes []*TreeNode }
+type treeLoadedMsg struct {
+	nodes []*TreeNode
+	gen   uint64 // root generation (see TreeModel.gen)
+}
 type treeDirLoadedMsg struct {
 	path  string
 	nodes []*TreeNode
+	gen   uint64 // root generation (see TreeModel.gen)
 }
 
 func (m TreeModel) Update(msg tea.Msg) (TreeModel, tea.Cmd) {
@@ -174,8 +182,9 @@ func (m *TreeModel) expandOrSelect() tea.Cmd {
 	// Lazy-load children
 	path := node.Path
 	workDir := m.workDir
+	gen := m.gen
 	return func() tea.Msg {
-		return treeDirLoadedMsg{path: path, nodes: scanDir(workDir, path)}
+		return treeDirLoadedMsg{path: path, nodes: scanDir(workDir, path), gen: gen}
 	}
 }
 

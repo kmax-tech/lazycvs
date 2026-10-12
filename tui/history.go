@@ -137,6 +137,7 @@ func NewHistoryModel() HistoryModel {
 type historyLoadedMsg struct {
 	path      string
 	requestID uint64
+	gen       uint64 // root generation (see App.rootGen)
 	history   *cvs.FileHistory
 }
 
@@ -152,6 +153,7 @@ type historyLoadedMsg struct {
 type historyBatchMsg struct {
 	path      string
 	requestID uint64
+	gen       uint64 // root generation (see App.rootGen)
 	revisions []cvs.Revision
 }
 
@@ -161,6 +163,7 @@ type historyBatchMsg struct {
 type historyStreamErrMsg struct {
 	path      string
 	requestID uint64
+	gen       uint64 // root generation (see App.rootGen)
 	err       error
 }
 
@@ -170,6 +173,7 @@ type historyContentMsg struct {
 	path    string
 	rev     string
 	content string
+	gen     uint64 // root generation (see App.rootGen)
 }
 
 // historyDiffMsg carries a parsed unified diff between two revisions.
@@ -179,6 +183,7 @@ type historyDiffMsg struct {
 	fromRev string
 	toRev   string
 	diff    *cvs.DiffResult
+	gen     uint64 // root generation (see App.rootGen)
 }
 
 // historyStreamBatchSize is how many revisions accumulate before the
@@ -207,11 +212,12 @@ const historyStreamFlushInterval = 100 * time.Millisecond
 //
 // requestID is the per-load identifier; every emitted msg carries it
 // so the handler can drop batches from a now-stale request after a
-// file switch.
-func startHistoryStream(executor *cvs.CVSExecutor, path string, requestID uint64) (chan tea.Msg, tea.Cmd) {
+// file switch. gen is the root generation, for the same reason after
+// a root switch.
+func startHistoryStream(executor *cvs.CVSExecutor, path string, requestID, gen uint64) (chan tea.Msg, tea.Cmd) {
 	out := make(chan tea.Msg, 8)
 
-	go runHistoryStream(executor, path, requestID, out)
+	go runHistoryStream(executor, path, requestID, gen, out)
 
 	return out, historyStreamNext(out)
 }
@@ -245,18 +251,18 @@ func historyStreamNext(ch chan tea.Msg) tea.Cmd {
 //   - The flush timer is implemented via a select on a time.Timer
 //     channel so we don't block waiting for the next line if the
 //     subprocess goes quiet.
-func runHistoryStream(executor *cvs.CVSExecutor, path string, requestID uint64, out chan<- tea.Msg) {
+func runHistoryStream(executor *cvs.CVSExecutor, path string, requestID, gen uint64, out chan<- tea.Msg) {
 	defer close(out)
 
 	cmd := exec.Command(executor.CVSBin, "-Q", "log", "-N", path)
 	cmd.Dir = executor.WorkDir
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
-		out <- historyStreamErrMsg{path: path, requestID: requestID, err: err}
+		out <- historyStreamErrMsg{path: path, requestID: requestID, gen: gen, err: err}
 		return
 	}
 	if err := cmd.Start(); err != nil {
-		out <- historyStreamErrMsg{path: path, requestID: requestID, err: err}
+		out <- historyStreamErrMsg{path: path, requestID: requestID, gen: gen, err: err}
 		return
 	}
 
@@ -275,7 +281,7 @@ func runHistoryStream(executor *cvs.CVSExecutor, path string, requestID uint64, 
 		// revision list with no explanation. Surface them as a stream
 		// error message so the handler can show "history load failed".
 		if err := s.Err(); err != nil {
-			out <- historyStreamErrMsg{path: path, requestID: requestID, err: err}
+			out <- historyStreamErrMsg{path: path, requestID: requestID, gen: gen, err: err}
 		}
 	}()
 
@@ -289,7 +295,7 @@ func runHistoryStream(executor *cvs.CVSExecutor, path string, requestID uint64, 
 		}
 		batch := append([]cvs.Revision(nil), pending...)
 		emitted = append(emitted, batch...)
-		out <- historyBatchMsg{path: path, requestID: requestID, revisions: batch}
+		out <- historyBatchMsg{path: path, requestID: requestID, gen: gen, revisions: batch}
 		pending = pending[:0]
 	}
 
@@ -330,7 +336,7 @@ LOOP:
 
 	// Final message: the full list, atomic and cacheable.
 	full := &cvs.FileHistory{Path: path, Revisions: emitted}
-	out <- historyLoadedMsg{path: path, requestID: requestID, history: full}
+	out <- historyLoadedMsg{path: path, requestID: requestID, gen: gen, history: full}
 }
 
 // revisionParser is a streaming parser for `cvs log -N` output. Each
@@ -446,24 +452,24 @@ var (
 	dateLineRe = regexp.MustCompile(`^date:\s+(.+?);\s+author:\s+(.+?);\s+state:\s+(.+?);(?:\s+lines:\s+\+(\d+)\s+-(\d+))?`)
 )
 
-func loadRevisionContent(exec *cvs.CVSExecutor, path, rev string) tea.Cmd {
+func loadRevisionContent(exec *cvs.CVSExecutor, path, rev string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		content, err := catRevisionStdout(exec, path, rev)
 		if err != nil {
-			return historyContentMsg{path: path, rev: rev, content: "Error loading revision: " + err.Error()}
+			return historyContentMsg{path: path, rev: rev, content: "Error loading revision: " + err.Error(), gen: gen}
 		}
-		return historyContentMsg{path: path, rev: rev, content: cvs.DisplayText(content)}
+		return historyContentMsg{path: path, rev: rev, content: cvs.DisplayText(content), gen: gen}
 	}
 }
 
-func loadRevisionDiff(exec *cvs.CVSExecutor, path, fromRev, toRev string) tea.Cmd {
+func loadRevisionDiff(exec *cvs.CVSExecutor, path, fromRev, toRev string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		result, _ := exec.RunReadOnly("diff", "-u", "-r", fromRev, "-r", toRev, path)
 		var diff *cvs.DiffResult
 		if result != nil {
 			diff = cvs.ParseDiff(cvs.DisplayText(result.Stdout))
 		}
-		return historyDiffMsg{path: path, fromRev: fromRev, toRev: toRev, diff: diff}
+		return historyDiffMsg{path: path, fromRev: fromRev, toRev: toRev, diff: diff, gen: gen}
 	}
 }
 
@@ -471,14 +477,14 @@ func loadRevisionDiff(exec *cvs.CVSExecutor, path, fromRev, toRev string) tea.Cm
 // produces a diff from fromRev to the on-disk working copy. The result is
 // stored in the diff cache under the sentinel toRev "@working" so the
 // working-copy comparison gets cached just like a rev-to-rev diff.
-func loadWorkingDiff(exec *cvs.CVSExecutor, path, fromRev string) tea.Cmd {
+func loadWorkingDiff(exec *cvs.CVSExecutor, path, fromRev string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		result, _ := exec.RunReadOnly("diff", "-u", "-r", fromRev, path)
 		var diff *cvs.DiffResult
 		if result != nil {
 			diff = cvs.ParseDiff(cvs.DisplayText(result.Stdout))
 		}
-		return historyDiffMsg{path: path, fromRev: fromRev, toRev: workingRev, diff: diff}
+		return historyDiffMsg{path: path, fromRev: fromRev, toRev: workingRev, diff: diff, gen: gen}
 	}
 }
 
@@ -496,13 +502,13 @@ func prettyRev(rev string) string {
 	return rev
 }
 
-func loadBlame(exec *cvs.CVSExecutor, path string) tea.Cmd {
+func loadBlame(exec *cvs.CVSExecutor, path string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
 		result, err := exec.RunReadOnly("annotate", path)
 		if err != nil && result == nil {
-			return historyContentMsg{path: path, rev: blameRev, content: "Error loading blame"}
+			return historyContentMsg{path: path, rev: blameRev, content: "Error loading blame", gen: gen}
 		}
-		return historyContentMsg{path: path, rev: blameRev, content: cvs.DisplayText(result.Stdout)}
+		return historyContentMsg{path: path, rev: blameRev, content: cvs.DisplayText(result.Stdout), gen: gen}
 	}
 }
 

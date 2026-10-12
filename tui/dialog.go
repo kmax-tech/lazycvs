@@ -1473,7 +1473,7 @@ func helpOutro(section string) string {
 	case "Console":
 		return "\n  " + mutedStyle.Render(
 			"Every cvs command and file operation (rm / mv / backup) is\n"+
-				"also appended to "+config.DefaultLogPath()) + "\n"
+				"also appended to "+sessionLogPath()) + "\n"
 	}
 	return ""
 }
@@ -1483,6 +1483,12 @@ func helpOutro(section string) string {
 const helpGoldenWidth = 51
 
 func buildHelpContent() string { return buildHelpBody("", helpGoldenWidth) }
+
+// sessionLogPath names the session log in the Console help note. A
+// variable so the help golden can pin a machine-independent path: the
+// real one carries the user's home directory and OS-specific config
+// location, and a golden recorded on one machine fails on every other.
+var sessionLogPath = config.DefaultLogPath
 
 // buildHelpBody renders the help. With a filter, only rows whose key or
 // description contain it survive, sections with no surviving row

@@ -176,6 +176,10 @@ func TestKeybarGolden(t *testing.T) {
 // the one that drifted in issue 021. Same contract as the keybar: S1
 // changes where the rows come from, not what they say.
 func TestHelpGolden(t *testing.T) {
+	// The Console note names the session log; its real path differs
+	// per machine and OS, so the golden pins a placeholder.
+	defer func(real func() string) { sessionLogPath = real }(sessionLogPath)
+	sessionLogPath = func() string { return "<config-dir>/lazycvs.log" }
 	got := buildHelpContent()
 	golden := filepath.Join("testdata", "help.golden")
 

@@ -133,8 +133,8 @@ Console
   x           clear panel (session log file keeps
               everything)
 
-  Every cvs command and file operation (rm / mv / backup) is                 
-also appended to /Users/max/Library/Application Support/lazycvs/lazycvs.log
+  Every cvs command and file operation (rm / mv / backup) is
+also appended to <config-dir>/lazycvs.log                 
 
 Status codes
 ────────────

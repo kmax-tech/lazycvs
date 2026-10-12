@@ -416,9 +416,13 @@ type App struct {
 	initialPath     string // path to navigate to on startup
 
 	// Follow mode (follow.go): the latest path from the -follow FIFO
-	// waiting for the user to be idle, and whether the initial tree has
-	// loaded (before that, revealPath has nothing to move through).
+	// waiting for the user to be idle — relative in pendingFollow when
+	// it lies inside the working copy, absolute in pendingReroot when it
+	// lies in another checkout (at most one of the two is set) — and
+	// whether the current tree has loaded (before that, revealPath has
+	// nothing to move through).
 	pendingFollow string
+	pendingReroot string
 	followReady   bool
 
 	// statusMap is the single source of truth for per-file CVS status codes

@@ -19,7 +19,13 @@ import (
 // statusMap also carries gone.txt (U, not on disk → server-only).
 func newListingTestApp(t *testing.T) *App {
 	t.Helper()
-	root := t.TempDir()
+	return newListingTestAppAt(t, t.TempDir())
+}
+
+// newListingTestAppAt builds the listing fixture inside root, which the
+// caller owns — so a test can nest it in a larger checkout.
+func newListingTestAppAt(t *testing.T, root string) *App {
+	t.Helper()
 	for _, d := range []string{"CVS", "sub/CVS", "sub/deep/CVS"} {
 		if err := os.MkdirAll(filepath.Join(root, d), 0755); err != nil {
 			t.Fatal(err)

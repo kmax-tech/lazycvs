@@ -22,6 +22,13 @@ type CVSExecutor struct {
 	Timeout time.Duration
 	Log     *CommandLog
 	mu      sync.RWMutex
+
+	// retired is closed by Retire when the app stops using this executor
+	// (a follow-mode re-root). Read-only commands then stop: a running
+	// one is killed, a queued one never starts. nil (an executor built
+	// as a literal, as tests do) never retires.
+	retired    chan struct{}
+	retireOnce sync.Once
 }
 
 // NewCVSExecutor creates a new executor.
@@ -31,6 +38,33 @@ func NewCVSExecutor(workDir, cvsBin string, timeout time.Duration, log *CommandL
 		CVSBin:  cvsBin,
 		Timeout: timeout,
 		Log:     log,
+		retired: make(chan struct{}),
+	}
+}
+
+// ErrRetired is returned by RunReadOnly on a retired executor.
+var ErrRetired = errors.New("executor retired")
+
+// Retire stops this executor's read-only work: running status/diff/log
+// commands are killed and later ones return ErrRetired without running,
+// silently — the caller replaced the executor and logs that once
+// itself. Write commands are untouched (the app never retires an
+// executor while one runs, and killing a commit midway is never fine).
+// Safe to call more than once.
+func (e *CVSExecutor) Retire() {
+	if e.retired == nil {
+		return
+	}
+	e.retireOnce.Do(func() { close(e.retired) })
+}
+
+// isRetired reports whether Retire was called.
+func (e *CVSExecutor) isRetired() bool {
+	select {
+	case <-e.retired:
+		return true
+	default:
+		return false
 	}
 }
 
@@ -38,15 +72,18 @@ func NewCVSExecutor(workDir, cvsBin string, timeout time.Duration, log *CommandL
 func (e *CVSExecutor) Run(args ...string) (*CommandResult, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.run(args...)
+	return e.run(nil, args...)
 }
 
 // RunReadOnly executes a read-only CVS command (status, diff, log) with a
 // shared lock, allowing multiple reads to run concurrently.
 func (e *CVSExecutor) RunReadOnly(args ...string) (*CommandResult, error) {
+	if e.isRetired() {
+		return nil, ErrRetired
+	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.run(args...)
+	return e.run(e.retired, args...)
 }
 
 // dashPathArgs rewrites arguments that are really working-copy paths
@@ -78,9 +115,21 @@ func dashPathArgs(workDir string, args []string) []string {
 	return out
 }
 
-func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
+// run executes one cvs command. stop, when non-nil, kills the command
+// once closed (Retire); such a command is not logged and returns
+// ErrRetired.
+func (e *CVSExecutor) run(stop <-chan struct{}, args ...string) (*CommandResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.Timeout)
 	defer cancel()
+	if stop != nil {
+		go func() {
+			select {
+			case <-stop:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+	}
 
 	args = dashPathArgs(e.WorkDir, args)
 	cmd := exec.CommandContext(ctx, e.CVSBin, args...)
@@ -150,6 +199,9 @@ func (e *CVSExecutor) run(args ...string) (*CommandResult, error) {
 		}
 	}
 
+	if stop != nil && e.isRetired() && ctx.Err() == context.Canceled {
+		return nil, ErrRetired
+	}
 	e.Log.Add(*result)
 
 	if ctx.Err() == context.DeadlineExceeded {

@@ -22,9 +22,25 @@ manager: the other program creates the FIFO (`mkfifo`) and writes absolute
 paths into it, one per line; lazycvs moves its selection there, the same
 jump the fuzzy finder makes. A path waits while you are busy (a dialog or
 the search is open, another tab is active) and lands as soon as you are
-back on the Tree tab; paths outside the working copy are ignored. A path
-that is not a FIFO exits with an error; if reading stops mid-session, the
-console says so. conspectus uses it for its terminal panel.
+back on the Tree tab. A path that is not a FIFO exits with an error; if
+reading stops mid-session, the console says so. conspectus uses it for
+its terminal panel.
+
+A path outside the working copy but inside another CVS checkout (its
+directory has `CVS/Root` — every directory of a checkout does, so the
+parent of your start directory usually qualifies) **re-roots** lazycvs
+there, in place: the followed directory becomes the tree root, with the
+file selected if the path was a file. The console, your config, panel
+sizes and a typed commit message survive the switch; the tree, file
+list, status, diffs and history are reloaded for the new root, and a
+command still running against the old root finishes but its result is
+discarded. Marks survive when you move up (they are re-expressed under
+the new root); switching to an unrelated checkout keeps only the marks
+inside it and reports how many were dropped. Each switch is logged as
+`re-rooted to <path>`. Moving down into a subdirectory is an ordinary
+follow, never a re-root, and paths outside any checkout are ignored. A
+re-root also waits for a running action (commit, revert, update) to
+finish.
 
 If the current directory isn't a CVS working copy, lazycvs falls back to
 `[cvs] default_path` from your config file. If neither resolves to a CVS

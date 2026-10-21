@@ -58,8 +58,11 @@ type externalDiffMsg struct {
 	err         error
 }
 
-// catRevisionStdout returns the on-disk content of a specific revision of a
-// file from the CVS repository, bypassing the working copy state.
+// catRevision returns the content of a specific revision of a file from
+// the CVS repository, bypassing the working copy state — the exact bytes,
+// so a PDF or an image survives the trip (`RunReadOnlyStdout`: stdout is
+// never merged with stderr, where `cvs co -p` prints its "Checking out"
+// header).
 //
 // Uses `cvs co -p <module-path>` instead of the more obvious `cvs update -p`
 // because `update -p` returns empty stdout when the file is in an unresolved-
@@ -68,10 +71,10 @@ type externalDiffMsg struct {
 // directly from the RCS file in the repository and is unaffected.
 //
 // rev=="" means HEAD.
-func catRevisionStdout(executor *cvs.CVSExecutor, path, rev string) (string, error) {
+func catRevision(executor *cvs.CVSExecutor, path, rev string) ([]byte, error) {
 	root, err := moduleRoot(executor)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	modulePath := filepath.Clean(root + "/" + path)
 
@@ -83,44 +86,23 @@ func catRevisionStdout(executor *cvs.CVSExecutor, path, rev string) (string, err
 	}
 	args = append(args, modulePath)
 
-	result, err := executor.RunReadOnly(args...)
+	content, result, err := executor.RunReadOnlyStdout(args...)
 	if err != nil && result == nil {
-		return "", fmt.Errorf("cvs %s: %w", strings.Join(args, " "), err)
+		return nil, fmt.Errorf("cvs %s: %w", strings.Join(args, " "), err)
 	}
-	return stripCheckoutHeader(result.Stdout), nil
-}
-
-// stripCheckoutHeader removes the metadata block that `cvs co -p` emits
-// before each file's content:
-//
-//	===================================================================
-//	Checking out <module-path>
-//	RCS:  <repo,v>
-//	VERS: <revision>
-//	***************
-//	<actual file content starts here>
-//
-// The block is identified by the asterisk separator line that ends it;
-// everything up to and including that line is metadata. If no separator
-// is found (e.g. cvs format changes, or this is a continuation), the
-// content is returned unchanged.
-func stripCheckoutHeader(content string) string {
-	lines := strings.SplitN(content, "\n", -1)
-	for i, line := range lines {
-		// Tolerate trailing whitespace and require at least three '*'
-		// so we don't strip a content line that legitimately starts
-		// with one or two asterisks (e.g. Markdown list items).
-		if strings.HasPrefix(strings.TrimSpace(line), "***") &&
-			strings.TrimRight(strings.TrimSpace(line), "*") == "" {
-			return strings.Join(lines[i+1:], "\n")
-		}
-		// Header lines are bounded — bail out if we don't see the
-		// asterisk separator within the first handful of lines.
-		if i >= 6 {
-			break
-		}
+	if result != nil && !result.Success {
+		return nil, fmt.Errorf("cvs %s failed: %s", strings.Join(args, " "), strings.TrimSpace(result.Stderr))
 	}
-	return content
+	// A revision the file never had is not an error to cvs: exit 0, no
+	// header, no bytes. The header announces every served revision, an
+	// empty one included — so no bytes AND no header means nothing was
+	// checked out. (A global -q would silence the header; the executor
+	// passes none, and the content check keeps every non-empty revision
+	// safe should that change.)
+	if result != nil && len(content) == 0 && !strings.Contains(result.Stderr, "Checking out ") {
+		return nil, fmt.Errorf("cvs %s: revision %s of %s not in the repository", strings.Join(args, " "), args[3], path)
+	}
+	return content, nil
 }
 
 // extractRevToTemp checks out a specific revision and writes the result to a
@@ -133,7 +115,7 @@ func stripCheckoutHeader(content string) string {
 // The caller is responsible for cleanup if desired; most diff tools open the
 // files lazily so we deliberately do NOT remove them ourselves.
 func extractRevToTemp(executor *cvs.CVSExecutor, path, rev string) (string, error) {
-	content, err := catRevisionStdout(executor, path, rev)
+	content, err := catRevision(executor, path, rev)
 	if err != nil {
 		return "", err
 	}
@@ -148,7 +130,7 @@ func extractRevToTemp(executor *cvs.CVSExecutor, path, rev string) (string, erro
 	}
 	name := fmt.Sprintf("rev-%s-%s", revLabel, filepath.Base(path))
 	fullPath := filepath.Join(dir, name)
-	if err := os.WriteFile(fullPath, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(fullPath, content, 0644); err != nil {
 		return "", err
 	}
 	return fullPath, nil
@@ -646,13 +628,81 @@ func (m *App) handleConflictResolve(msg conflictResolveMsg) tea.Cmd {
 // viewer to exit and don't surface launch failures.
 func openInOS(path string) tea.Cmd {
 	return func() tea.Msg {
-		bin := "open"
-		if _, err := os.Stat("/usr/bin/xdg-open"); err == nil {
-			bin = "xdg-open"
-		}
-		cmd := exec.Command(bin, path)
+		cmd := exec.Command(osOpener(), path)
 		cmd.Start()
 		return nil
+	}
+}
+
+// osOpener is the OS's "open with the default app" command: xdg-open
+// where it exists, macOS's open otherwise.
+func osOpener() string {
+	if _, err := os.Stat("/usr/bin/xdg-open"); err == nil {
+		return "xdg-open"
+	}
+	return "open"
+}
+
+// openRevisionFor opens the revision under the History cursor outside
+// lazycvs: alt=false with the OS default app (o), alt=true with the
+// configured alternate opener (Ctrl-O). The working-copy row opens the
+// file itself, exactly like o / Ctrl-O on the other tabs. Any other row
+// is checked out into a temp file named `rev-<n>-<basename>` first
+// (`extractRevToTemp`), so an old revision of a PDF or an image opens in
+// the viewer that handles the type — the History pane itself shows
+// binaries only as "cannot display". The temp file is left for the
+// viewer (it may open it lazily).
+//
+// A binary stored without -kb comes back with keywords expanded; the
+// file is opened anyway (it is all the repository has) but the result
+// bar says so in red instead of handing over damaged bytes silently.
+func (m *App) openRevisionFor(alt bool) tea.Cmd {
+	path := m.history.Path()
+	if path == "" {
+		return nil
+	}
+	if m.history.IsWorkingCopyRow() {
+		if alt {
+			return m.launchAltOpenFor(path)
+		}
+		return openInOS(filepath.Join(m.exec.WorkDir, path))
+	}
+	rev := m.history.SelectedRevision()
+	if rev == nil {
+		return nil
+	}
+	cfg := m.cfgMgr.Get()
+	if alt && strings.TrimSpace(cfg.Editor.AltOpen) == "" {
+		return m.launchAltOpenFor(path) // opens the "no alternate opener" notice
+	}
+	keywordsExpanded := false
+	if hist := m.histRevisions[path]; hist != nil && hist.KeywordSubstitution != "b" {
+		keywordsExpanded = fs.IsBinary(filepath.Join(m.exec.WorkDir, path))
+	}
+	executor := m.exec
+	return func() tea.Msg {
+		tmp, err := extractRevToTemp(executor, path, rev.Number)
+		if err != nil {
+			return fileActionDoneMsg{err: fmt.Errorf("checkout rev %s of %s: %w", rev.Number, path, err)}
+		}
+		var argv []string
+		if alt {
+			argv, err = altOpenArgv(cfg.Editor.AltOpen, tmp)
+			if err != nil {
+				return fileActionDoneMsg{err: err}
+			}
+		} else {
+			argv = []string{osOpener(), tmp}
+		}
+		cmd := exec.Command(argv[0], argv[1:]...)
+		if err := cmd.Start(); err != nil {
+			return fileActionDoneMsg{err: fmt.Errorf("launch %s: %w", argv[0], err)}
+		}
+		note := fmt.Sprintf("Opened rev %s of %s with %s", rev.Number, filepath.Base(path), filepath.Base(argv[0]))
+		if keywordsExpanded {
+			return fileActionDoneMsg{err: fmt.Errorf("%s — stored without -kb, cvs expanded keywords: the bytes may differ from what was committed", note)}
+		}
+		return fileActionDoneMsg{note: note}
 	}
 }
 

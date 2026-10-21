@@ -1,63 +1,19 @@
 package tui
 
 import (
+	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/kmax-tech/lazycvs/config"
 	"github.com/kmax-tech/lazycvs/cvs"
 )
-
-func TestStripCheckoutHeader(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		in   string
-		want string
-	}{
-		{
-			name: "typical cvs co -p header",
-			in: "===================================================================\n" +
-				"Checking out research-in-progress/foo/bar.tex\n" +
-				"RCS:  /srv/cvsroot/research-in-progress/foo/bar.tex,v\n" +
-				"VERS: 1.1\n" +
-				"***************\n" +
-				"\\section{Introduction}\n" +
-				"Body content here.\n",
-			want: "\\section{Introduction}\nBody content here.\n",
-		},
-		{
-			name: "no header at all (already-stripped content)",
-			in:   "\\section{Introduction}\nNo metadata before this.\n",
-			want: "\\section{Introduction}\nNo metadata before this.\n",
-		},
-		{
-			name: "content line starting with '*' must not be stripped",
-			in:   "* item one\n* item two\n",
-			want: "* item one\n* item two\n",
-		},
-		{
-			name: "content line starting with '**' (bold) must not be stripped",
-			in:   "**bold** Markdown line\nnormal line\n",
-			want: "**bold** Markdown line\nnormal line\n",
-		},
-		{
-			name: "separator with trailing whitespace",
-			in:   "Checking out foo\nRCS: bar\nVERS: 1.2\n***************   \nactual content\n",
-			want: "actual content\n",
-		},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := stripCheckoutHeader(tc.in)
-			if got != tc.want {
-				t.Errorf("stripCheckoutHeader\n  input: %q\n  want:  %q\n  got:   %q", tc.in, tc.want, got)
-			}
-		})
-	}
-}
 
 func TestAltOpenArgv(t *testing.T) {
 	for _, tc := range []struct {
@@ -527,5 +483,89 @@ func TestExternalDiffMsgRefreshesMergedPath(t *testing.T) {
 	}
 	if _, ok := updated.histDiffs["top.txt"]; ok {
 		t.Error("cached diff for the merged file survived the invalidation")
+	}
+}
+
+// catRevision must return the committed bytes of a -kb binary unchanged:
+// the stderr header of `cvs co -p` ("Checking out …") must not end up in
+// the content, a NUL byte and a keyword-shaped sequence must survive, and
+// a revision that does not exist must fail loudly instead of coming back
+// as an empty file. Drives a real local repository (skipped without cvs).
+func TestCatRevisionReturnsExactBinaryBytes(t *testing.T) {
+	cvsBin, err := exec.LookPath("cvs")
+	if err != nil {
+		t.Skip("cvs binary not installed")
+	}
+	root := t.TempDir()
+	repo := filepath.Join(root, "repo")
+	run := func(dir string, args ...string) {
+		t.Helper()
+		cmd := exec.Command(cvsBin, append([]string{"-Q", "-d", repo}, args...)...)
+		cmd.Dir = dir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("cvs %v: %v\n%s", args, err, out)
+		}
+	}
+	rev1 := []byte("%PDF-1.4\x00\r\n$Id$ first\n")
+	rev2 := []byte("%PDF-1.4\x00\r\n$Id$ second\xff\n")
+
+	run(root, "init")
+	imp := filepath.Join(root, "imp")
+	if err := os.Mkdir(imp, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(imp, "keep.txt"), []byte("x\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	run(imp, "import", "-m", "init", "mod", "vendor", "start")
+	run(root, "checkout", "-d", "wc", "mod")
+	wc := filepath.Join(root, "wc")
+	if err := os.WriteFile(filepath.Join(wc, "doc.pdf"), rev1, 0644); err != nil {
+		t.Fatal(err)
+	}
+	run(wc, "add", "-kb", "doc.pdf")
+	run(wc, "commit", "-m", "rev 1", "doc.pdf")
+	if err := os.WriteFile(filepath.Join(wc, "doc.pdf"), rev2, 0644); err != nil {
+		t.Fatal(err)
+	}
+	run(wc, "commit", "-m", "rev 2", "doc.pdf")
+
+	executor := cvs.NewCVSExecutor(wc, cvsBin, 30*time.Second, cvs.NewCommandLog(10))
+	for _, tc := range []struct {
+		rev  string
+		want []byte
+	}{{"1.1", rev1}, {"1.2", rev2}, {"", rev2}} {
+		got, err := catRevision(executor, "doc.pdf", tc.rev)
+		if err != nil {
+			t.Fatalf("catRevision rev %q: %v", tc.rev, err)
+		}
+		if !bytes.Equal(got, tc.want) {
+			t.Errorf("rev %q: got %q, want %q", tc.rev, got, tc.want)
+		}
+	}
+	if _, err := catRevision(executor, "doc.pdf", "9.9"); err == nil {
+		t.Error("catRevision of a missing revision returned no error")
+	}
+
+	// The temp file carries the same bytes under a revision-labelled name.
+	tmp, err := extractRevToTemp(executor, "doc.pdf", "1.1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(filepath.Dir(tmp))
+	if filepath.Base(tmp) != "rev-1.1-doc.pdf" {
+		t.Errorf("temp name = %q, want rev-1.1-doc.pdf", filepath.Base(tmp))
+	}
+	if got, _ := os.ReadFile(tmp); !bytes.Equal(got, rev1) {
+		t.Errorf("temp file bytes = %q, want %q", got, rev1)
+	}
+
+	// The log entry shows a size note, not the binary content.
+	last := executor.Log.Last()
+	if last == nil {
+		t.Fatal("no command was logged")
+	}
+	if strings.Contains(last.Stdout, "%PDF") || !strings.Contains(last.Stdout, "bytes of file content") {
+		t.Errorf("logged stdout should be a size note, got %q", last.Stdout)
 	}
 }

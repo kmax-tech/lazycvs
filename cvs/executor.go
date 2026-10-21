@@ -72,7 +72,7 @@ func (e *CVSExecutor) isRetired() bool {
 func (e *CVSExecutor) Run(args ...string) (*CommandResult, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.run(nil, args...)
+	return e.run(nil, nil, args...)
 }
 
 // RunReadOnly executes a read-only CVS command (status, diff, log) with a
@@ -83,7 +83,25 @@ func (e *CVSExecutor) RunReadOnly(args ...string) (*CommandResult, error) {
 	}
 	e.mu.RLock()
 	defer e.mu.RUnlock()
-	return e.run(e.retired, args...)
+	return e.run(e.retired, nil, args...)
+}
+
+// RunReadOnlyStdout is RunReadOnly for commands whose stdout is file
+// content (`cvs co -p`): stdout comes back as the exact bytes cvs wrote,
+// never merged with stderr. The merged stream of RunReadOnly is right for
+// parsers that need stderr's progress lines in order, but it lets a
+// server warning land inside a PDF or an image. The logged result (and the
+// returned one) carries stderr plus a one-line size note in place of the
+// content, so the Console panel never renders binary data.
+func (e *CVSExecutor) RunReadOnlyStdout(args ...string) ([]byte, *CommandResult, error) {
+	if e.isRetired() {
+		return nil, nil, ErrRetired
+	}
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	var stdout bytes.Buffer
+	result, err := e.run(e.retired, &stdout, args...)
+	return stdout.Bytes(), result, err
 }
 
 // dashPathArgs rewrites arguments that are really working-copy paths
@@ -117,8 +135,10 @@ func dashPathArgs(workDir string, args []string) []string {
 
 // run executes one cvs command. stop, when non-nil, kills the command
 // once closed (Retire); such a command is not logged and returns
-// ErrRetired.
-func (e *CVSExecutor) run(stop <-chan struct{}, args ...string) (*CommandResult, error) {
+// ErrRetired. stdout, when non-nil, receives the raw stdout bytes and the
+// result's text fields hold only stderr plus a size note (see
+// RunReadOnlyStdout); nil merges both streams into the result.
+func (e *CVSExecutor) run(stop <-chan struct{}, stdout *bytes.Buffer, args ...string) (*CommandResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), e.Timeout)
 	defer cancel()
 	if stop != nil {
@@ -154,10 +174,16 @@ func (e *CVSExecutor) run(stop <-chan struct{}, args ...string) (*CommandResult,
 	var combined bytes.Buffer
 	cmd.Stdout = &combined
 	cmd.Stderr = &combined
+	if stdout != nil {
+		cmd.Stdout = stdout
+	}
 
 	start := time.Now()
 	err := cmd.Run()
 	duration := time.Since(start)
+	if stdout != nil {
+		fmt.Fprintf(&combined, "[%d bytes of file content on stdout]\n", stdout.Len())
+	}
 
 	quoted := make([]string, len(args))
 	for i, a := range args {

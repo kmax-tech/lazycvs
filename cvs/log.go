@@ -11,6 +11,11 @@ import (
 type FileHistory struct {
 	Path      string     `json:"path"`
 	Revisions []Revision `json:"revisions"`
+	// KeywordSubstitution is the file's `-k` mode from the log header
+	// ("kv" for text, "b" for a binary added with -kb; "" when the header
+	// had no such line). A binary stored in any mode but "b" comes back
+	// from the repository with keywords expanded, i.e. damaged.
+	KeywordSubstitution string `json:"keyword_substitution,omitempty"`
 }
 
 // Revision represents a single revision in a file's history.
@@ -32,6 +37,18 @@ var (
 	tagLineRe  = regexp.MustCompile(`^\s+(\S+):\s+(\S+)`)
 )
 
+// KeywordSubstitutionLine recognizes the `keyword substitution: <mode>`
+// header line of `cvs log` and returns the mode. The one home for that
+// line's format: both the batched parser (ParseLog) and the TUI's
+// streaming parser use it.
+func KeywordSubstitutionLine(line string) (mode string, ok bool) {
+	const prefix = "keyword substitution:"
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
+}
+
 // ParseLog parses the output of `cvs log` into a FileHistory.
 func ParseLog(output string) *FileHistory {
 	history := &FileHistory{}
@@ -44,6 +61,10 @@ func ParseLog(output string) *FileHistory {
 	for _, line := range lines {
 		if strings.HasPrefix(line, "symbolic names:") {
 			inSymbolic = true
+			continue
+		}
+		if mode, ok := KeywordSubstitutionLine(line); ok {
+			history.KeywordSubstitution = mode
 			continue
 		}
 		if inSymbolic {

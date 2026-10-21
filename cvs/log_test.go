@@ -39,6 +39,10 @@ initial version
 `
 	history := ParseLog(input)
 
+	if history.KeywordSubstitution != "kv" {
+		t.Errorf("KeywordSubstitution = %q, want %q", history.KeywordSubstitution, "kv")
+	}
+
 	if len(history.Revisions) != 5 {
 		t.Fatalf("expected 5 revisions, got %d", len(history.Revisions))
 	}

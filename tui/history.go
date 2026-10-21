@@ -335,7 +335,7 @@ LOOP:
 	_ = cmd.Wait()
 
 	// Final message: the full list, atomic and cacheable.
-	full := &cvs.FileHistory{Path: path, Revisions: emitted}
+	full := &cvs.FileHistory{Path: path, Revisions: emitted, KeywordSubstitution: parser.keywordSubstitution}
 	out <- historyLoadedMsg{path: path, requestID: requestID, gen: gen, history: full}
 }
 
@@ -348,6 +348,10 @@ type revisionParser struct {
 	current *cvs.Revision // currently-being-parsed revision
 	pending *cvs.Revision // last completed, awaiting successor for PrevNumber
 	inMsg   bool          // we're inside the multi-line commit-message section
+	// keywordSubstitution is the file's -k mode from the log header
+	// ("b" for a -kb binary); runHistoryStream copies it into the final
+	// FileHistory, where the revision opener checks it.
+	keywordSubstitution string
 }
 
 func newRevisionParser() *revisionParser { return &revisionParser{} }
@@ -380,6 +384,14 @@ func (p *revisionParser) feed(line string) *cvs.Revision {
 		p.current = &cvs.Revision{Number: m[1]}
 		p.inMsg = false
 		return nil
+	}
+
+	// Header line, before any revision block.
+	if p.current == nil {
+		if mode, ok := cvs.KeywordSubstitutionLine(line); ok {
+			p.keywordSubstitution = mode
+			return nil
+		}
 	}
 
 	if p.current != nil && !p.inMsg {
@@ -454,11 +466,11 @@ var (
 
 func loadRevisionContent(exec *cvs.CVSExecutor, path, rev string, gen uint64) tea.Cmd {
 	return func() tea.Msg {
-		content, err := catRevisionStdout(exec, path, rev)
+		content, err := catRevision(exec, path, rev)
 		if err != nil {
 			return historyContentMsg{path: path, rev: rev, content: "Error loading revision: " + err.Error(), gen: gen}
 		}
-		return historyContentMsg{path: path, rev: rev, content: cvs.DisplayText(content), gen: gen}
+		return historyContentMsg{path: path, rev: rev, content: cvs.DisplayText(string(content)), gen: gen}
 	}
 }
 

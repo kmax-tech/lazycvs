@@ -120,6 +120,12 @@ History tab
               (undo a pair merge)
   < / >       horizontal scroll in diff content
   esc         cancel comparison mode
+  o           open the selected revision in the OS
+              default app (working-copy row: the
+              file itself)
+  C-o         open the selected revision with the
+              alternate opener (config [editor]
+              alt_open)
 
   Top row is the working copy when modified — diff there shows
 local changes vs repository.                                

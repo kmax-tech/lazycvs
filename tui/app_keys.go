@@ -375,6 +375,13 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 		case key.Matches(msg, keys.Edit) && selectedPath != "":
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			return openEditor(fullPath)
+		// In History o / C-o open the revision under the cursor (checked
+		// out to a temp file), not the working copy — that is what a
+		// revision row of a PDF or an image is there for.
+		case key.Matches(msg, keys.Open) && m.activeTab == TabHistory && selectedPath != "":
+			return m.openRevisionFor(false)
+		case key.Matches(msg, keys.AltOpen) && m.activeTab == TabHistory && selectedPath != "":
+			return m.openRevisionFor(true)
 		case key.Matches(msg, keys.Open) && selectedPath != "":
 			fullPath := filepath.Join(m.exec.WorkDir, selectedPath)
 			return openInOS(fullPath)

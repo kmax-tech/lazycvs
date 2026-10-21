@@ -300,9 +300,9 @@ are marked with `space` — the entire marked set.
 | `M`       | Open the configured external merge tool. On a `C` file: the conflict's BASE/LOCAL/REMOTE. In the History tab: merge the selected revision pair into the working copy. |
 | `i`       | Add to `.cvsignore`. Marked `?` files → bulk; single → dialog with three options (local / global pattern / global exact). |
 | `a`       | `cvs add` (`?` files only)                                   |
-| `o`       | Open with the OS default viewer (`open` / `xdg-open`)        |
+| `o`       | Open with the OS default viewer (`open` / `xdg-open`). In the History tab: the selected revision, checked out to a temp file (see [History tab in depth](#history-tab-in-depth)) |
 | `Ctrl-e`  | Alias of `e` — same key that fzf/yazi-style pickers use for "open in editor" |
-| `Ctrl-o`  | Open with the configured alternate opener (`[editor] alt_open`, e.g. a GUI editor) — launched detached, the TUI keeps running |
+| `Ctrl-o`  | Open with the configured alternate opener (`[editor] alt_open`, e.g. a GUI editor) — launched detached, the TUI keeps running. In the History tab: the selected revision, as for `o` |
 | `Ctrl-r`  | Reveal in the file manager (Finder `open -R`; elsewhere the containing dir) |
 | `Ctrl-y`  | Copy the file's absolute path to the clipboard               |
 | `d`       | Show your changes to this file in the pane beside it (Files tab layout); `d` again or `Esc` closes it |
@@ -432,6 +432,29 @@ revision") gets a `(working)` badge:
     *** empty log message ***  +11-11
   1.20    huvi7201 Apr 29 26
 ```
+
+### Opening a revision outside lazycvs: `o` / `Ctrl-o`
+
+The right pane renders text; a PDF, an image or any other binary only
+says "Binary file — cannot display". For those, `o` on a revision row
+checks that revision out of the repository into a temp file named
+`rev-<n>-<basename>` (the original extension kept, so the OS picks the
+right viewer) and opens it with the OS default app; `Ctrl-o` hands the
+same temp file to the alternate opener from `[editor] alt_open`. On the
+working-copy row both keys open the file itself, as on the other tabs.
+The result bar names what was opened (`Opened rev 1.3 of poster.pdf with
+open`); the temp file stays until the OS cleans its temp directory.
+
+The bytes are the committed ones only for files added with `-kb`. A
+binary stored in text mode (`keyword substitution: kv` in `cvs log`)
+comes back with keywords expanded; lazycvs opens it anyway, since that
+is all the repository has, and says so in red.
+
+Inside conspectus the alternate opener can target its preview pane:
+`alt_open = "qlpeek send $FILE"` writes the temp file's path to the
+preview FIFO the terminal panel exports (`QLPEEK_FIFO`), and the
+revision appears beside lazycvs instead of in a new window. In a bare
+terminal the same command shows it in the floating qlpeek panel.
 
 ### Three view modes
 
@@ -597,7 +620,9 @@ merge_tool   = "meld"                      # M key (conflicts + revision pairs)
 alt_open     = "emacsclient -n"            # Ctrl-o: alternate opener, launched
                                            # detached. $FILE marks where the
                                            # path goes; without it the path is
-                                           # appended. E.g. "code --goto $FILE"
+                                           # appended. E.g. "code --goto $FILE";
+                                           # "qlpeek send $FILE" shows History
+                                           # revisions in conspectus's preview.
 
 # Built-in presets for diff_tool: vscode, emacs, vimdiff, nvimdiff,
 # meld, kdiff3, opendiff, diffuse, bcompare. For merge_tool: the same

@@ -380,14 +380,14 @@ var keyRegistry = []keyEntry{
 		tabs: []Tab{TabTree, TabFavorites, TabMarked}, applies: onConflict,
 		bar: 10, barSegment: "hint",
 		section: "File actions", helpDesc: "external merge tool (conflict files)"},
-	{binding: keys.Open, group: groupExternal, scope: scopeCursor,
+	{binding: keys.Open, group: groupExternal, scope: scopeCursor, tabs: []Tab{TabTree, TabFavorites, TabMarked},
 		section: "File actions", helpDesc: "open in OS default app"},
 	// The C-e alias of e. A second row for a binding already listed is
 	// how an alias gets documented without inventing a second entry in
 	// the keybar — it carries no bar rank.
 	{binding: keys.Edit, group: groupExternal, scope: scopeCursor,
 		section: "File actions", helpKey: "C-e", helpDesc: "edit in $EDITOR (picker-style alias of e)"},
-	{binding: keys.AltOpen, group: groupExternal, scope: scopeCursor,
+	{binding: keys.AltOpen, group: groupExternal, scope: scopeCursor, tabs: []Tab{TabTree, TabFavorites, TabMarked},
 		section: "File actions", helpDesc: "alternate opener (config [editor] alt_open)"},
 	{binding: keys.Reveal, group: groupExternal, scope: scopeCursor,
 		section: "File actions", helpDesc: "reveal in Finder / file manager"},
@@ -494,6 +494,13 @@ var keyRegistry = []keyEntry{
 		section: "History tab", helpDesc: "cancel comparison mode"},
 	{binding: keys.Edit, group: groupExternal, scope: scopeCursor, tabs: []Tab{TabHistory},
 		bar: 30, barSegment: "act", applies: outsideCompare},
+	// o / C-o act on the revision under the cursor, checked out to a temp
+	// file — the way to look at an old PDF or image, which the pane
+	// cannot render. The working-copy row opens the file itself.
+	{binding: keys.Open, group: groupExternal, scope: scopeCursor, tabs: []Tab{TabHistory},
+		section: "History tab", helpDesc: "open the selected revision in the OS default app (working-copy row: the file itself)"},
+	{binding: keys.AltOpen, group: groupExternal, scope: scopeCursor, tabs: []Tab{TabHistory},
+		section: "History tab", helpDesc: "open the selected revision with the alternate opener (config [editor] alt_open)"},
 
 	// ── Console ───────────────────────────────────────────────────────
 	{binding: keys.Filter, group: groupConsole, scope: scopeGlobal, applies: inConsole,

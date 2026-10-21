@@ -171,6 +171,7 @@ was last checked.
 | `E` | open in configured external diff tool |
 | `M` | open in configured external merge tool — conflict sides on a `C` file, or the selected revision pair in the History tab |
 | `Ctrl-o` | open with the alternate opener (`[editor] alt_open`), detached |
+| `o` / `Ctrl-o` in History | the selected revision, checked out to a temp file — how to look at an old PDF or image |
 | `Ctrl-r` | reveal in the file manager |
 | `Ctrl-y` | copy absolute path to clipboard |
 | `i` | add to `.cvsignore` |

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/BurntSushi/toml"
+	"github.com/kmax-tech/lazycvs/fs"
 )
 
 // ConfigManager provides thread-safe config access with read-modify-write.
@@ -139,11 +140,9 @@ func SyncGlobalIgnore(patterns []string) error {
 
 	data, err := os.ReadFile(cvsignorePath)
 	if err == nil {
-		for _, line := range strings.Split(string(data), "\n") {
-			line = strings.TrimSpace(line)
-			if line != "" {
-				existing[line] = true
-			}
+		// cvs(5): entries are whitespace-separated, not one per line.
+		for _, e := range strings.Fields(string(data)) {
+			existing[e] = true
 		}
 	}
 
@@ -155,22 +154,7 @@ func SyncGlobalIgnore(patterns []string) error {
 		}
 	}
 
-	if len(added) == 0 {
-		return nil
-	}
-
-	// Append to file
-	f, err := os.OpenFile(cvsignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-
-	for _, p := range added {
-		f.WriteString(p + "\n")
-	}
-
-	return nil
+	return fs.AppendIgnoreEntries(cvsignorePath, added...)
 }
 
 // DiffToolPresets maps preset names to command templates. The placeholders

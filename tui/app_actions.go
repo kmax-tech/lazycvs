@@ -702,10 +702,7 @@ func (m *App) markedBulkIgnore(paths []string) tea.Cmd {
 	for _, p := range paths {
 		dir := filepath.Dir(p)
 		ignPath := filepath.Join(m.exec.WorkDir, dir, ".cvsignore")
-		f, err := os.OpenFile(ignPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err == nil {
-			f.WriteString(base(p) + "\n")
-			f.Close()
+		if err := fs.AppendIgnoreEntries(ignPath, base(p)); err == nil {
 			written++
 			// Worklist model: only successfully-ignored paths are
 			// consumed; a failed write keeps its mark for a retry.
@@ -814,11 +811,7 @@ func (m *App) handleIgnore(msg ignoreMsg) tea.Cmd {
 		// Local .cvsignore
 		dir := filepath.Dir(msg.path)
 		ignPath := filepath.Join(m.exec.WorkDir, dir, ".cvsignore")
-		f, err := os.OpenFile(ignPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err == nil {
-			f.WriteString(base(msg.path) + "\n")
-			f.Close()
-		}
+		err := fs.AppendIgnoreEntries(ignPath, base(msg.path))
 		m.cmdLog.LogFileOp("echo "+base(msg.path)+" >> "+filepath.Join(dir, ".cvsignore"), err)
 	case 2:
 		// Global pattern → ~/.cvsignore
@@ -840,15 +833,7 @@ func appendToGlobalCvsignore(pattern string) error {
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(home, ".cvsignore")
-	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	// CVS ignore files are space-separated, but one pattern per line is safe
-	_, err = f.WriteString(pattern + "\n")
-	return err
+	return fs.AppendIgnoreEntries(filepath.Join(home, ".cvsignore"), pattern)
 }
 
 // handleInTheWayResolve performs the user's chosen resolution for paths

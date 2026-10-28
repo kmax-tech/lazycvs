@@ -596,10 +596,10 @@ binary       = "cvs"                       # cvs binary
 default_path = "~/work/my-cvs-checkout"    # fallback when cwd isn't a CVS WC
 timeout      = "60s"                       # per-command timeout
 expected_encoding = "latin1"               # repo text encoding ("latin1" or
-                                           # "utf8"). Steers the yellow "!"
-                                           # encoding warning in the file
-                                           # list only — commit/diff are
-                                           # never affected.
+                                           # "utf8"). Steers the yellow
+                                           # "[ENC]" tag after a file name
+                                           # in the file list only —
+                                           # commit/diff are never affected.
 
 [ui]
 tree_width    = 0                          # left panel width in columns.

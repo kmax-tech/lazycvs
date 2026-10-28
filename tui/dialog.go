@@ -1575,6 +1575,10 @@ func buildHelpBody(filter string, width int) string {
 	b.WriteString(color(colorIgnored, "I", "Ignored — matched by .cvsignore"))
 	b.WriteString(color(colorUpdated, "A", "Added — scheduled for commit"))
 	b.WriteString(color(colorConflict, "R", "Removed — scheduled for deletion"))
+	// Not a status code but a tag after the name; listed here because
+	// it is the other thing in a file row that needs a legend.
+	b.WriteString("  " + lipgloss.NewStyle().Foreground(colorStale).Render(encodingTag) +
+		" Encoding — text not in cvs.expected_encoding; d names the problem\n")
 
 	return b.String()
 }

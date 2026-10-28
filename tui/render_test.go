@@ -117,6 +117,54 @@ func TestFileListHeaderAndFooterAgree(t *testing.T) {
 	}
 }
 
+// A file with an encoding issue says so in a word after its name; the
+// lone yellow "!" it replaced read as an unspecified error. The tag must
+// not move the name or size columns, and must survive a name long
+// enough to need truncation.
+func TestEncodingTagFollowsNameWithoutShiftingColumns(t *testing.T) {
+	fl := NewFileListModel()
+	fl.width = 60
+	fl.height = 10
+	fl.SetFiles(".", []cvs.FileEntry{
+		{Path: "clean.py", Status: "?", Size: 3500},
+		{Path: "umlauts.py", Status: "?", Size: 3500, EncodingIssue: cvs.EncodingUnexpectedUTF8},
+		{Path: strings.Repeat("long-name-", 8) + ".py", Size: 3500, EncodingIssue: cvs.EncodingMojibake},
+	}, nil)
+
+	lines := strings.Split(ansi.Strip(fl.View()), "\n")
+	row := func(name string) string {
+		for _, l := range lines {
+			if strings.Contains(l, name) {
+				return l
+			}
+		}
+		t.Fatalf("no row for %q in\n%s", name, strings.Join(lines, "\n"))
+		return ""
+	}
+	clean, flagged, long := row("clean.py"), row("umlauts.py"), row("long-name-")
+
+	if strings.Contains(clean, encodingTag) {
+		t.Errorf("clean file carries the tag: %q", clean)
+	}
+	if !strings.Contains(flagged, "umlauts.py "+encodingTag) {
+		t.Errorf("tag should follow the name: %q", flagged)
+	}
+	if !strings.Contains(long, "… "+encodingTag) {
+		t.Errorf("truncated name lost its tag: %q", long)
+	}
+	if strings.Contains(flagged, "!") {
+		t.Errorf("old \"!\" flag still rendered: %q", flagged)
+	}
+	if a, b := strings.Index(clean, "clean.py"), strings.Index(flagged, "umlauts.py"); a != b {
+		t.Errorf("name column moved: clean at %d, flagged at %d", a, b)
+	}
+	for _, l := range []string{flagged, long} {
+		if lipgloss.Width(l) != lipgloss.Width(clean) || !strings.HasSuffix(l, "3.4 KB") {
+			t.Errorf("size column moved:\n  %q\n  %q", clean, l)
+		}
+	}
+}
+
 // The header says what state the list is in, in words. "-ign" said it
 // in three characters that name neither the setting nor its direction.
 func TestFileListHeaderNamesItsState(t *testing.T) {

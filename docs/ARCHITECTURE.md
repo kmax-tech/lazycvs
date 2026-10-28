@@ -350,8 +350,10 @@ skips binaries via `fs.IsBinary`, reads at most 128 KB
 (`encCheckMaxBytes`; damage past the cap goes undetected), and
 memoizes the verdict per path in `App.encCache`, invalidated purely by
 mtime/size comparison on access. Verdicts are attached to `FileEntry`
-during `updateFileListForDir` and rendered as a yellow `!` between the
-status badge and the file name; details mode appends the full text
+during `updateFileListForDir` and rendered as a yellow `[ENC]` tag
+after the file name (`withEncodingTag` in `tui/filelist.go`; names
+keep their column, the name is truncated before the tag is); the diff
+layout (`d`) appends the full text
 (e.g. `⚠ UTF-8 (expected Latin-1)`) to the right-panel title. The
 flag is display-only: commit, add, and diff are never gated on it.
 

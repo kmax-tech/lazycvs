@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type FileViewMode int
@@ -556,24 +557,14 @@ func (m FileListModel) View() string {
 				size = formatSize(f.Size)
 			}
 
-			// Encoding warning flag (display-only): one of the two gap
-			// spaces between status and name becomes a yellow "!" for
-			// files with encoding issues, so the total row width and
-			// nameWidth arithmetic stay unchanged. ASCII "!" (matching
-			// the "! stale" tree badge) rather than "⚠", whose ambiguous
-			// glyph width could misalign the fixed column.
-			encFlag := " "
-			if f.EncodingIssue != cvs.EncodingOK {
-				encFlag = lipgloss.NewStyle().Foreground(colorStale).Render("!")
-			}
-
 			// Cells, not bytes: %-*s pads by byte count, so a name
 			// with an umlaut pushed the size column one cell left per
 			// non-ASCII byte. ansi.Truncate and lipgloss.Width both
 			// count display cells.
 			nameWidth := max(1, m.width-20)
-			line = fmt.Sprintf(" %s %s%s %s %8s",
-				mark, status, encFlag, padCells(name, nameWidth), size)
+			nameCell := withEncodingTag(name, f.EncodingIssue, nameWidth)
+			line = fmt.Sprintf(" %s %s  %s %8s",
+				mark, status, padCells(nameCell, nameWidth), size)
 		}
 
 		if i == m.cursor {
@@ -601,4 +592,28 @@ func formatSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
+}
+
+// encodingTag marks a file whose text is not in the repo's expected
+// encoding (display-only; never gates commit/add/diff). A word rather
+// than the yellow "!" it replaced: a lone "!" next to the status
+// letter read as an error with no hint of what kind, and it shared its
+// glyph with the tree's "! stale" badge.
+const encodingTag = "[ENC]"
+
+// withEncodingTag appends encodingTag after name when issue is set,
+// truncating the name first so the tag survives in a narrow pane.
+// Names keep their column; the tag follows the name like the tree's
+// count badges follow a directory.
+func withEncodingTag(name string, issue cvs.EncodingIssue, width int) string {
+	if issue == cvs.EncodingOK {
+		return name
+	}
+	suffix := " " + encodingTag
+	room := width - lipgloss.Width(suffix)
+	if room < 1 {
+		return name
+	}
+	return ansi.Truncate(name, room, "…") +
+		" " + lipgloss.NewStyle().Foreground(colorStale).Render(encodingTag)
 }

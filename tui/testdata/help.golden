@@ -151,3 +151,4 @@ Status codes
   I   Ignored — matched by .cvsignore
   A   Added — scheduled for commit
   R   Removed — scheduled for deletion
+  [ENC] Encoding — text not in cvs.expected_encoding; d names the problem

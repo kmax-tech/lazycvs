@@ -208,8 +208,10 @@ func DefaultIgnorePatterns() []string {
 
 // IgnorePresets maps preset names to lists of ignore patterns.
 var IgnorePresets = map[string][]string{
+	// No *.bbl: arXiv and some camera-ready uploads want the .bbl in the
+	// checkout, and an ignored new file is easy to forget to cvs add.
 	"latex": {
-		"*.aux", "*.bbl", "*.blg", "*.fdb_latexmk", "*.fls",
+		"*.aux", "*.blg", "*.fdb_latexmk", "*.fls",
 		"*.log", "*.out", "*.synctex.gz", "*.toc", "*.lof",
 		"*.lot", "*.nav", "*.snm", "*.vrb", "*.run.xml",
 		"*.bcf",

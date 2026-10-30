@@ -14,6 +14,9 @@ func TestDefaultIgnorePatternsCoverLatexAndMacos(t *testing.T) {
 			t.Errorf("default global_patterns lack %q: %v", want, got)
 		}
 	}
+	if slices.Contains(got, "*.bbl") {
+		t.Errorf("default global_patterns hide *.bbl, which arXiv uploads need: %v", got)
+	}
 }
 
 func TestLoadWithoutGlobalPatternsKeepsDefaults(t *testing.T) {

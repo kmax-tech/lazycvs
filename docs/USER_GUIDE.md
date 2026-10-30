@@ -607,10 +607,11 @@ sync_cvsignore  = true                     # at startup, append missing
                                            # (append-only: nothing is removed)
 # global_patterns = [".DS_Store", "*.aux"] # unset = the "macos" and "latex"
                                            # presets: .DS_Store, ._*, *.aux,
-                                           # *.bbl, *.blg, *.fdb_latexmk,
-                                           # *.fls, *.log, *.out, *.synctex.gz,
-                                           # … (config/config.go). Setting it
-                                           # replaces the defaults.
+                                           # *.blg, *.fdb_latexmk, *.fls,
+                                           # *.log, *.out, *.synctex.gz, …
+                                           # (config/config.go) — not *.bbl,
+                                           # which arXiv uploads need. Setting
+                                           # it replaces the defaults.
 
 [ui]
 tree_width    = 0                          # left panel width in columns.

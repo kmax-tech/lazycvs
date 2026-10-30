@@ -601,6 +601,17 @@ expected_encoding = "latin1"               # repo text encoding ("latin1" or
                                            # in the file list only —
                                            # commit/diff are never affected.
 
+[ignore]
+sync_cvsignore  = true                     # at startup, append missing
+                                           # global_patterns to ~/.cvsignore
+                                           # (append-only: nothing is removed)
+# global_patterns = [".DS_Store", "*.aux"] # unset = the "macos" and "latex"
+                                           # presets: .DS_Store, ._*, *.aux,
+                                           # *.bbl, *.blg, *.fdb_latexmk,
+                                           # *.fls, *.log, *.out, *.synctex.gz,
+                                           # … (config/config.go). Setting it
+                                           # replaces the defaults.
+
 [ui]
 tree_width    = 0                          # left panel width in columns.
                                            # 0 = a third of the terminal,

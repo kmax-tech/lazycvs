@@ -78,7 +78,7 @@ func DefaultConfig() *Config {
 		},
 		Ignore: IgnoreConfig{
 			SyncCvsignore:  true,
-			GlobalPatterns: []string{".DS_Store"},
+			GlobalPatterns: DefaultIgnorePatterns(),
 		},
 		UI: UIConfig{
 			ConsoleHeight: 6,
@@ -186,6 +186,24 @@ var MergeToolPresets = map[string]string{
 	"vscode":   "code --merge $LOCAL $REMOTE $BASE $MERGED",
 	"opendiff": "opendiff $LOCAL $REMOTE -ancestor $BASE -merge $MERGED",
 	"bcompare": "bcompare $LOCAL $REMOTE $BASE $MERGED",
+}
+
+// DefaultIgnorePresets are the IgnorePresets that make up the default
+// ignore.global_patterns: macOS junk and LaTeX build output, the files that
+// litter a CVS checkout of papers and slides without ever belonging in it.
+var DefaultIgnorePresets = []string{"macos", "latex"}
+
+// DefaultIgnorePatterns returns the patterns of DefaultIgnorePresets in order.
+func DefaultIgnorePatterns() []string {
+	var patterns []string
+	for _, name := range DefaultIgnorePresets {
+		preset, ok := IgnorePresets[name]
+		if !ok {
+			panic("config: unknown default ignore preset " + name)
+		}
+		patterns = append(patterns, preset...)
+	}
+	return patterns
 }
 
 // IgnorePresets maps preset names to lists of ignore patterns.

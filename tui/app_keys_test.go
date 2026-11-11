@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -346,5 +347,150 @@ func TestTabClickTargetsFollowTheLabels(t *testing.T) {
 			t.Errorf("click in the middle of %q hits tab %d, want %d", label, got, i)
 		}
 		pos += lipgloss.Width(label) + 1 // the │ separator
+	}
+}
+
+func runeKey(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+// In a text input a letter is text. The search box matched keys.Down /
+// keys.Up, which also bind j and k — so those two letters moved the
+// result cursor and a file name containing them could not be typed
+// (issue 025, item 1). The arrows and C-n / C-p pick.
+func TestSearchTypesJAndK(t *testing.T) {
+	s := NewSearchModel()
+	s.Open("/tmp")
+	s.allPaths = []string{"jack.txt", "kilo.txt", "abc.txt"}
+	for _, c := range []string{"j", "k"} {
+		s, _ = s.Update(runeKey(c))
+	}
+	if got := s.input.Value(); got != "jk" {
+		t.Fatalf("typed j, k: input = %q, want \"jk\"", got)
+	}
+
+	s = NewSearchModel()
+	s.Open("/tmp")
+	s.allPaths = []string{"a1.txt", "a2.txt", "a3.txt"}
+	s, _ = s.Update(runeKey("a"))
+	if len(s.results) != 3 {
+		t.Fatalf("query a: %d results, want 3", len(s.results))
+	}
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyDown})
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlN})
+	if s.cursor != 2 {
+		t.Errorf("↓ then C-n: cursor = %d, want 2", s.cursor)
+	}
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyCtrlP})
+	s, _ = s.Update(tea.KeyMsg{Type: tea.KeyUp})
+	if s.cursor != 0 {
+		t.Errorf("C-p then ↑: cursor = %d, want 0", s.cursor)
+	}
+}
+
+// The keybar offers F (status filter) on the Files tab with either
+// pane focused; the handler lived in the file list alone, so with the
+// focus on the tree nothing happened (issue 025, item 3).
+func TestFilterWorksFromEitherPane(t *testing.T) {
+	for _, focus := range []Panel{PanelLeft, PanelRight} {
+		app := newListingTestApp(t)
+		app.markedTab = NewMarkedTabModel()
+		app.activeTab = TabTree
+		app.focus = focus
+		if _, handled := app.handleGlobalKey(runeKey("F")); !handled {
+			t.Fatalf("focus %v: F not handled", focus)
+		}
+		if app.filelist.filter != "*" {
+			t.Errorf("focus %v: filter = %q after one F, want \"*\"", focus, app.filelist.filter)
+		}
+	}
+
+	// The console keeps its own F (filter the log).
+	app := newListingTestApp(t)
+	app.markedTab = NewMarkedTabModel()
+	app.activeTab = TabTree
+	app.focus = PanelConsole
+	if _, handled := app.handleGlobalKey(runeKey("F")); handled {
+		t.Error("console focus: the file filter took F away from the console")
+	}
+	if app.filelist.filter != "" {
+		t.Errorf("console focus: file filter = %q, want unchanged", app.filelist.filter)
+	}
+}
+
+// < / > scroll the History content sideways and the keybar offers them
+// with either focus; with the focus on the content pane they fell into
+// the viewport and did nothing (issue 025, item 2).
+func TestHistoryScrollWorksFromEitherPane(t *testing.T) {
+	for _, focus := range []Panel{PanelLeft, PanelRight} {
+		app := newListingTestApp(t)
+		app.history = NewHistoryModel()
+		app.markedTab = NewMarkedTabModel()
+		app.activeTab = TabHistory
+		app.focus = focus
+		app.history.path = "top.txt"
+		before := app.history.hOffset
+		if _, handled := app.handleGlobalKey(runeKey(">")); !handled {
+			app.delegateKey(runeKey(">"))
+		}
+		if app.history.hOffset <= before {
+			t.Errorf("focus %v: > left hOffset at %d", focus, app.history.hOffset)
+		}
+	}
+}
+
+// u and U must address the same row. With the cursor on a file in the
+// file pane, u updated the tree's directory while the progress line
+// named the file (issue 025, item 11). A recording stand-in for cvs
+// shows which path the command receives.
+func TestUpdateTargetsTheCursorFile(t *testing.T) {
+	app := newListingTestApp(t)
+	root := app.exec.WorkDir
+	argsFile := filepath.Join(t.TempDir(), "args")
+	fake := filepath.Join(t.TempDir(), "cvs")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > '" + argsFile + "'\n"
+	if err := os.WriteFile(fake, []byte(script), 0755); err != nil {
+		t.Fatal(err)
+	}
+	app.exec.CVSBin = fake
+	app.exec.Timeout = 10 * time.Second // the fixture's zero timeout expires before the process starts
+	app.tree = NewTreeModel(root)
+	app.tree, _ = app.tree.Update(treeLoadedMsg{nodes: scanDir(root, ".")})
+	app.markedTab = NewMarkedTabModel()
+	app.activeTab = TabTree
+	app.updateFileListForDir(".")
+	app.focus = PanelRight
+
+	// The first rows may be directory headers — walk to a file row.
+	var file *cvs.FileEntry
+	for c := 0; c < 20 && file == nil; c++ {
+		app.filelist.cursor = c
+		file = app.filelist.SelectedFile()
+	}
+	if file == nil {
+		t.Fatal("fixture: no file row in the file pane")
+	}
+	if node := app.tree.SelectedNode(); node != nil && node.Path == file.Path {
+		t.Fatalf("fixture: tree cursor is on the same path %s — the test would not tell the two targets apart", file.Path)
+	}
+	cmd, handled := app.handleGlobalKey(runeKey("u"))
+	if !handled || cmd == nil {
+		t.Fatalf("u: handled=%v cmd=%v, want a command", handled, cmd != nil)
+	}
+	msg, ok := cmd().(updateDoneMsg)
+	if !ok {
+		t.Fatalf("u produced %T, want updateDoneMsg", msg)
+	}
+	if msg.err != nil {
+		t.Fatalf("stand-in cvs failed: %v", msg.err)
+	}
+	if len(msg.paths) != 1 || msg.paths[0] != file.Path {
+		t.Errorf("update reported paths %v, want [%s]", msg.paths, file.Path)
+	}
+	got, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("stand-in cvs was not run: %v", err)
+	}
+	args := strings.Fields(string(got))
+	if len(args) == 0 || args[len(args)-1] != file.Path {
+		t.Errorf("cvs received %v, want the last argument to be %s", args, file.Path)
 	}
 }

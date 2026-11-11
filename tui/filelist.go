@@ -300,6 +300,26 @@ func (m *FileListModel) ToggleViewMode() {
 	m.offset = 0
 }
 
+// CycleFilter steps the status filter: all → * (any change) → M → C →
+// ? → all. The cursor returns to the top because the row it was on may
+// not survive the new filter.
+func (m *FileListModel) CycleFilter() {
+	switch m.filter {
+	case "":
+		m.filter = "*" // any change
+	case "*":
+		m.filter = "M"
+	case "M":
+		m.filter = "C"
+	case "C":
+		m.filter = "?"
+	default:
+		m.filter = ""
+	}
+	m.cursor = 0
+	m.offset = 0
+}
+
 // ToggleExpandAll folds or unfolds every subdirectory at once — the
 // old sub mode as a gesture. The choice sticks for the session, so the
 // next directory opens the way this one does.
@@ -418,24 +438,9 @@ func (m FileListModel) Update(msg tea.Msg) (FileListModel, tea.Cmd) {
 			if m.viewMode == FileViewTree && m.cursor < len(rows) && rows[m.cursor].isDirHeader {
 				rows[m.cursor].subDir.Expanded = !rows[m.cursor].subDir.Expanded
 			}
-		case key.Matches(msg, keys.Filter):
-			switch m.filter {
-			case "":
-				m.filter = "*" // any change
-			case "*":
-				m.filter = "M"
-			case "M":
-				m.filter = "C"
-			case "C":
-				m.filter = "?"
-			default:
-				m.filter = ""
-			}
-			m.cursor = 0
-			m.offset = 0
 		}
-		// View-mode keys (f cycle, t tree-jump, I hide-ignored) are
-		// handled at the App level so they work from either panel and
+		// View and filter keys (f view, F status filter, I hide-ignored)
+		// are handled at the App level so they work from either panel and
 		// stay in sync with the tree pane — do NOT re-add them here or
 		// the copies shadow-drift (see issues/021).
 	}

@@ -739,16 +739,19 @@ func (m *App) doUpdatePaths(paths []string) tea.Cmd {
 	}
 }
 
-// doUpdateSelected runs cvs update on the tree's selected directory or
-// file. With no node selected, falls back to a silent status refresh
-// (no banner).
+// doUpdateSelected runs cvs update on the row under the cursor
+// (selectedTarget): the file when the file pane has the focus, else the
+// tree's directory — the same target U force-updates and the progress
+// line names. It used to take the tree's directory even with the cursor
+// on a file, so u pulled a whole directory while announcing one file.
+// With nothing selected, falls back to a silent status refresh (no
+// banner).
 func (m *App) doUpdateSelected() tea.Cmd {
-	node := m.tree.SelectedNode()
-	if node == nil {
+	target := m.selectedTarget()
+	if target == "" {
 		m.statusEpoch++
 		return backgroundDirScan(m.exec, m.statusEpoch, m.rootGen, "")
 	}
-	target := node.Path
 	exec := m.exec
 	return func() tea.Msg {
 		r, err := exec.Run("update", "-d", "-P", target)

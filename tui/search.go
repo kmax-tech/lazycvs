@@ -88,12 +88,16 @@ func (m SearchModel) Update(msg tea.Msg) (SearchModel, tea.Cmd) {
 				}
 			}
 			return m, nil
-		case key.Matches(msg, keys.Down):
+		// Not keys.Down / keys.Up: those also bind j and k, and in a
+		// text input a letter is text — matching them here made any
+		// file name with a j or k in it untypeable. The arrows pick,
+		// with C-n / C-p as the readline pair for hands on the home row.
+		case msg.Type == tea.KeyDown || msg.Type == tea.KeyCtrlN:
 			if m.cursor < len(m.results)-1 {
 				m.cursor++
 			}
 			return m, nil
-		case key.Matches(msg, keys.Up):
+		case msg.Type == tea.KeyUp || msg.Type == tea.KeyCtrlP:
 			if m.cursor > 0 {
 				m.cursor--
 			}
@@ -154,7 +158,7 @@ func (m SearchModel) View() string {
 		content.WriteString(line + "\n")
 	}
 
-	content.WriteString("\n" + helpStyle.Render("enter:go  esc:cancel"))
+	content.WriteString("\n" + helpStyle.Render("↑/↓:pick  enter:go  esc:cancel"))
 
 	return boxStyle.Render(content.String())
 }

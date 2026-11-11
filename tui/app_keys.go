@@ -285,6 +285,15 @@ func (m *App) handleGlobalKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 		// to shortcut that cycle.
 		m.filelist.ToggleViewMode()
 		return nil, true
+	case key.Matches(msg, keys.Filter) && m.focus != PanelConsole &&
+		(m.activeTab == TabTree || m.activeTab == TabFavorites):
+		// The status filter is a setting of the file pane like f and
+		// I, so it works from either panel. Its handler used to live
+		// in the file list alone: with the focus on the tree the keybar
+		// offered F and nothing happened. The console keeps its own F
+		// (filter the log).
+		m.filelist.CycleFilter()
+		return nil, true
 	case key.Matches(msg, keys.CollapseAll) && m.focus == PanelRight &&
 		(m.activeTab == TabTree || m.activeTab == TabFavorites) &&
 		m.filelist.viewMode == FileViewTree:
@@ -757,11 +766,17 @@ func (m *App) delegateKey(msg tea.KeyMsg) tea.Cmd {
 			// Mode-toggle keys (p side-by-side, d diff, b blame, w
 			// vs-working, space anchor, Enter content) work from
 			// either panel — they change *what* is shown, which is a
-			// cross-panel concern. Everything else scrolls the
-			// right-pane viewport.
+			// cross-panel concern. So do R (restore the selected
+			// revision) and < / > (scroll the content sideways): the
+			// keybar offers them with either focus, and with the focus
+			// on the content they used to fall into the viewport, which
+			// knows neither. Everything else scrolls the right-pane
+			// viewport.
 			if key.Matches(msg, keys.SideBySide) || key.Matches(msg, keys.Diff) ||
 				key.Matches(msg, keys.Blame) || key.Matches(msg, keys.CompareWorking) ||
-				key.Matches(msg, keys.Space) || key.Matches(msg, keys.Enter) {
+				key.Matches(msg, keys.Space) || key.Matches(msg, keys.Enter) ||
+				key.Matches(msg, keys.Restore) ||
+				key.Matches(msg, keys.ScrollLeft) || key.Matches(msg, keys.ScrollRight) {
 				return m.delegateHistoryKey(msg)
 			}
 			var cmd tea.Cmd

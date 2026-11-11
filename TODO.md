@@ -2,6 +2,7 @@
 
 ## Notiert, nicht geplant
 
+- **Tasten-Audit vom 2026-11-11** (Bericht: `issues/025-keymap-audit-2026-11-11.md`, Stand Commit `4292f14`). 61 Tasten in `tui/keys.go` und `tui/keymap.go`, 20 direkte Tastenabfragen daran vorbei, 33 Widersprüche zwischen Handlern, Tastenleiste, Hilfe, README und `docs/USER_GUIDE.md`. Die Nummern sind die der Drift-Liste im Bericht. Was davon erledigt ist, steht in den Commits desselben Tages; offen bleibt, was hier darunter steht.
 - **Server-seitige Ignore-Liste fehlt in der Ignore-Logik.** cvs(5) nennt
   `$CVSROOT/CVSROOT/cvsignore` als vierte Quelle; bei `:ext:`-Repos fragt
   der Client den Server per `Questionable`. `globalIgnorePatterns`

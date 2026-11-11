@@ -1433,6 +1433,11 @@ func (m DialogModel) viewHelp() string {
 // a wrapped description has to resume.
 const helpRowIndent = 14
 
+// helpRulesWidth is the text width of one rule in the help banner —
+// the banner's own hand-wrapped lines below it run to about 60 columns,
+// minus the "  1. " in front of a rule.
+const helpRulesWidth = 56
+
 func helpRow(k, desc string, width int) string {
 	lines := strings.Split(ansi.Wordwrap(desc, width, " -/"), "\n")
 	out := "  " + keyStyle.Render(fmt.Sprintf("%-10s", k)) + "  " + lines[0]
@@ -1505,15 +1510,16 @@ func buildHelpBody(filter string, width int) string {
 
 	// ── Convention banner ─────────────────────────────────────────
 	if !filtering {
+		var rules strings.Builder
+		for i, rule := range keymapRules {
+			lines := strings.Split(ansi.Wordwrap(rule, helpRulesWidth, " "), "\n")
+			rules.WriteString(fmt.Sprintf("  %d. %s\n", i+1, lines[0]))
+			for _, line := range lines[1:] {
+				rules.WriteString("     " + line + "\n")
+			}
+		}
 		b.WriteString(mutedStyle.Render(
-			"How the keys work:\n" +
-				"  1. Scope comes from the selection, not from the key. With\n" +
-				"     files marked, an action applies to the marked set;\n" +
-				"     otherwise to the row under the cursor.\n" +
-				"  2. Shift is the same action, sharper: u update → U force\n" +
-				"     update, r revert → R restore a revision.\n" +
-				"  3. External tools (e, E, M, o, C-o, C-r) are their own\n" +
-				"     group, not Shift variants.\n" +
+			"How the keys work:\n" + rules.String() +
 				"The keybar shows the keys that apply to the current row; this\n" +
 				"list is all of them. Marks are a worklist: a bulk action\n" +
 				"consumes them on success and keeps them on failure (fix +\n" +

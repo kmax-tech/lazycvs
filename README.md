@@ -2,17 +2,13 @@
 
 A lazygit-inspired terminal UI for CVS, written in Go.
 
-Wraps the `cvs` CLI so daily workflows — status, diff, commit, conflict
-resolution, history, blame — happen in a fast keyboard-driven dashboard
-instead of disjoint shell commands.
+Wraps the `cvs` CLI so daily workflows — status, diff, commit, conflict resolution, history, blame — happen in a fast keyboard-driven dashboard instead of disjoint shell commands.
 
 ![lazycvs — Files tab on the demo working copy](docs/screenshot.png)
 
 ## Requirements
 
-- The system `cvs` binary (1.11+) on `PATH` — lazycvs is a frontend, all
-  repository access goes through it. Override with `-cvs /path/to/cvs`
-  or `[cvs] binary` in the config.
+- The system `cvs` binary (1.11+) on `PATH` — lazycvs is a frontend, all repository access goes through it. Override with `-cvs /path/to/cvs` or `[cvs] binary` in the config.
 - A terminal. That's it — no server component, no daemon.
 - Go 1.24+ only if you build from source.
 
@@ -24,8 +20,7 @@ instead of disjoint shell commands.
 go install github.com/kmax-tech/lazycvs@latest
 ```
 
-The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`) — make sure
-that's on your `PATH`.
+The binary lands in `$(go env GOPATH)/bin` (usually `~/go/bin`) — make sure that's on your `PATH`.
 
 **From source:**
 
@@ -45,19 +40,13 @@ lazycvs src/parser.go   # a file: opens its working copy, landing on the file
 lazycvs init            # bootstrap: check out a fresh module into an empty dir
 ```
 
-`lazycvs` looks at your current directory first; if it isn't a CVS working
-copy and you set `[cvs] default_path` in your config, it falls back there.
+`lazycvs` looks at your current directory first; if it isn't a CVS working copy and you set `[cvs] default_path` in your config, it falls back there.
 
-A path argument may point anywhere inside a checkout — lazycvs walks up to
-the `CVS/Root` marker and opens there, then selects what you named: a
-directory in the tree pane, a file in the file pane (ready for `d`, `c`,
-`e`). That is the same navigation the fuzzy finder performs, which makes
-`lazycvs <file>` the natural way to call it from an editor.
+A path argument may point anywhere inside a checkout — lazycvs walks up to the `CVS/Root` marker and opens there, then selects what you named: a directory in the tree pane, a file in the file pane (ready for `d`, `c`, `e`). That is the same navigation the fuzzy finder performs, which makes `lazycvs <file>` the natural way to call it from an editor.
 
 ## Optional: shell function for the from-source workflow
 
-If you run lazycvs from a clone (rather than an installed binary) and want
-to drop into it from any terminal, add this to `~/.zshrc` or `~/.bashrc`:
+If you run lazycvs from a clone (rather than an installed binary) and want to drop into it from any terminal, add this to `~/.zshrc` or `~/.bashrc`:
 
 ```bash
 export LAZYCVS_REPO="$HOME/projects/lazycvs"   # adjust to your clone
@@ -94,8 +83,7 @@ Behavior:
 | `lcvs -config /tmp/cfg.toml`     | dito                                       |
 | `lcvs -follow /tmp/nav.fifo`     | the root follows the directories written to the FIFO, re-rooting in place (see the user guide) |
 
-Build is **explicit** — no surprise compilation when you just want the
-TUI. Daily use is just `cd` into a CVS checkout and type `lcvs`.
+Build is **explicit** — no surprise compilation when you just want the TUI. Daily use is just `cd` into a CVS checkout and type `lcvs`.
 
 For zsh tab-completion on `lcvs build`:
 
@@ -105,9 +93,7 @@ compdef '_arguments "1:command:(build)"' lcvs
 
 ## Try it without a real repo
 
-The repo ships a self-contained demo that creates a local CVS repository,
-populates it with revisions and a real merge conflict, and launches `lazycvs`
-against it — no server required.
+The repo ships a self-contained demo that creates a local CVS repository, populates it with revisions and a real merge conflict, and launches `lazycvs` against it — no server required.
 
 ```bash
 make demo           # build + setup + launch
@@ -115,14 +101,11 @@ make demo-setup     # setup only (inspect with cvs CLI first)
 make demo-clean     # tear down
 ```
 
-The demo working copy ends up under `_lazycvs-demo/wc/` and includes one
-file in every status the TUI cares about: `M`, `?`, `A`, `C`, `R`, plus
-multi-revision history for the History tab.
+The demo working copy ends up under `_lazycvs-demo/wc/` and includes one file in every status the TUI cares about: `M`, `?`, `A`, `C`, `R`, plus multi-revision history for the History tab.
 
 ## Configuration
 
-Default path on macOS: `~/Library/Application Support/lazycvs/config.toml`
-(other platforms: `$XDG_CONFIG_HOME/lazycvs/config.toml`).
+Default path on macOS: `~/Library/Application Support/lazycvs/config.toml` (other platforms: `$XDG_CONFIG_HOME/lazycvs/config.toml`).
 
 ```toml
 [cvs]
@@ -135,14 +118,7 @@ merge_tool = "meld"   # 3-way merge for M key (conflicts, and revision pairs in 
 alt_open   = "code --goto $FILE"   # Ctrl-o: alternate opener (detached)
 ```
 
-Built-in diff presets: `vscode`, `emacs`, `vimdiff`, `nvimdiff`, `meld`,
-`opendiff`, `kdiff3`, `diffuse`, `bcompare`. Merge presets: the same minus
-`emacs` and `diffuse` (no 3-way output file). Terminal tools (`vimdiff`,
-`nvimdiff`) suspend the TUI while open; GUI tools launch detached — inferred
-from the binary name, overridable with `diff_terminal` / `merge_terminal`
-(for wrapper scripts or tools the inference doesn't know). Or set
-`diff_command` / `merge_command` to a custom template using `$LEFT`/`$RIGHT`
-(diff) or `$BASE`/`$LOCAL`/`$REMOTE`/`$MERGED` (merge) placeholders.
+Built-in diff presets: `vscode`, `emacs`, `vimdiff`, `nvimdiff`, `meld`, `opendiff`, `kdiff3`, `diffuse`, `bcompare`. Merge presets: the same minus `emacs` and `diffuse` (no 3-way output file). Terminal tools (`vimdiff`, `nvimdiff`) suspend the TUI while open; GUI tools launch detached — inferred from the binary name, overridable with `diff_terminal` / `merge_terminal` (for wrapper scripts or tools the inference doesn't know). Or set `diff_command` / `merge_command` to a custom template using `$LEFT`/`$RIGHT` (diff) or `$BASE`/`$LOCAL`/`$REMOTE`/`$MERGED` (merge) placeholders.
 
 ## Tabs
 
@@ -153,11 +129,7 @@ from the binary name, overridable with `diff_terminal` / `merge_terminal`
 | `3` | Marked | The worklist `c`, `r`, `i` and `u` act on; `c` opens the commit input |
 | `4` | History | Revisions + working copy as a synthetic top row |
 
-The tab bar's right side carries the context: module, the sticky tag of
-the directory on screen (`MAIN` in grey on the trunk, the tag in yellow
-otherwise — CVS pins per directory, so a subdirectory can sit on a
-branch while the rest of the tree does not), and how long ago the tree
-was last checked.
+The tab bar's right side carries the context: module, the sticky tag of the directory on screen (`MAIN` in grey on the trunk, the tag in yellow otherwise — CVS pins per directory, so a subdirectory can sit on a branch while the rest of the tree does not), and how long ago the tree was last checked.
 
 ## Key actions on a file
 
@@ -178,32 +150,17 @@ was last checked.
 | `d` | show your changes to this file in the pane beside it (`d` again closes) |
 | `u` | `cvs update` |
 
-The keybar's second line lists the keys that apply to the row under the
-cursor — `a`/`i` on an untracked file, `M` on a conflict, nothing that
-would be a no-op — and leads with `3 marked ▸` when a worklist exists.
-Keys that do not fit are counted (`+7 (?)`), never cut. `?` opens the
-help overlay — at the section for wherever you are, with `/` to filter
-it by key or description — carrying the full keymap and the three rules
-it follows:
+The keybar's second line lists the keys that apply to the row under the cursor — `a`/`i` on an untracked file, `M` on a conflict, nothing that would be a no-op — and leads with `3 marked ▸` when a worklist exists. Keys that do not fit are counted (`+7 (?)`), never cut. `?` opens the help overlay — at the section for wherever you are, with `/` to filter it by key or description — carrying the full keymap and the three rules it follows:
 
-1. Scope comes from the selection, not the key — with files marked, an
-   action applies to the marked set, otherwise to the cursor row.
-2. Shift is the same action, sharper (`u` update → `U` force update).
-3. External tools (`e`, `E`, `M`, `o`, `Ctrl-o`, `Ctrl-r`) are their own
-   group, not Shift variants.
+1. Scope comes from the selection, not from the key. With files marked, an action applies to the marked set; otherwise to the row under the cursor.
+2. Where an action has a stronger form, the stronger form is on Shift (`u` update → `U` force update). Every other capital is an action of its own.
+3. External tools (`e`, `E`, `M`, `o`, `Ctrl-o`, `Ctrl-r`, `Ctrl-y`) are their own group, not Shift variants.
 
 ## Documentation
 
-- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — full user guide:
-  every key, every tab, the History compare semantics, common
-  workflows, and troubleshooting.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — technical guide
-  for contributors: module layout, async caching pattern, status
-  refresh flow, design choices, and a "where things live" cheat
-  sheet.
-- [`issues/`](issues/) — post-mortems for non-trivial bugs.
-  Especially worth reading: 010 (History refactor) and 011
-  (Latin-1 encoding glitches).
+- [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md) — full user guide: every key, every tab, the History compare semantics, common workflows, and troubleshooting.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — technical guide for contributors: module layout, async caching pattern, status refresh flow, design choices, and a "where things live" cheat sheet.
+- [`issues/`](issues/) — post-mortems for non-trivial bugs. Especially worth reading: 010 (History refactor) and 011 (Latin-1 encoding glitches).
 
 ## Project layout
 
@@ -224,13 +181,9 @@ make clean              # remove ./lazycvs and dist/
 make check              # gofmt-clean + go vet + go test — run before committing
 ```
 
-Formatting is plain `gofmt`; `make check` fails on any drift. Pure-formatting
-commits are listed in `.git-blame-ignore-revs` (GitHub's blame view skips them
-automatically; locally: `git config blame.ignoreRevsFile .git-blame-ignore-revs`).
+Formatting is plain `gofmt`; `make check` fails on any drift. Pure-formatting commits are listed in `.git-blame-ignore-revs` (GitHub's blame view skips them automatically; locally: `git config blame.ignoreRevsFile .git-blame-ignore-revs`).
 
-Go 1.24+ required. Stdlib + a small set of `charmbracelet` libraries for
-the TUI; CVS interaction goes through `os/exec` against the system `cvs`
-binary.
+Go 1.24+ required. Stdlib + a small set of `charmbracelet` libraries for the TUI; CVS interaction goes through `os/exec` against the system `cvs` binary.
 
 ## License
 

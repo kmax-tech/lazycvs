@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strings"
@@ -387,4 +389,23 @@ func TestHelpFooterAdvertisesTheFilter(t *testing.T) {
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	return lines[len(lines)-1]
+}
+
+// The README quotes the three keymap rules for people who have not
+// opened the help yet. It is prose, so it cannot be generated — this
+// holds it to keymapRules instead (issue 025, item 30: three copies,
+// no two alike). The README writes keys in backticks and spells Ctrl
+// out; both are undone before comparing.
+func TestReadmeQuotesKeymapRules(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "README.md"))
+	if err != nil {
+		t.Fatalf("read README: %v", err)
+	}
+	readme := strings.NewReplacer("`", "", "Ctrl-", "C-").Replace(string(raw))
+	readme = strings.Join(strings.Fields(readme), " ")
+	for i, rule := range keymapRules {
+		if !strings.Contains(readme, rule) {
+			t.Errorf("README does not quote rule %d as keymapRules words it:\n%s", i+1, rule)
+		}
+	}
 }

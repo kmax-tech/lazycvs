@@ -14,15 +14,25 @@ import (
 // the truth. They drifted: issue 021 found keys advertised but dead,
 // issue 024 found the same fact stated five times with one copy wrong.
 //
-// The rule the table encodes — and that every future key decision is
-// measured against:
+// The rules the table encodes — and that every future key decision is
+// measured against — are keymapRules below. That slice is their one
+// wording: the help overlay prints it, and TestReadmeQuotesKeymapRules
+// holds the README to it. Three hand-written copies had drifted apart
+// (issue 025, item 30).
+
+// keymapRules are the conventions behind the key assignments, in the
+// words the user reads.
 //
-//  1. Scope comes from the selection, not from the key. With files
-//     marked, an action applies to the marked set; otherwise to the
-//     cursor row.
-//  2. Shift is the same action, sharper (u update → U force update),
-//     never "the bulk variant of".
-//  3. External tools are their own group, not a Shift accident.
+// Rule 2 used to claim "Shift is the same action, sharper". Of eleven
+// capitals only U is that; the others (A mark all, B restore backup,
+// F filter, H recent, …) are actions of their own, and R restores a
+// revision in the one tab where r does not exist. The rule now says
+// what holds: a stronger form, where there is one, sits on Shift.
+var keymapRules = []string{
+	"Scope comes from the selection, not from the key. With files marked, an action applies to the marked set; otherwise to the row under the cursor.",
+	"Where an action has a stronger form, the stronger form is on Shift (u update → U force update). Every other capital is an action of its own.",
+	"External tools (e, E, M, o, C-o, C-r, C-y) are their own group, not Shift variants.",
+}
 
 // keyContext is the snapshot the keybar and help render against — a
 // value, never the App itself. Predicates stay pure and testable

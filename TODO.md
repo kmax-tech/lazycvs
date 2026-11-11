@@ -2,15 +2,10 @@
 
 ## Notiert, nicht geplant
 
-- **Tasten-Audit vom 2026-11-11** (Bericht: `issues/025-keymap-audit-2026-11-11.md`, Stand Commit `4292f14`). 61 Tasten in `tui/keys.go` und `tui/keymap.go`, 20 direkte Tastenabfragen daran vorbei, 33 Widersprüche zwischen Handlern, Tastenleiste, Hilfe, README und `docs/USER_GUIDE.md`. Die Nummern sind die der Drift-Liste im Bericht. Was davon erledigt ist, steht in den Commits desselben Tages; offen bleibt, was hier darunter steht.
-- **Server-seitige Ignore-Liste fehlt in der Ignore-Logik.** cvs(5) nennt
-  `$CVSROOT/CVSROOT/cvsignore` als vierte Quelle; bei `:ext:`-Repos fragt
-  der Client den Server per `Questionable`. `globalIgnorePatterns`
-  (`tui/app_files.go`) liest nur Defaults, `~/.cvsignore`, `$CVSIGNORE`
-  und die `.cvsignore` des Verzeichnisses. Stehen am Server Muster, zeigt
-  lazycvs Dateien als `?`, die `cvs -n update` verschweigt. Lösung bräuchte
-  einen `cvs co -p CVSROOT/cvsignore` beim Start (Netzzugriff, gecacht).
-  Notiert 2026-10-27, offen: ob der Webis-Server überhaupt eine hat.
-- **`markedBulkIgnore` schluckt Schreibfehler.** Ein fehlgeschlagener
-  `.cvsignore`-Write behält zwar die Markierung, erscheint aber weder in
-  der Console noch als Meldung (`tui/app_actions.go`, Fail-loud-Regel).
+- **Tasten-Audit vom 2026-11-11** (Bericht: `issues/025-keymap-audit-2026-11-11.md`, Stand Commit `4292f14`). 61 Tasten in `tui/keys.go` und `tui/keymap.go`, 20 direkte Tastenabfragen daran vorbei, 33 Widersprüche zwischen Handlern, Tastenleiste, Hilfe, README und `docs/USER_GUIDE.md`. Die Nummern sind die der Drift-Liste im Bericht. Erledigt am selben Tag: das Suchfeld tippt `j` und `k`, `F`, `R` und `<`/`>` wirken aus beiden Panes, `u` trifft dieselbe Zeile wie `U` (Punkte 1–3, 11; Commit `61d949c`); die drei Tastenregeln haben einen Wortlaut (`keymapRules`), Regel 2 behauptet nur noch, was gilt (Punkte 29–31; Commit `30c583a`). Offen:
+  - `docs/USER_GUIDE.md` widerspricht dem Code und sich selbst: ein Merge-Dialog, den nichts mehr öffnet, `d` öffne den History-Tab, ein Konflikt-Ablauf, den der Code verweigert, Sammel-Revert einmal mit und einmal ohne Rückfrage, `a` als Sammel-Add (Punkte 5–10).
+  - Die Tastenleiste zeigt sieben Tasten in Tabs nicht an, in denen sie wirken (`s`, `x`, `I`, `+`, `a`, `D`, `U`; Punkt 14), und bietet `D` mit Markierungen auf einer Ordnerzeile an, wo es nichts tut (Punkt 4). Ursache: die Bedingungen der Tabelle in `tui/keymap.go` sind eine Handkopie der Abfragen in `tui/app_keys.go`, und die Tests prüfen die Tabelle nur gegen sich selbst.
+  - Die Hilfe sagt „this list is all of them“, es fehlen aber `?`, `Shift-Tab`, `Ctrl-b`/`Ctrl-f`, `Esc` außerhalb von History und `Enter` im Marked-Tab (Punkt 15). Die Standardtasten des Viewports (`f`, `b`, `d`, `u`, Leertaste) wirken undokumentiert in Hilfe, Konsole und History (Punkt 18).
+  - Kleineres: `q` schließt nur drei von dreizehn Dialogen (12), `p` schließt den Hinweis-Dialog (17), Fußzeilen ohne ihre Schließtasten (19), Regel 1 nennt ihre Ausnahmen nicht (32), veraltete Stellen in `docs/ARCHITECTURE.md` und Kommentaren (33).
+- **Server-seitige Ignore-Liste fehlt in der Ignore-Logik.** cvs(5) nennt `$CVSROOT/CVSROOT/cvsignore` als vierte Quelle; bei `:ext:`-Repos fragt der Client den Server per `Questionable`. `globalIgnorePatterns` (`tui/app_files.go`) liest nur Defaults, `~/.cvsignore`, `$CVSIGNORE` und die `.cvsignore` des Verzeichnisses. Stehen am Server Muster, zeigt lazycvs Dateien als `?`, die `cvs -n update` verschweigt. Lösung bräuchte einen `cvs co -p CVSROOT/cvsignore` beim Start (Netzzugriff, gecacht). Notiert 2026-10-27, offen: ob der Webis-Server überhaupt eine hat.
+- **`markedBulkIgnore` schluckt Schreibfehler.** Ein fehlgeschlagener `.cvsignore`-Write behält zwar die Markierung, erscheint aber weder in der Console noch als Meldung (`tui/app_actions.go`, Fail-loud-Regel).
